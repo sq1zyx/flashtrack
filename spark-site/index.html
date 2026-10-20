@@ -2,93 +2,130 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Спарк</title>
 <meta name="description" content="Спарк — учебные квесты по школьной программе 5–11 класс. Работает офлайн.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* Layout: sticky stage with a 3D phone that walks through the app's screens, then themes, numbers, dark finale */
+/* Layout: one screen, no scroll. Info left, floating 3D phone centre, feature rail right; stacks top/middle/bottom on phones */
 :root{
-  --bg:#eef0f5; --ink:#12131a; --mute:#7d8092; --line:rgba(18,19,26,.13);
-  --accent:#4f46e5; --spark:#ff8a1f;
-  --frame:#3f3a9e; --back:#4f46e5;
+  --bg:#eceef6; --ink:#12131a; --mute:#767a8f; --line:rgba(18,19,26,.12);
+  --fa:#4f46e5; --spark:#ff8a1f;
+  --frame:#3a33a8; --back:#4f46e5;
   --sbg:#f4f5f7; --sfg:#12131a; --sac:#4f46e5; --scard:#ffffff;
   --display:"Unbounded","Arial Black",system-ui,sans-serif;
   --sans:"Manrope",system-ui,-apple-system,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden}
-body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
-#sc{position:relative;height:100%;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
-::selection{background:var(--accent);color:#fff}
-h2{text-wrap:balance}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit}
 
-/* ---------- fixed chrome ---------- */
-.hud{position:fixed;inset:0;pointer-events:none;z-index:50;font:500 11px/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink);transition:color .4s}
-.hud.dark{color:#e8e9f2}
-.hud .tl{position:absolute;top:20px;left:24px;display:flex;gap:28px;align-items:center}
-.hud .tl img{width:18px;height:18px;border-radius:5px;margin-right:8px;vertical-align:-4px}
-.hud .tr{position:absolute;top:20px;right:24px;text-align:right}
-.hud .vl{position:absolute;top:50%;left:30px;transform:translate(-50%,-50%) rotate(-90deg);white-space:nowrap}
-.hud .vr{position:absolute;right:30px;top:50%;transform:translate(50%,-50%) rotate(90deg);white-space:nowrap}
-.hud .bl{position:absolute;left:24px;bottom:20px}
-.hud .br{position:absolute;right:24px;bottom:20px;display:flex;align-items:center;gap:10px;font-variant-numeric:tabular-nums}
-.hud .bar{width:120px;height:1px;background:currentColor;opacity:.25;position:relative}
-.hud .bar i{position:absolute;inset:0;background:currentColor;transform-origin:left;transform:scaleX(0)}
+/* ---------- atmosphere ---------- */
+.atmo{position:fixed;inset:0;overflow:hidden;pointer-events:none}
+.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;transition:background 1.2s ease}
+.blob.a{width:60vmax;height:60vmax;left:-15vmax;top:-20vmax;background:color-mix(in srgb,var(--fa),transparent 55%);animation:drift1 22s ease-in-out infinite alternate}
+.blob.b{width:50vmax;height:50vmax;right:-18vmax;bottom:-22vmax;background:color-mix(in srgb,var(--spark),transparent 60%);animation:drift2 26s ease-in-out infinite alternate}
+.blob.c{width:34vmax;height:34vmax;left:40%;top:40%;background:color-mix(in srgb,var(--fa),#fff 40%);opacity:.5;animation:drift3 18s ease-in-out infinite alternate}
+@keyframes drift1{to{transform:translate(12vmax,8vmax) scale(1.1)}}
+@keyframes drift2{to{transform:translate(-10vmax,-6vmax) scale(1.15)}}
+@keyframes drift3{to{transform:translate(-14vmax,-10vmax) scale(.9)}}
+.grain{position:absolute;inset:0;opacity:.35;background-image:radial-gradient(rgba(18,19,26,.09) 1px,transparent 1px);background-size:22px 22px;mask-image:radial-gradient(ellipse at center,#000 30%,transparent 75%);-webkit-mask-image:radial-gradient(ellipse at center,#000 30%,transparent 75%)}
+.ghost{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:800 clamp(140px,30vw,560px)/1 var(--display);letter-spacing:-.06em;color:transparent;-webkit-text-stroke:1.5px color-mix(in srgb,var(--fa),transparent 70%);white-space:nowrap;transition:-webkit-text-stroke-color 1.2s}
 
-/* ---------- story ---------- */
-.story{position:relative;height:calc(var(--vh,1vh)*700)}
-.stage{position:sticky;top:0;height:calc(var(--vh,1vh)*100);overflow:hidden;perspective:1600px}
-.bigtype{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
-.bigtype span{font:800 clamp(96px,21vw,380px)/.8 var(--display);letter-spacing:-.04em;will-change:transform}
-.bigtype span:last-child{color:var(--accent)}
-.subline{position:absolute;left:50%;top:calc(50% + clamp(64px,12vw,190px));transform:translateX(-50%);font:500 11px var(--mono);letter-spacing:.3em;text-transform:uppercase;white-space:nowrap}
-.hint{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);font:500 10px var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:10px}
-.hint i{width:1px;height:40px;background:var(--ink);opacity:.3;animation:drip 1.8s ease-in-out infinite;transform-origin:top}
-@keyframes drip{0%{transform:scaleY(0)}50%{transform:scaleY(1);transform-origin:top}51%{transform-origin:bottom}100%{transform:scaleY(0);transform-origin:bottom}}
+/* ---------- frame ---------- */
+.app{position:fixed;inset:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:auto 1fr auto;
+  padding:max(20px,env(safe-area-inset-top)) max(28px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(28px,env(safe-area-inset-left))}
+.top{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;z-index:3}
+.brand{display:flex;align-items:center;gap:10px;font:800 15px var(--display);letter-spacing:-.02em;text-transform:none}
+.brand img{width:30px;height:30px;border-radius:9px;box-shadow:0 6px 16px color-mix(in srgb,var(--fa),transparent 60%)}
+.top .meta{display:flex;gap:22px;color:var(--mute)}
+.top .live{display:inline-flex;align-items:center;gap:8px;color:var(--ink)}
+.top .live i{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:ping 2s infinite}
+@keyframes ping{70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+/* info */
+.info{grid-column:1;grid-row:2;align-self:center;z-index:3;max-width:440px}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;padding:7px 12px 7px 8px;border-radius:30px;background:rgba(255,255,255,.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;box-shadow:0 1px 0 rgba(255,255,255,.8) inset,0 6px 20px rgba(20,20,60,.06)}
+.eyebrow b{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 6px;border-radius:14px;background:var(--fa);color:#fff;font-weight:500;transition:background .8s}
+.title{margin:22px 0 18px;font:800 clamp(40px,4.4vw,78px)/.98 var(--display);letter-spacing:-.045em;text-wrap:balance}
+.title .ln{display:block;overflow:hidden;padding-bottom:.06em}
+.title .ln span{display:inline-block;transform:translateY(110%);transition:transform .8s cubic-bezier(.2,.8,.2,1)}
+.title .ln:nth-child(2) span{transition-delay:.06s;color:var(--fa)}
+.show .title .ln span{transform:none}
+.desc{font-size:17px;line-height:1.55;color:#3d4052;max-width:38ch;opacity:0;transform:translateY(12px);transition:opacity .7s .15s,transform .7s .15s}
+.show .desc{opacity:1;transform:none}
+.stats{display:flex;gap:28px;margin-top:28px;opacity:0;transition:opacity .7s .25s}
+.show .stats{opacity:1}
+.stats div{display:flex;flex-direction:column;gap:4px}
+.stats b{font:700 26px/1 var(--display);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stats small{font:500 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.themes{display:none;flex-wrap:wrap;gap:8px;margin-top:22px}
+.themes.on{display:flex}
+.themes button{all:unset;cursor:pointer;width:34px;height:34px;border-radius:50%;box-shadow:0 0 0 2px rgba(255,255,255,.9),0 4px 10px rgba(0,0,0,.12);transition:transform .25s}
+.themes button[aria-pressed=true]{transform:scale(1.15);box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink)}
+.themes button:focus-visible{outline:2px solid var(--fa);outline-offset:3px}
+
+/* stage */
+.stage{grid-column:2;grid-row:2;position:relative;perspective:1500px;z-index:2}
 .phone-wrap{position:absolute;left:50%;top:50%;transform-style:preserve-3d;will-change:transform}
+.shadow{position:absolute;left:50%;bottom:4%;width:46%;height:18px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(rgba(20,20,60,.28),transparent 70%);filter:blur(6px);animation:sh 6s ease-in-out infinite}
+@keyframes sh{50%{transform:translateX(-50%) scale(.82);opacity:.7}}
 
-.prop{position:absolute;left:50%;top:50%;will-change:transform}
+.prop{position:absolute;pointer-events:none;z-index:1;animation:float 7s ease-in-out infinite}
 .prop img{display:block;width:100%;height:auto}
-.prop.mul{mix-blend-mode:multiply}
-.prop.card img{border-radius:18%;box-shadow:0 30px 50px rgba(20,20,60,.25)}
-.prop.qcard{width:210px;background:#fff;border-radius:16px;padding:14px;font:600 12px/1.35 var(--sans);box-shadow:0 30px 50px rgba(20,20,60,.18)}
-.prop.qcard small{display:block;font:500 9px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:6px}
-.prop.qcard b{display:block;margin-top:8px;padding:7px 10px;border-radius:9px;background:#e7f7ec;color:#1d7a3b;font-weight:700}
+.prop.mul img{filter:drop-shadow(0 22px 26px rgba(20,20,60,.22))}
+.prop.card img{border-radius:22%;box-shadow:0 24px 40px rgba(20,20,60,.25)}
+.prop.q{background:rgba(255,255,255,.9);backdrop-filter:blur(8px);border-radius:16px;padding:12px 14px;width:190px;font:700 12px/1.35 var(--sans);box-shadow:0 24px 40px rgba(20,20,60,.15)}
+.prop.q small{display:block;font:500 9px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--fa);margin-bottom:6px}
+.prop.q b{display:block;margin-top:8px;padding:6px 10px;border-radius:9px;background:#e7f7ec;color:#1d7a3b}
+.prop.chip{background:var(--ink);color:#fff;border-radius:30px;padding:9px 14px;font:700 12px var(--sans);box-shadow:0 18px 30px rgba(20,20,60,.25);white-space:nowrap}
+@keyframes float{0%,100%{transform:translate(0,0) rotate(var(--r,0deg))}50%{transform:translate(0,-16px) rotate(calc(var(--r,0deg) + 4deg))}}
 
-.panel{position:absolute;top:50%;width:min(400px,36vw);opacity:0;pointer-events:none;will-change:transform,opacity}
-.panel.l{left:max(64px,7vw)}
-.panel.r{right:max(64px,7vw)}
-.tag{display:inline-flex;gap:14px;align-items:center;border:1px solid var(--ink);padding:6px 10px;font:500 11px var(--mono);letter-spacing:.06em;margin-bottom:22px}
-.panel h2{font:800 clamp(34px,3.8vw,68px)/.98 var(--display);letter-spacing:-.03em;text-transform:uppercase;margin-bottom:22px}
-.panel h2 em{font-style:normal;color:var(--accent)}
-.panel p{font-size:16px;line-height:1.55;color:#3c3e4c;max-width:36ch}
-.spec{margin-top:24px;border-top:1px solid var(--ink);font:400 11px/1.5 var(--mono);text-transform:uppercase}
-.spec div{display:flex;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid var(--line)}
-.barcode{height:28px;margin-top:14px;background:repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 8px,var(--ink) 8px 11px,transparent 11px 12px)}
+/* rail */
+.rail{grid-column:3;grid-row:2;align-self:center;justify-self:end;z-index:3;display:flex;flex-direction:column;gap:4px;width:min(280px,100%)}
+.rail button{all:unset;cursor:pointer;position:relative;display:grid;grid-template-columns:34px 1fr;align-items:center;padding:13px 14px;border-radius:14px;transition:background .3s}
+.rail button:hover{background:rgba(255,255,255,.45)}
+.rail button:focus-visible{outline:2px solid var(--fa);outline-offset:2px}
+.rail .n{font:500 11px var(--mono);color:var(--mute)}
+.rail .t{font:700 15px var(--sans);color:var(--mute);transition:color .3s}
+.rail .bar{position:absolute;left:14px;right:14px;bottom:6px;height:2px;border-radius:2px;background:var(--line);overflow:hidden;opacity:0;transition:opacity .3s}
+.rail .bar i{position:absolute;inset:0;background:var(--fa);transform-origin:left;transform:scaleX(0)}
+.rail button[aria-current=true]{background:rgba(255,255,255,.7);box-shadow:0 8px 24px rgba(20,20,60,.07)}
+.rail button[aria-current=true] .t{color:var(--ink)}
+.rail button[aria-current=true] .n{color:var(--fa)}
+.rail button[aria-current=true] .bar{opacity:1}
+
+.bottom{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:20px;z-index:3;font:500 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute)}
+.ticker{display:flex;gap:10px;flex-wrap:wrap}
+.ticker span{padding:7px 11px;border:1px solid var(--line);border-radius:30px;background:rgba(255,255,255,.4)}
+.ctrl{display:flex;gap:8px}
+.ctrl button{all:unset;cursor:pointer;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);background:rgba(255,255,255,.55);color:var(--ink);font:500 14px var(--sans);transition:background .2s}
+.ctrl button:hover{background:#fff}
+.ctrl button:focus-visible{outline:2px solid var(--fa);outline-offset:2px}
 
 /* ---------- phone ---------- */
 .phone{position:relative;transform-style:preserve-3d;width:var(--w);height:var(--h)}
 .phone > *{position:absolute;inset:0;border-radius:var(--r)}
-.ph-layer{background:var(--frame)}
+.ph-layer{background:var(--frame);transition:background .8s}
 .ph-front{background:#06060a;padding:calc(var(--w)*.03);backface-visibility:hidden}
-.ph-back{background:radial-gradient(120% 80% at 30% 20%,color-mix(in srgb,var(--back),#fff 25%),var(--back) 50%,color-mix(in srgb,var(--back),#000 35%));backface-visibility:hidden;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.ph-back{background:radial-gradient(120% 80% at 30% 20%,color-mix(in srgb,var(--back),#fff 25%),var(--back) 50%,color-mix(in srgb,var(--back),#000 35%));backface-visibility:hidden;overflow:hidden;display:flex;align-items:center;justify-content:center;transition:background .8s}
 .ph-back img{width:34%;border-radius:22%;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .ph-back .cam{position:absolute;top:4%;left:7%;width:calc(var(--w)*.34);height:calc(var(--w)*.34);border-radius:calc(var(--w)*.08);background:rgba(0,0,0,.25);display:grid;grid-template-columns:1fr 1fr;gap:8%;padding:8%}
 .ph-back .cam i{border-radius:50%;background:radial-gradient(circle at 36% 32%,rgba(140,150,255,.6) 0 8%,transparent 9%),radial-gradient(circle,#06060a 0 45%,#2a2b33 47% 60%,#0a0a0d 62% 72%,#aaa 74%)}
-.ph-back .mark{position:absolute;bottom:7%;left:0;right:0;text-align:center;font:600 calc(var(--w)*.04) var(--display);letter-spacing:.2em;color:rgba(255,255,255,.6)}
+.ph-back .mark{position:absolute;bottom:7%;left:0;right:0;text-align:center;font:700 calc(var(--w)*.04) var(--display);letter-spacing:.2em;color:rgba(255,255,255,.6)}
 .glare{position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(115deg,transparent calc(var(--g,40%) - 18%),rgba(255,255,255,.2) var(--g,40%),transparent calc(var(--g,40%) + 14%));mix-blend-mode:screen}
 
-.screen{position:relative;width:100%;height:100%;border-radius:calc(var(--r)*.78);overflow:hidden;background:var(--sbg);color:var(--sfg);font-family:var(--sans);font-size:calc(var(--w)*.045);transition:background .5s,color .5s}
+.screen{position:relative;width:100%;height:100%;border-radius:calc(var(--r)*.78);overflow:hidden;background:var(--sbg);color:var(--sfg);font-family:var(--sans);font-size:calc(var(--w)*.045);transition:background .6s,color .6s}
 .punch{position:absolute;top:1.6%;left:50%;width:calc(var(--w)*.04);aspect-ratio:1;border-radius:50%;background:#000;transform:translateX(-50%);z-index:5}
 .sbar{position:absolute;top:1.2%;left:7%;right:7%;display:flex;justify-content:space-between;font:700 .8em var(--sans);z-index:4}
-.scr{position:absolute;inset:0;padding:12% 6% 0;opacity:0;transition:opacity .45s;display:flex;flex-direction:column;gap:.8em}
+.scr{position:absolute;inset:0;padding:12% 6% 0;opacity:0;transition:opacity .35s;display:flex;flex-direction:column;gap:.8em}
 .scr.on{opacity:1}
-.top{display:flex;justify-content:space-between;align-items:center;font-weight:800}
-.top .logo{font:800 1.25em var(--display);letter-spacing:-.03em}
+.stop{display:flex;justify-content:space-between;align-items:center;font-weight:800}
+.stop .logo{font:800 1.25em var(--display);letter-spacing:-.03em}
 .pills{display:flex;gap:.4em}
 .pills span{background:var(--scard);border-radius:2em;padding:.25em .6em;font-size:.78em;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .sc{background:var(--scard);border-radius:1em;padding:.9em;box-shadow:0 2px 8px rgba(0,0,0,.06)}
@@ -112,7 +149,9 @@ h2{text-wrap:balance}
 .typing{display:inline-block;width:.5em;height:1em;background:var(--sac);vertical-align:-.15em;animation:blink 1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
 .pet{align-self:center;width:62%;border-radius:1em;overflow:hidden;position:relative;aspect-ratio:1;background:#fff}
-.pet img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transition:opacity .6s}
+.pet img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.pet .sprout{animation:grow 4s ease-in-out infinite alternate}
+@keyframes grow{0%,40%{opacity:0}60%,100%{opacity:1}}
 .streak{display:flex;gap:.3em;justify-content:space-between}
 .streak span{flex:1;text-align:center;background:var(--scard);border-radius:.6em;padding:.45em 0;font-size:.7em;font-weight:800}
 .streak span.f{background:var(--spark);color:#fff}
@@ -120,229 +159,106 @@ h2{text-wrap:balance}
 .cases div{border-radius:.9em;overflow:hidden;background:var(--scard);font-size:.72em;font-weight:800;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .cases img{display:block;width:100%;aspect-ratio:1;object-fit:cover}
 .cases div span{display:flex;justify-content:space-between;padding:.4em .6em}
+.cases em{font-style:normal}
+.thm{display:grid;grid-template-columns:1fr 1fr;gap:.5em}
+.thm div{border-radius:.9em;padding:.7em;font-size:.72em;font-weight:800;color:#fff;aspect-ratio:1.3;display:flex;flex-direction:column;justify-content:space-between}
+.thm div small{font-weight:700;opacity:.85}
 .tabs{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-around;padding:.7em 0 1.2em;background:var(--scard);font-size:.62em;font-weight:700;opacity:.95}
 .tabs span{opacity:.45}.tabs span.a{opacity:1;color:var(--sac)}
 
-/* ---------- marquee ---------- */
-.marquee{padding-block:calc(var(--vh,1vh)*12);overflow:hidden;border-top:1px solid var(--line)}
-.marquee .row{display:flex;align-items:center;gap:3vw;white-space:nowrap;will-change:transform}
-.marquee .row span{font:800 clamp(56px,10vw,170px)/1 var(--display);letter-spacing:-.04em;text-transform:uppercase}
-.marquee .tile{flex:none;width:clamp(80px,12vw,200px);height:clamp(56px,8vw,130px);border-radius:12px;background-size:cover;background-position:center}
-.marquee .row.two{margin-top:2vh}
-.marquee .row.two span{-webkit-text-stroke:1.5px var(--ink);color:transparent}
-
-/* ---------- themes ---------- */
-.themes{min-height:calc(var(--vh,1vh)*100);display:grid;grid-template-columns:1fr 1fr;align-items:center;padding-block:calc(var(--vh,1vh)*12);padding-inline:max(64px,7vw);gap:6vw;position:relative}
-.themes h2{font:800 clamp(44px,5.6vw,96px)/.95 var(--display);letter-spacing:-.03em;text-transform:uppercase;margin:22px 0}
-.themes p{max-width:40ch;line-height:1.55;color:#3c3e4c}
-.swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:34px}
-.swatches button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:8px 14px 8px 8px;border:1px solid var(--line);border-radius:40px;font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;transition:border-color .3s,background .3s}
-.swatches button i{width:24px;height:24px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}
-.swatches button small{color:var(--mute);font-size:10px}
-.swatches button[aria-pressed=true]{border-color:var(--ink);background:#fff}
-.swatches button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.turntable{display:flex;justify-content:center;align-items:center;perspective:1400px;min-height:calc(var(--vh,1vh)*70)}
-.turntable .phone{animation:sway 9s ease-in-out infinite}
-@keyframes sway{0%,100%{transform:rotateX(6deg) rotateY(-24deg)}50%{transform:rotateX(6deg) rotateY(24deg)}}
-
-/* ---------- numbers ---------- */
-.nums{padding-block:calc(var(--vh,1vh)*14);padding-inline:max(64px,7vw);border-top:1px solid var(--line)}
-.nums header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:6vh}
-.nums h2{font:800 clamp(48px,7vw,130px)/.9 var(--display);letter-spacing:-.04em;text-transform:uppercase}
-.nums header p{font:500 11px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.06em;text-align:right;max-width:30ch}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--ink)}
-.grid div{padding:22px 20px 26px 0;border-bottom:1px solid var(--line);transition:opacity .8s,transform .8s cubic-bezier(.2,.7,.2,1)}
-.grid div.pre{opacity:0;transform:translateY(30px)}
-.grid small{display:block;font:500 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin-bottom:10px}
-.grid b{display:block;font:800 clamp(26px,2.8vw,44px)/1 var(--display);letter-spacing:-.03em;margin-bottom:8px;font-variant-numeric:tabular-nums}
-.grid span{font-size:14px;line-height:1.5;color:#3c3e4c}
-
-/* ---------- finale ---------- */
-.finale{background:#07071a;color:#e8e9f2;min-height:calc(var(--vh,1vh)*120);position:relative;overflow:hidden;padding-block:calc(var(--vh,1vh)*18) calc(var(--vh,1vh)*8);padding-inline:max(24px,7vw)}
-.finale::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px)}
-.glitch{font:800 clamp(44px,9vw,170px)/.98 var(--display);letter-spacing:-.04em;text-transform:uppercase;text-align:center}
-.glitch .ln{display:block;position:relative}
-.glitch .ln:nth-child(2){color:var(--spark)}
-.glitch .ln::before,.glitch .ln::after{content:attr(data-t);position:absolute;inset:0;pointer-events:none}
-.glitch .ln::before{color:#ff2ec4;mix-blend-mode:screen;animation:gl1 2.6s infinite steps(1)}
-.glitch .ln::after{color:#5b8cff;mix-blend-mode:screen;animation:gl2 3.1s infinite steps(1)}
-@keyframes gl1{0%,100%{transform:none;clip-path:inset(0 0 100% 0)}8%{transform:translate(-6px,2px);clip-path:inset(20% 0 55% 0)}10%{transform:translate(4px,-1px);clip-path:inset(62% 0 12% 0)}12%{clip-path:inset(0 0 100% 0)}55%{transform:translate(-3px,0);clip-path:inset(40% 0 40% 0)}57%{clip-path:inset(0 0 100% 0)}}
-@keyframes gl2{0%,100%{transform:none;clip-path:inset(0 0 100% 0)}20%{transform:translate(6px,-2px);clip-path:inset(10% 0 70% 0)}22%{transform:translate(-4px,1px);clip-path:inset(70% 0 5% 0)}24%{clip-path:inset(0 0 100% 0)}78%{transform:translate(3px,1px);clip-path:inset(30% 0 50% 0)}80%{clip-path:inset(0 0 100% 0)}}
-.shots{display:grid;grid-template-columns:1.2fr 1fr 1.4fr 1fr;gap:18px;margin:10vh 0 6vh;align-items:end}
-.shot{border-radius:14px;position:relative;overflow:hidden;background-size:cover;background-position:center}
-.shot::after{content:attr(data-c);position:absolute;left:10px;bottom:8px;font:500 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6)}
-.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:4vw;font:400 12px/1.6 var(--mono);text-transform:uppercase;color:#9a9cb0;max-width:1100px;margin:0 auto}
-.cols b{display:block;color:#e8e9f2;font-weight:500;margin-bottom:8px}
-footer{margin-top:12vh;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;font:500 10px/1.6 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#6c6e82;border-top:1px solid #23243a;padding-top:20px}
-
-@media (max-width:820px){
-  .hud .vl,.hud .vr,.hud .tl span+span{display:none}
-  .hud .tl{left:16px}.hud .tr{right:16px}.hud .bl{left:16px}.hud .br{right:16px}
-  .hud .bar{width:60px}
-  .panel{width:auto;left:16px!important;right:16px!important;top:auto;bottom:16px;background:rgba(238,240,245,.86);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:16px}
-  .panel h2{font-size:clamp(30px,9vw,46px);margin-bottom:10px}
-  .panel .tag{margin-bottom:10px}
-  .panel p{font-size:13px}
-  .panel .spec,.panel .barcode{display:none}
-  .themes{grid-template-columns:1fr;padding-inline:16px;gap:0}
-  .turntable{min-height:calc(var(--vh,1vh)*60)}
-  .nums{padding-inline:16px}
-  .nums header{flex-direction:column;align-items:flex-start}
-  .nums header p{text-align:left}
-  .grid{grid-template-columns:1fr 1fr}
-  .shots{grid-template-columns:1fr 1fr}
-  .cols{grid-template-columns:1fr}
-  .finale{padding-inline:16px}
+/* ---------- phones / narrow ---------- */
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto auto;padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+  .top .meta span:not(.live){display:none}
+  .info{grid-column:1;grid-row:2;max-width:none;margin-top:14px}
+  .eyebrow{font-size:10px}
+  .title{font-size:clamp(28px,8.4vw,44px);margin:12px 0 8px}
+  .title .ln{display:inline-block;margin-right:.25em}
+  .desc{font-size:14px;line-height:1.45}
+  .stats{display:none}
+  .themes{margin-top:10px}
+  .themes button{width:28px;height:28px}
+  .stage{grid-column:1;grid-row:3;min-height:0}
+  .rail{grid-column:1;grid-row:4;flex-direction:row;width:auto;justify-self:stretch;overflow-x:auto;gap:4px;scrollbar-width:none;margin-top:6px}
+  .rail::-webkit-scrollbar{display:none}
+  .rail button{grid-template-columns:auto;padding:10px 12px;flex:none}
+  .rail .n{display:none}
+  .rail .t{font-size:13px}
+  .rail .bar{left:10px;right:10px;bottom:4px}
+  .bottom{grid-row:5;margin-top:8px}
+  .ticker{display:none}
+  .prop.hide-m{display:none}
 }
+@media (max-height:620px) and (min-width:901px){ .desc{font-size:15px} .stats{display:none} }
 @media (prefers-reduced-motion:reduce){
-  .turntable .phone,.glitch .ln::before,.glitch .ln::after,.hint i,.typing{animation:none}
+  .blob,.prop,.shadow,.typing,.pet .sprout,.top .live i{animation:none}
 }
 </style>
 </head>
 <body>
+<div class="atmo"><div class="blob a"></div><div class="blob b"></div><div class="blob c"></div><div class="grain"></div><div class="ghost">СПАРК</div></div>
 
-<div class="hud" id="hud">
-  <div class="tl"><span><img src="img/icon-192.png" alt="">Спарк</span><span>5–11 класс</span><span>Работает офлайн</span></div>
-  <div class="tr"><span id="idx">00</span> / 06<br><span id="sec">Старт</span></div>
-  <div class="vl">Квесты · Карта предметов · ИИ-объяснения · Питомец · Кейсы</div>
-  <div class="vr">Домашка, которую хочется пройти</div>
-  <div class="bl">Листай ↓</div>
-  <div class="br"><div class="bar"><i id="prog"></i></div><span id="pct">0%</span></div>
-</div>
-
-<div id="sc">
-<main>
-<section class="story" id="story">
-  <div class="stage">
-    <div class="bigtype"><span id="t1">СПА</span><span id="t2">РК</span></div>
-    <div class="subline" id="sub">Учебные квесты · 5–11 класс</div>
-
-    <div class="prop mul" style="width:150px" data-p="-32,-20,-12,1"><img src="img/pet-seed.jpg" alt=""></div>
-    <div class="prop card" style="width:130px" data-p="31,-25,10,1"><img src="img/space.jpg" alt=""></div>
-    <div class="prop mul" style="width:170px" data-p="-30,22,-8,1"><img src="img/chest-free.jpg" alt=""></div>
-    <div class="prop mul" style="width:120px" data-p="33,21,14,1"><img src="img/currency-shard.jpg" alt=""></div>
-    <div class="prop qcard" data-p="13,-36,6,.9"><small>Математика · 5 кл</small>Из цифр 3, 0, 7 составь наибольшее трёхзначное число.<b>730 ✓</b></div>
-    <div class="prop mul" style="width:120px" data-p="-12,36,-4,1"><img src="img/pet-sprout.jpg" alt=""></div>
-
-    <div class="phone-wrap" id="hero-phone"></div>
-    <div class="hint" id="hint">Листай<i></i></div>
-
-    <article class="panel l" data-step="1">
-      <div class="tag"><span>#01</span><span>Квесты</span></div>
-      <h2>Домашка<br>как <em>квест.</em></h2>
-      <p>Каждая тема — короткий квест из 10 заданий. Ответил правильно — получил осколки и продвинулся дальше.</p>
-      <div class="spec"><div><span>Заданий в базе</span><span>6 000+</span></div><div><span>В одном квесте</span><span>10</span></div><div><span>Награда</span><span>Осколки</span></div></div>
-    </article>
-    <article class="panel r" data-step="2">
-      <div class="tag"><span>#02</span><span>Карта</span></div>
-      <h2>11 предметов.<br><em>7 классов.</em></h2>
-      <p>Карта предметов по школьной программе с 5 по 11 класс: от математики и русского до химии и информатики.</p>
-      <div class="spec"><div><span>Классы</span><span>5–11</span></div><div><span>Предметы</span><span>11</span></div><div><span>Экзамены</span><span>ОГЭ · ЕГЭ · ВПР</span></div></div>
-      <div class="barcode"></div>
-    </article>
-    <article class="panel l" data-step="3">
-      <div class="tag"><span>#03</span><span>ИИ</span></div>
-      <h2>Ошибся?<br><em>Объясним.</em></h2>
-      <p>ИИ-ассистент разбирает ошибку и объясняет тему простыми словами, а «Разбор ошибок» собирает всё, что стоит повторить.</p>
-      <div class="spec"><div><span>ИИ-объяснения</span><span>✓</span></div><div><span>Разбор ошибок</span><span>✓</span></div></div>
-    </article>
-    <article class="panel r" data-step="4">
-      <div class="tag"><span>#04</span><span>Питомец</span></div>
-      <h2>Учись —<br>и он <em>растёт.</em></h2>
-      <p>Семечко превращается в росток, пока ты держишь стрик. Уровни от «Новичка» до «Легенды».</p>
-      <div class="spec"><div><span>Стрик</span><span>🔥 дни подряд</span></div><div><span>Уровни</span><span>Новичок → Легенда</span></div></div>
-      <div class="barcode"></div>
-    </article>
-    <article class="panel l" data-step="5">
-      <div class="tag"><span>#05</span><span>Кейсы</span></div>
-      <h2>Осколки<br>в <em>кейсы.</em></h2>
-      <p>Открывай тематические кейсы и сундук удачи. Внутри осколки и шанс выбить редкую тему оформления.</p>
-      <div class="spec"><div><span>Кейсы</span><span>от 💎 28</span></div><div><span>Сундук удачи</span><span>Бесплатно</span></div></div>
-    </article>
-  </div>
-</section>
-
-<section class="marquee" aria-label="Коротко о Спарке">
-  <div class="row" id="m1"></div>
-  <div class="row two" id="m2"></div>
-</section>
-
-<section class="themes">
-  <div>
-    <div class="tag"><span>#06</span><span>Темы</span></div>
-    <h2>Спарк<br>в твоих<br>цветах.</h2>
-    <p>Темы оформления покупаются за осколки или выпадают из кейсов. Нажми на любую — телефон справа сразу перекрасится.</p>
-    <div class="swatches" id="swatches"></div>
-  </div>
-  <div class="turntable" id="turntable"></div>
-</section>
-
-<section class="nums">
-  <header>
-    <h2>В цифрах</h2>
-    <p>Спарк · PWA<br>Ставится на главный экран<br>Работает без сети</p>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><img src="img/icon-192.png" alt="">Спарк</div>
+    <div class="meta"><span>5–11 класс</span><span>ОГЭ · ЕГЭ · ВПР</span><span class="live"><i></i>Работает офлайн</span></div>
   </header>
-  <div class="grid" id="grid">
-    <div><small>Задания</small><b>6 000+</b><span>Локальная база по школьной программе</span></div>
-    <div><small>Классы</small><b>5–11</b><span>Выбираешь свой класс при входе</span></div>
-    <div><small>Предметы</small><b>11</b><span>Математика, русский, физика, химия, история и другие</span></div>
-    <div><small>Экзамены</small><b>ОГЭ · ЕГЭ</b><span>И подготовка к ВПР</span></div>
-    <div><small>Офлайн</small><b>0 МБ</b><span>Трафика на квесты: база уже в приложении</span></div>
-    <div><small>Родителям</small><b>Код</b><span>Следить за прогрессом ребёнка по коду</span></div>
-    <div><small>Рейтинг</small><b>Топ</b><span>Таблица лидеров с другими учениками</span></div>
-    <div><small>Аккаунт</small><b>Облако</b><span>Прогресс сохраняется между устройствами</span></div>
-    <div><small>Уровни</small><b>5</b><span>Новичок, Знаток, Мастер, Эксперт, Легенда</span></div>
-  </div>
-</section>
 
-<section class="finale" id="finale">
-  <h2 class="glitch">
-    <span class="ln" data-t="Учись.">Учись.</span>
-    <span class="ln" data-t="Расти.">Расти.</span>
-    <span class="ln" data-t="Побеждай.">Побеждай.</span>
-  </h2>
-  <div class="shots">
-    <div class="shot" data-c="Cosmic case" style="height:30vh;background-image:url(img/space.jpg)"></div>
-    <div class="shot" data-c="Ocean case" style="height:22vh;background-image:url(img/ocean.jpg)"></div>
-    <div class="shot" data-c="Royal case" style="height:40vh;background-image:url(img/royal.jpg)"></div>
-    <div class="shot" data-c="Sweet case" style="height:26vh;background-image:url(img/sweet.jpg)"></div>
+  <section class="info" id="info" aria-live="polite">
+    <div class="eyebrow"><b id="num">01</b><span id="tag">Квесты</span></div>
+    <h1 class="title"><span class="ln"><span id="h1a"></span></span><span class="ln"><span id="h1b"></span></span></h1>
+    <p class="desc" id="desc"></p>
+    <div class="themes" id="themes" aria-label="Темы оформления"></div>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <div class="stage" id="stage">
+    <div class="shadow"></div>
+    <div class="phone-wrap" id="pw"></div>
   </div>
-  <div class="cols">
-    <div><b>Квесты</b>Короткие задания по каждой теме школьной программы.</div>
-    <div><b>Награды</b>Осколки, стрик, питомец, кейсы и темы.</div>
-    <div><b>Без сети</b>Установи на главный экран и занимайся где угодно.</div>
-  </div>
-  <footer>
-    <span>© Спарк</span>
-    <span>Учебные квесты · 5–11 класс</span>
-    <span>Чистый HTML / CSS / JS</span>
+
+  <nav class="rail" id="rail" aria-label="Разделы"></nav>
+
+  <footer class="bottom">
+    <div class="ticker"><span>6 000+ заданий</span><span>11 предметов</span><span>Питомец и стрик</span><span>Кейсы и темы</span></div>
+    <div class="ctrl"><button id="prev" aria-label="Предыдущий раздел">←</button><button id="play" aria-label="Пауза">❚❚</button><button id="next" aria-label="Следующий раздел">→</button></div>
   </footer>
-</section>
-</main>
 </div>
 
 <script>
 (() => {
-  const THEMES = {
-    'Стандарт':  {bg:'#f4f5f7', ac:'#4f46e5', fg:'#12131a', card:'#ffffff', price:'0'},
-    'Океан':     {bg:'#eaf6fb', ac:'#0891b2', fg:'#0b2530', card:'#ffffff', price:'0'},
-    'Лесная':    {bg:'#eef5ee', ac:'#2e7d32', fg:'#11240f', card:'#ffffff', price:'0'},
-    'Неон':      {bg:'#05010f', ac:'#ff2ec4', fg:'#f4eaff', card:'#160b2b', price:'60'},
-    'Лава':      {bg:'#1a0505', ac:'#ff4500', fg:'#ffece4', card:'#2c0d08', price:'65'},
-    'Галактика': {bg:'#0a0521', ac:'#7c3aed', fg:'#ece6ff', card:'#1a1240', price:'100'},
-  };
-  const sc = document.getElementById('sc');
-  const VH = () => sc.clientHeight || Math.min(innerHeight, screen.height);
-  const setVH = () => document.documentElement.style.setProperty('--vh', VH() / 100 + 'px');
-  setVH();
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
-  const ease = t => t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+  const THEMES = [
+    {name:'Стандарт',  bg:'#f4f5f7', ac:'#4f46e5', fg:'#12131a', card:'#ffffff'},
+    {name:'Океан',     bg:'#eaf6fb', ac:'#0891b2', fg:'#0b2530', card:'#ffffff'},
+    {name:'Лесная',    bg:'#eef5ee', ac:'#2e7d32', fg:'#11240f', card:'#ffffff'},
+    {name:'Неон',      bg:'#05010f', ac:'#ff2ec4', fg:'#f4eaff', card:'#160b2b'},
+    {name:'Лава',      bg:'#1a0505', ac:'#ff4500', fg:'#ffece4', card:'#2c0d08'},
+    {name:'Галактика', bg:'#0a0521', ac:'#7c3aed', fg:'#ece6ff', card:'#1a1240'},
+  ];
+  const F = [
+    {tag:'Квесты', a:'Домашка', b:'как квест.', fa:'#4f46e5', s:1,
+     d:'Каждая тема — короткий квест из 10 заданий. Ответил верно — получил осколки и пошёл дальше.',
+     st:[['6 000+','заданий'],['10','в квесте'],['💎','награда']]},
+    {tag:'Карта', a:'11 предметов.', b:'7 классов.', fa:'#0891b2', s:2,
+     d:'Вся школьная программа с 5 по 11 класс: математика, русский, физика, химия, история и ещё шесть предметов.',
+     st:[['5–11','классы'],['11','предметов'],['3','экзамена']]},
+    {tag:'ИИ', a:'Ошибся?', b:'Объясним.', fa:'#7c3aed', s:3,
+     d:'ИИ-ассистент разбирает ошибку и объясняет тему простыми словами. «Разбор ошибок» собирает всё, что стоит повторить.',
+     st:[['✦','ИИ-разбор'],['1 тап','объяснение']]},
+    {tag:'Питомец', a:'Учись —', b:'он растёт.', fa:'#ff8a1f', s:4,
+     d:'Семечко превращается в росток, пока ты держишь стрик. Уровни — от «Новичка» до «Легенды».',
+     st:[['🔥 12','дней стрик'],['5','уровней']]},
+    {tag:'Кейсы', a:'Осколки', b:'в кейсы.', fa:'#e11d74', s:5,
+     d:'Открывай тематические кейсы и сундук удачи. Внутри осколки и шанс выбить редкую тему.',
+     st:[['5','кейсов'],['от 28','осколков'],['FREE','сундук']]},
+    {tag:'Темы', a:'Спарк', b:'в твоих цветах.', fa:'#2e7d32', s:6, themes:true,
+     d:'Нажми на кружок — и приложение на телефоне перекрасится.',
+     st:[]},
+  ];
 
   const SCREENS = `
     <div class="scr" data-s="0">
-      <div class="top"><span class="logo">Спарк</span><div class="pills"><span>🔥 12</span><span>💎 245</span></div></div>
+      <div class="stop"><span class="logo">Спарк</span><div class="pills"><span>🔥 12</span><span>💎 245</span></div></div>
       <div class="sc"><h4>Квест дня</h4><p>Математика · Дроби</p><div class="pb"><i style="width:60%"></i></div></div>
       <div class="btnx">Продолжить квест</div>
       <div class="chips"><span>📐 Математика</span><span>📖 Русский</span><span>⚛️ Физика</span><span>🧪 Химия</span><span>🌍 География</span><span>💻 Информатика</span></div>
@@ -355,7 +271,7 @@ footer{margin-top:12vh;display:flex;justify-content:space-between;gap:24px;flex-
       <div class="toast">Верно! +10 💎</div>
     </div>
     <div class="scr" data-s="2">
-      <div class="top"><span class="logo">Карта</span><div class="pills"><span>7 класс</span></div></div>
+      <div class="stop"><span class="logo">Карта</span><div class="pills"><span>7 класс</span></div></div>
       ${[['Математика',72],['Русский язык',48],['Физика',35],['История',60],['Биология',22],['Английский',54],['Химия',12]].map(([n,v]) => `<div><div class="mrow"><span>${n}</span><span>${v}%</span></div><div class="pb"><i style="width:${v}%"></i></div></div>`).join('')}
     </div>
     <div class="scr" data-s="3">
@@ -365,29 +281,38 @@ footer{margin-top:12vh;display:flex;justify-content:space-between;gap:24px;flex-
       <div class="ai-b"><b>✦ ИИ объясняет</b>Джоуль — это работа и энергия. Силу измеряют в ньютонах: 1 Н разгоняет тело массой 1 кг на 1 м/с². <span class="typing"></span></div>
     </div>
     <div class="scr" data-s="4">
-      <div class="top"><span class="logo">Профиль</span><div class="pills"><span>Знаток</span></div></div>
-      <div class="pet"><img class="seed" src="img/pet-seed.jpg" alt=""><img class="sprout" src="img/pet-sprout.jpg" alt="" style="opacity:0"></div>
+      <div class="stop"><span class="logo">Профиль</span><div class="pills"><span>Знаток</span></div></div>
+      <div class="pet"><img src="img/pet-seed.png" alt=""><img class="sprout" src="img/pet-sprout.png" alt=""></div>
       <div class="sc"><h4>Стрик 🔥 12 дней</h4><div class="streak"><span class="f">Пн</span><span class="f">Вт</span><span class="f">Ср</span><span class="f">Чт</span><span class="f">Пт</span><span>Сб</span><span>Вс</span></div></div>
     </div>
     <div class="scr" data-s="5">
-      <div class="top"><span class="logo">Магазин</span><div class="pills"><span>💎 245</span></div></div>
-      <div class="cases"><div><img src="img/space.jpg" alt=""><span>Космос<em>💎 35</em></span></div><div><img src="img/ocean.jpg" alt=""><span>Океан<em>💎 28</em></span></div><div><img src="img/sweet.jpg" alt=""><span>Сладкий<em>💎 30</em></span></div><div><img src="img/nature.jpg" alt=""><span>Природа<em>💎 30</em></span></div></div>
+      <div class="stop"><span class="logo">Магазин</span><div class="pills"><span>💎 245</span></div></div>
+      <div class="cases"><div><img src="img/space.jpg" alt=""><span>Космос<em>💎 35</em></span></div><div><img src="img/ocean.jpg" alt=""><span>Океан<em>💎 28</em></span></div><div><img src="img/sweet.jpg" alt=""><span>Сладкий<em>💎 30</em></span></div><div><img src="img/royal.jpg" alt=""><span>Королевский<em>💎 40</em></span></div></div>
     </div>
-    <div class="tabs"><span data-t="0">Квест</span><span data-t="2">Карта</span><span>Экзамены</span><span data-t="5">Магазин</span><span data-t="4">Профиль</span></div>`;
+    <div class="scr" data-s="6">
+      <div class="stop"><span class="logo">Темы</span><div class="pills"><span>💎 245</span></div></div>
+      <div class="thm">${THEMES.map(t => `<div style="background:linear-gradient(135deg,${t.ac},${t.bg === '#f4f5f7' || t.bg.startsWith('#e') ? t.ac + 'aa' : t.bg})">${t.name}<small>${['Стандарт','Океан','Лесная'].includes(t.name) ? 'бесплатно' : '💎'}</small></div>`).join('')}</div>
+    </div>
+    <div class="tabs"><span data-t="0,1,3">Квест</span><span data-t="2">Карта</span><span>Экзамены</span><span data-t="5,6">Магазин</span><span data-t="4">Профиль</span></div>`;
 
-  function buildPhone(host, w) {
+  const root = document.documentElement.style;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const stage = document.getElementById('stage'), pw = document.getElementById('pw');
+  const info = document.getElementById('info');
+  let phone, glares;
+
+  function buildPhone() {
+    const r0 = stage.getBoundingClientRect();
+    const w = Math.round(Math.max(120, Math.min(280, r0.height * 0.84 / 2.1, r0.width * 0.62)));
     const h = w * 2.1, t = w * 0.1, r = w * 0.12;
-    const ph = document.createElement('div');
-    ph.className = 'phone';
-    ph.style.cssText = `--w:${w}px;--h:${h}px;--r:${r}px;margin-left:${-w/2}px;margin-top:${-h/2}px`;
-    const n = 16;
-    for (let i = 0; i < n; i++) {
-      const l = document.createElement('div');
-      l.className = 'ph-layer';
-      l.style.transform = `translateZ(${-t/2 + (t * i) / (n - 1)}px)`;
-      ph.appendChild(l);
-    }
-    ph.insertAdjacentHTML('beforeend', `
+    pw.innerHTML = '';
+    phone = document.createElement('div');
+    phone.className = 'phone';
+    phone.style.cssText = `--w:${w}px;--h:${h}px;--r:${r}px;margin-left:${-w/2}px;margin-top:${-h/2}px`;
+    let layers = '';
+    for (let i = 0; i < 16; i++) layers += `<div class="ph-layer" style="transform:translateZ(${-t/2 + (t * i) / 15}px)"></div>`;
+    phone.innerHTML = layers + `
       <div class="ph-front" style="transform:translateZ(${t/2 + .5}px)">
         <div class="screen"><div class="punch"></div><div class="sbar"><span>9:41</span><span>5G 87%</span></div>${SCREENS}</div>
         <div class="glare"></div>
@@ -395,154 +320,140 @@ footer{margin-top:12vh;display:flex;justify-content:space-between;gap:24px;flex-
       <div class="ph-back" style="transform:rotateY(180deg) translateZ(${t/2 + .5}px)">
         <div class="cam"><i></i><i></i><i></i></div>
         <img src="img/icon-192.png" alt=""><div class="mark">СПАРК</div><div class="glare"></div>
-      </div>`);
-    host.appendChild(ph);
-    return ph;
-  }
-  const phoneWidth = (k = 1) => Math.round(Math.min(270, VH() * 0.62 / 2.1, innerWidth * 0.46) * k);
-  function showScreen(ph, s) {
-    ph.querySelectorAll('.scr').forEach(el => el.classList.toggle('on', +el.dataset.s === s));
-    ph.querySelectorAll('.tabs span').forEach(el => el.classList.toggle('a', +el.dataset.t === s || (s === 1 && el.dataset.t === '0') || (s === 3 && el.dataset.t === '0')));
-  }
-  function applyTheme(name) {
-    const c = THEMES[name], s = document.documentElement.style;
-    s.setProperty('--sbg', c.bg); s.setProperty('--sac', c.ac); s.setProperty('--sfg', c.fg); s.setProperty('--scard', c.card);
-    s.setProperty('--back', c.ac); s.setProperty('--frame', `color-mix(in srgb, ${c.ac}, #000 30%)`);
+      </div>`;
+    pw.appendChild(phone);
+    glares = phone.querySelectorAll('.glare');
+    showScreen(F[cur].s);
+    placeProps(w, h);
   }
 
-  // hero
-  const heroHost = document.getElementById('hero-phone');
-  let hero, heroGlares, sprout, seed, lastScreen = -1;
-  function mountHero() {
-    heroHost.innerHTML = '';
-    hero = buildPhone(heroHost, phoneWidth(innerWidth < 820 ? .85 : 1));
-    heroGlares = hero.querySelectorAll('.glare');
-    sprout = hero.querySelector('.sprout'); seed = hero.querySelector('.seed');
-    lastScreen = -1;
+  function showScreen(s) {
+    phone.querySelectorAll('.scr').forEach(el => el.classList.toggle('on', +el.dataset.s === s));
+    phone.querySelectorAll('.tabs span').forEach(el => el.classList.toggle('a', (el.dataset.t || '').split(',').includes(String(s))));
   }
 
-  // rx, ry, rz, x(vw), y(vh), s
-  const DESK = [
-    [12, -26,  7,   0,   2, 1.00],
-    [ 4, -14,  2,  15,   0, 1.12],
-    [ 4,  16, -2, -15,   0, 1.12],
-    [ 2, -12,  0,  15,   0, 1.14],
-    [ 4,  14, -4, -14,   0, 1.12],
-    [ 4, 346,  4,  15,   0, 1.12],
-    [40, 420, 20,   0, -70, 0.7],
+  // floating props placed around the phone, relative to its size
+  const PROPS = [
+    {html:'<img src="img/pet-seed.png" alt="">', cls:'mul', w:.46, x:-.95, y:-.46, r:-10},
+    {html:'<img src="img/space.jpg" alt="">', cls:'card', w:.52, x:.95, y:-.5, r:9},
+    {html:'<img src="img/chest-free.png" alt="">', cls:'mul hide-m', w:.68, x:-1.05, y:.38, r:-6},
+    {html:'<img src="img/currency-shard.png" alt="">', cls:'mul', w:.46, x:.92, y:.34, r:12},
+    {html:'<small>Математика · 5 кл</small>Из цифр 3, 0, 7 составь наибольшее трёхзначное число.<b>730 ✓</b>', cls:'q hide-m', w:0, x:.78, y:-.06, r:4},
+    {html:'🔥 Стрик 12 дней', cls:'chip hide-m', w:0, x:-.9, y:-.02, r:-4},
   ];
-  const MOB = DESK.map(([a,b,c,,y,s], i) => [a, b, c, 0, i === 6 ? -80 : -14, s * .9]);
-  const NAMES = ['Старт','Квесты','Карта','ИИ','Питомец','Кейсы','Темы'];
-  // which app screen is visible at each step
-  const SCREEN_AT = [0, 1, 2, 3, 4, 5, 5];
+  function placeProps(w, h) {
+    stage.querySelectorAll('.prop').forEach(p => p.remove());
+    const r0 = stage.getBoundingClientRect(), cx = r0.width / 2, cy = r0.height / 2;
+    const narrow = innerWidth <= 900;
+    PROPS.forEach((p, i) => {
+      const el = document.createElement('div');
+      el.className = 'prop ' + p.cls;
+      el.innerHTML = p.html;
+      const pwid = p.w ? w * p.w * (narrow ? .7 : 1) : null;
+      if (pwid) el.style.width = pwid + 'px';
+      const spreadX = narrow ? Math.min(w * .95, r0.width / 2 - 10) : w * 1.05;
+      el.style.left = (cx + p.x * spreadX - (pwid || 0) / 2) + 'px';
+      el.style.top = (cy + p.y * h - (pwid || 0) / 2) + 'px';
+      if (!pwid) el.style.transform = 'translateX(-50%)';
+      el.style.setProperty('--r', p.r + 'deg');
+      el.style.animationDelay = (-i * 1.3) + 's';
+      el.style.animationDuration = (6 + i % 3) + 's';
+      stage.appendChild(el);
+    });
+  }
 
-  const story = document.getElementById('story');
-  const panels = [...document.querySelectorAll('.panel')];
-  const props = [...document.querySelectorAll('.prop')].map(el => ({el, p: el.dataset.p.split(',').map(Number)}));
-  const t1 = document.getElementById('t1'), t2 = document.getElementById('t2');
-  const sub = document.getElementById('sub'), hint = document.getElementById('hint');
-  const hud = document.getElementById('hud'), prog = document.getElementById('prog');
-  const pct = document.getElementById('pct'), idx = document.getElementById('idx'), sec = document.getElementById('sec');
-  const finale = document.getElementById('finale');
-  const m1 = document.getElementById('m1'), m2 = document.getElementById('m2');
+  // ---------- state ----------
+  let cur = 0, ry = -18, tRy = -18, mx = 0, my = 0, cmx = 0, cmy = 0, playing = !reduce, t0 = performance.now();
+  const DUR = 6000;
+  const rail = document.getElementById('rail');
+  F.forEach((f, i) => {
+    const b = document.createElement('button');
+    b.innerHTML = `<span class="n">0${i + 1}</span><span class="t">${f.tag}</span><span class="bar"><i></i></span>`;
+    b.addEventListener('click', () => go(i, true));
+    rail.appendChild(b);
+  });
+  const btns = [...rail.children];
 
-  let cur = 0, mx = 0, my = 0, cmx = 0, cmy = 0, m1w = 1, m2w = 1;
+  const themesBox = document.getElementById('themes');
+  THEMES.forEach((t, i) => {
+    const b = document.createElement('button');
+    b.style.background = `linear-gradient(135deg,${t.bg} 50%,${t.ac} 50%)`;
+    b.setAttribute('aria-label', t.name);
+    b.setAttribute('aria-pressed', i === 0);
+    b.addEventListener('click', () => {
+      themesBox.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+      root.setProperty('--sbg', t.bg); root.setProperty('--sac', t.ac); root.setProperty('--sfg', t.fg); root.setProperty('--scard', t.card);
+      root.setProperty('--back', t.ac); root.setProperty('--frame', `color-mix(in srgb, ${t.ac}, #000 30%)`);
+      root.setProperty('--fa', t.ac);
+      showScreen(0);
+      setPlaying(false);
+    });
+    themesBox.appendChild(b);
+  });
+
+  function render(f, i) {
+    document.getElementById('num').textContent = String(i + 1).padStart(2, '0');
+    document.getElementById('tag').textContent = f.tag;
+    document.getElementById('h1a').textContent = f.a;
+    document.getElementById('h1b').textContent = f.b;
+    document.getElementById('desc').textContent = f.d;
+    document.getElementById('stats').innerHTML = f.st.map(([b, s]) => `<div><b>${b}</b><small>${s}</small></div>`).join('');
+    themesBox.classList.toggle('on', !!f.themes);
+  }
+
+  function go(i, user) {
+    i = (i + F.length) % F.length;
+    if (user) setPlaying(false);
+    const dir = i >= cur ? 1 : -1;
+    cur = i; t0 = performance.now();
+    btns.forEach((b, k) => b.setAttribute('aria-current', k === i));
+    const f = F[i];
+    root.setProperty('--fa', f.fa);
+    info.classList.remove('show');
+    tRy += dir * 360;                                  // full turn; screen swaps while the back faces us
+    setTimeout(() => showScreen(f.s), reduce ? 0 : 420);
+    setTimeout(() => { render(f, i); void info.offsetWidth; info.classList.add('show'); }, 260);
+    if (btns[i].scrollIntoView && innerWidth <= 900) btns[i].scrollIntoView({inline:'center', block:'nearest', behavior:'smooth'});
+  }
+
+  const playBtn = document.getElementById('play');
+  function setPlaying(v) {
+    playing = v; t0 = performance.now();
+    playBtn.textContent = v ? '❚❚' : '▶';
+    playBtn.setAttribute('aria-label', v ? 'Пауза' : 'Автопоказ');
+  }
+  playBtn.addEventListener('click', () => setPlaying(!playing));
+  document.getElementById('prev').addEventListener('click', () => go(cur - 1, true));
+  document.getElementById('next').addEventListener('click', () => go(cur + 1, true));
+  addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(cur + 1, true);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(cur - 1, true);
+  });
+  let sx = null;
+  stage.addEventListener('pointerdown', e => { sx = e.clientX; });
+  addEventListener('pointerup', e => { if (sx !== null && Math.abs(e.clientX - sx) > 40) go(cur + (e.clientX < sx ? 1 : -1), true); sx = null; });
   addEventListener('pointermove', e => { mx = e.clientX / innerWidth - .5; my = e.clientY / innerHeight - .5; });
 
-  function frame() {
-    const total = story.offsetHeight - VH();
-    const target = clamp((sc.scrollTop - story.offsetTop) / total) * (DESK.length - 1);
-    cur = reduce ? target : lerp(cur, target, .09);
-    cmx = lerp(cmx, mx, .06); cmy = lerp(cmy, my, .06);
-    const K = innerWidth < 820 ? MOB : DESK;
-    const i = Math.min(Math.floor(cur), K.length - 2), f = ease(clamp(cur - i));
-    const [rx, ry, rz, x, y, s] = K[i].map((v, j) => lerp(v, K[i + 1][j], f));
-    heroHost.style.transform = `translate3d(${x}vw,${y * VH() / 100}px,0) scale(${s}) rotateX(${rx - cmy*10}deg) rotateY(${ry + cmx*14}deg) rotateZ(${rz}deg)`;
+  function frame(now) {
+    ry = reduce ? tRy : lerp(ry, tRy, .07);
+    cmx = lerp(cmx, mx, .05); cmy = lerp(cmy, my, .05);
+    const tt = now / 1000;
+    const bob = reduce ? 0 : Math.sin(tt * 1.1) * 10;
+    const sway = reduce ? 0 : Math.sin(tt * .6) * 6;
+    pw.style.transform = `translate3d(0,${bob}px,0) rotateX(${8 - cmy * 14}deg) rotateY(${ry + sway + cmx * 22}deg) rotateZ(${Math.sin(tt * .5) * 2}deg)`;
     const g = ((ry % 360) + 360) % 360;
-    heroGlares.forEach(el => el.style.setProperty('--g', `${50 + Math.sin(g * Math.PI/180) * 60}%`));
-
-    const scr = SCREEN_AT[Math.round(cur)];
-    if (scr !== lastScreen) { showScreen(hero, scr); lastScreen = scr; }
-    const grow = clamp((cur - 3.9) * 2.5);
-    sprout.style.opacity = grow; seed.style.opacity = 1 - grow;
-
-    const sp = clamp(cur / 1.2);
-    t1.style.transform = `translateX(${-sp * 90}vw)`;
-    t2.style.transform = `translateX(${sp * 90}vw)`;
-    t1.style.opacity = t2.style.opacity = 1 - clamp((cur - .6) * 2);
-    sub.style.opacity = hint.style.opacity = 1 - clamp(cur * 3);
-
-    const tt = performance.now() / 1000;
-    props.forEach(({el, p: [px, py, rz2, sc2]}, n) => {
-      const d = 1 + cur * (1.6 + n * .15);
-      const bob = reduce ? 0 : Math.sin(tt * .8 + n) * 1.2;
-      el.style.transform = `translate(-50%,-50%) translate3d(${px * d + cmx * 6}vw,${(py * d + bob + cmy * 6) * VH() / 100}px,0) rotate(${rz2 + cur * 30 * (n % 2 ? 1 : -1)}deg) scale(${sc2})`;
-      el.style.opacity = 1 - clamp(cur * 1.4);
-    });
-
-    panels.forEach(pn => {
-      const d = cur - +pn.dataset.step;
-      const o = clamp(1 - Math.abs(d) * 2.4);
-      pn.style.opacity = o;
-      pn.style.transform = innerWidth < 820 ? `translateY(${d * -40}px)` : `translateY(calc(-50% + ${d * -120}px))`;
-      pn.style.pointerEvents = o > .5 ? 'auto' : 'none';
-    });
-
-    const all = clamp(sc.scrollTop / (sc.scrollHeight - VH()));
-    prog.style.transform = `scaleX(${all})`;
-    pct.textContent = Math.round(all * 100) + '%';
-    const si = sc.scrollTop > story.offsetTop + story.offsetHeight - VH() * .5 ? 6 : Math.round(cur);
-    idx.textContent = String(si).padStart(2, '0');
-    sec.textContent = NAMES[Math.min(si, 6)];
-    hud.classList.toggle('dark', finale.getBoundingClientRect().top < VH() * .5);
-
-    m1.style.transform = `translateX(${-(sc.scrollTop * .35) % m1w}px)`;
-    m2.style.transform = `translateX(${-m2w + (sc.scrollTop * .35) % m2w}px)`;
+    glares.forEach(el => el.style.setProperty('--g', `${50 + Math.sin(g * Math.PI / 180) * 60}%`));
+    const p = playing ? Math.min(1, (now - t0) / DUR) : 0;
+    const bar = btns[cur].querySelector('.bar i');
+    bar.style.transform = `scaleX(${playing ? p : 1})`;
+    btns.forEach((b, k) => { if (k !== cur) b.querySelector('.bar i').style.transform = 'scaleX(0)'; });
+    if (playing && p >= 1) go(cur + 1, false);
     requestAnimationFrame(frame);
   }
 
-  // marquee
-  const tiles = ['img/space.jpg','img/ocean.jpg','img/sweet.jpg','img/royal.jpg'];
-  const words = ['5–11 класс','ОГЭ','ЕГЭ','ВПР','Офлайн','5–11 класс','ОГЭ','ЕГЭ','ВПР','Офлайн'];
-  const rowHTML = off => words.map((w, i) => `<span>${w}</span><div class="tile" style="background-image:url(${tiles[(i + off) % 4]})"></div>`).join('');
-  m1.innerHTML = rowHTML(0) + rowHTML(0);
-  m2.innerHTML = rowHTML(2) + rowHTML(2);
-  const measure = () => { m1w = m1.scrollWidth / 2 || 1; m2w = m2.scrollWidth / 2 || 1; };
-
-  // themes
-  const sw = document.getElementById('swatches'), turn = document.getElementById('turntable');
-  Object.entries(THEMES).forEach(([name, c], i) => {
-    const b = document.createElement('button');
-    b.innerHTML = `<i style="background:linear-gradient(135deg,${c.bg} 50%,${c.ac} 50%)"></i>${name}<small>${c.price === '0' ? 'бесплатно' : '💎 ' + c.price}</small>`;
-    b.setAttribute('aria-pressed', i === 0);
-    b.addEventListener('click', () => {
-      sw.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
-      applyTheme(name);
-    });
-    sw.appendChild(b);
-  });
-  function mountTurn() {
-    turn.innerHTML = '';
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:relative;transform-style:preserve-3d';
-    turn.appendChild(holder);
-    const p = buildPhone(holder, phoneWidth(.85));
-    p.style.margin = '0';
-    showScreen(p, 0);
-  }
-
-  // numbers reveal (visible by default; only hidden once JS runs and only until seen)
-  const io = new IntersectionObserver(es => es.forEach(e => {
-    if (e.isIntersecting) { e.target.classList.remove('pre'); io.unobserve(e.target); }
-  }), {threshold: .15});
-  document.querySelectorAll('#grid div').forEach((d, i) => {
-    d.style.transitionDelay = (i % 3) * 90 + 'ms';
-    if (d.getBoundingClientRect().top > VH()) { d.classList.add('pre'); io.observe(d); }
-  });
-
-  function mountAll() { setVH(); mountHero(); mountTurn(); measure(); }
-  let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(mountAll, 150); });
-  mountAll();
+  let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(buildPhone, 150); });
+  buildPhone();
+  go(0, false);
   requestAnimationFrame(frame);
 })();
 </script>
