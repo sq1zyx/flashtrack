@@ -131,6 +131,14 @@ export function listJobs(limit = 100): Omit<JobRow, "result_json">[] {
   ).all(limit) as unknown as Omit<JobRow, "result_json">[];
 }
 
+/** Deletes stored reports (they contain the contract text) older than `days`. Returns how many. */
+export function purgeOldResults(days: number): number {
+  const r = db.prepare(
+    "UPDATE jobs SET result_json = NULL WHERE result_json IS NOT NULL AND finished_at < datetime('now', ?)",
+  ).run(`-${days} days`);
+  return Number(r.changes);
+}
+
 /**
  * Jobs live in process memory while they run (the uploaded file is not persisted), so a restart
  * loses them. Fail those jobs and give the credit back.

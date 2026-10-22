@@ -69,6 +69,7 @@
   .contract p.flash { outline: 2px solid var(--accent); }
   details summary { cursor: pointer; font-weight: 600; }
   footer { margin-top: 32px; font-size: 13px; color: var(--muted); }
+  a { color: var(--accent); }
   @media print {
     body { background: #fff; color: #000; }
     .no-print, header button, footer .no-print { display: none !important; }
@@ -114,7 +115,7 @@
         <option>Участник долевого строительства</option><option>Работник</option><option>Подрядчик</option>
       </datalist>
       <label class="check"><input id="deep" type="checkbox"> <span>Глубокая проверка <span class="muted small">— дольше, для сложных и крупных договоров</span></span></label>
-      <label class="check"><input id="consent" type="checkbox" required> <span class="small">Я согласен на обработку загруженного документа и понимаю, что отчёт — аналитический инструмент, а не юридическая консультация.</span></label>
+      <label class="check"><input id="consent" type="checkbox" required> <span class="small">Я принимаю <a href="/oferta" target="_blank">оферту</a>, соглашаюсь с <a href="/privacy" target="_blank">политикой обработки персональных данных</a> и понимаю, что отчёт — аналитический инструмент, а не юридическая консультация.</span></label>
       <div class="row" style="margin-top:16px"><button id="submit" class="primary" type="submit" disabled>Проверить договор</button></div>
       <div id="uploadError" class="error hidden"></div>
     </form>
@@ -131,6 +132,7 @@
 
   <footer>
     Сервис помогает найти рискованные условия, но не заменяет консультацию юриста. Перед подписанием важных договоров проверьте выводы со специалистом.
+    <div class="no-print" style="margin-top:8px"><a href="/oferta">Оферта и цены</a> · <a href="/privacy">Политика обработки персональных данных</a></div>
   </footer>
 </div>
 
@@ -234,7 +236,7 @@ async function poll(id) {
       await sleep(5000); continue; // network blip: keep trying
     }
     if (job.status === "done") { store.set("pendingJob", null); show("progress", false); renderReport(job.result, job.file_name); return; }
-    if (job.status === "failed") {
+    if (job.status === "failed" || job.status === "expired") {
       store.set("pendingJob", null); show("progress", false); show("uploadCard");
       $("uploadError").textContent = job.error?.message || "Проверка не удалась."; show("uploadError");
       api("/api/me").then(setCredits).catch(() => {});

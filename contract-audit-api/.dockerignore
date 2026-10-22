@@ -4,3 +4,4 @@ data
 .env
 .ocr-cache
 test
+certs/README.md

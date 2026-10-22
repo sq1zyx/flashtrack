@@ -16,6 +16,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY public ./public
+COPY certs ./certs
 # /data holds the SQLite DB (codes, jobs) and the OCR language models: mount a persistent volume here.
 VOLUME /data
 EXPOSE 3000

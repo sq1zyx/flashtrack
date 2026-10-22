@@ -3,3 +3,4 @@ dist/
 .env
 .ocr-cache/
 data/
+tunnel.log

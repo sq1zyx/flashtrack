@@ -8,6 +8,7 @@ export default defineConfig({
     env: {
       DATA_DIR: mkdtempSync(join(tmpdir(), "contract-audit-test-")),
       ADMIN_TOKEN: "test-admin-token-1234567890",
+      LLM_PROVIDER: "anthropic", // tests fake the network; a local .env must not switch them to GigaChat
     },
   },
 });

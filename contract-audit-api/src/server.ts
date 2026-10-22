@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
@@ -10,7 +11,7 @@ import { auditContract } from "./llm/audit.js";
 import { prepareDocument } from "./pipeline.js";
 import {
   addCredits, createCode, createJob, getCode, getJob, listCodes, listJobs,
-  normalizeCode, recoverInterruptedJobs, refundCredit, reserveCredit, type AccessCode,
+  normalizeCode, purgeOldResults, recoverInterruptedJobs, refundCredit, reserveCredit, type AccessCode,
 } from "./store.js";
 
 const upload = multer({
@@ -92,14 +93,16 @@ app.get("/api/jobs/:id", requireCode, (req, res) => {
   const job = getJob(String(req.params.id));
   // Someone else's job looks exactly like a missing one.
   if (!job || job.code !== currentCode(res).code) throw new AppError(404, "job_not_found", "Проверка не найдена.");
+  const expired = job.status === "done" && !job.result_json;
   res.json({
     job_id: job.id,
-    status: job.status,
+    status: expired ? "expired" : job.status,
     file_name: job.file_name,
     created_at: job.created_at,
     finished_at: job.finished_at,
     ...(job.result_json ? { result: JSON.parse(job.result_json) } : {}),
     ...(job.error_json ? { error: JSON.parse(job.error_json) } : {}),
+    ...(expired ? { error: { code: "expired", message: `Отчёт удалён: отчёты хранятся ${config.retentionDays} дней.` } } : {}),
   });
 });
 
@@ -200,6 +203,17 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("server.ts")) {
   const recovered = recoverInterruptedJobs();
   if (recovered) console.warn(`[startup] ${recovered} interrupted job(s) failed and refunded`);
+  const purge = () => {
+    const n = purgeOldResults(config.retentionDays);
+    if (n) console.info(`[retention] deleted ${n} report(s) older than ${config.retentionDays} days`);
+  };
+  purge();
+  setInterval(purge, 60 * 60 * 1000).unref();
+  for (const page of ["oferta.html", "privacy.html"]) {
+    if (readFileSync(fileURLToPath(new URL(`../public/${page}`, import.meta.url)), "utf8").includes("[ЗАПОЛНИТЬ")) {
+      console.warn(`[startup] public/${page}: впишите свои данные вместо [ЗАПОЛНИТЬ: …]`);
+    }
+  }
   if (!config.adminToken) console.warn("[startup] ADMIN_TOKEN is not set: you won't be able to issue access codes over HTTP (use the CLI: npm run code / node dist/cli.js)");
   const server = app.listen(config.port, () => console.log(`contract-audit-api listening on :${config.port}`));
   // The sync /api/audit endpoint can take minutes on a long contract.

@@ -3,6 +3,7 @@ import { config, type Effort } from "../config.js";
 import { planChunks, estimateTokens } from "../text/chunk.js";
 import type { NormalizedDoc } from "../text/normalize.js";
 import { addUsage, callClaude, costUsd, countTokens, emptyUsage, type StructuredCaller, type Usage } from "./call.js";
+import { callGigaChat } from "./gigachat.js";
 import { AUDIT_SYSTEM_PROMPT, CHUNK_INSTRUCTIONS, PROMPT_VERSION, REDUCE_SYSTEM_PROMPT } from "./prompts.js";
 import { AuditSchema, ChunkAuditSchema, type ChunkAuditResult } from "./schema.js";
 import { verifyAudit, type VerifiedAudit } from "./verify.js";
@@ -30,7 +31,10 @@ export interface Deps {
   call: StructuredCaller;
   countTokens: typeof countTokens;
 }
-const defaultDeps: Deps = { call: callClaude, countTokens };
+const estimateOnly: Deps["countTokens"] = async (_system, _text, estimate) => ({ tokens: estimate, exact: false });
+const defaultDeps: Deps = config.llmProvider === "gigachat"
+  ? { call: callGigaChat, countTokens: estimateOnly }
+  : { call: callClaude, countTokens };
 
 const escapeTag = (s: string) => s.replace(/[<>]/g, "");
 const clientBlock = (o: AuditOptions) =>
@@ -46,7 +50,7 @@ export async function auditContract(doc: NormalizedDoc, opts: AuditOptions, deps
   let mode: AuditMeta["mode"];
   let chunks = 1;
   let usage = emptyUsage();
-  let model = config.model;
+  let model = config.llmProvider === "gigachat" ? config.gigachatModel : config.model;
 
   if (tokens <= config.singlePassMaxTokens) {
     mode = "single_pass";
