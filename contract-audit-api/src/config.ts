@@ -42,6 +42,13 @@ export const config = {
   // A PDF page with fewer non-whitespace characters than this is treated as a scan and OCR'd.
   minTextCharsPerPage: int("MIN_TEXT_CHARS_PER_PAGE", 40),
 
+  // --- Service ---
+  dataDir: process.env.DATA_DIR ?? "data",
+  // Bearer token for /api/admin/*. Without it the admin API is disabled.
+  adminToken: process.env.ADMIN_TOKEN ?? "",
+  jobConcurrency: int("JOB_CONCURRENCY", 2),
+  piiMasking: (process.env.PII_MASKING ?? "true") !== "false",
+
   // --- OCR (tesseract.js) ---
   ocrLangs: process.env.OCR_LANGS ?? "rus+eng",
   // Where tesseract.js downloads/keeps *.traineddata. Set OCR_LANG_PATH to a local dir for offline servers.

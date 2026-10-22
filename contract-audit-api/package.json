@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "description": "Contract audit API: file upload -> text extraction/OCR -> Claude audit -> validated JSON",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "dev": "tsx watch --disable-warning=ExperimentalWarning src/server.ts",
+    "start": "node --disable-warning=ExperimentalWarning dist/server.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "fixtures": "bash scripts/make-fixtures.sh"
+    "fixtures": "bash scripts/make-fixtures.sh",
+    "code": "tsx --disable-warning=ExperimentalWarning src/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.1.0",
@@ -34,6 +35,6 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   }
 }

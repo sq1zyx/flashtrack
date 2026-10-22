@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Аудит договора</title>
+<meta name="description" content="Проверка договора на скрытые риски: штрафы, односторонние условия, ловушки. Отчёт с готовыми формулировками за 2–3 минуты.">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1a1d23; --muted: #646b78; --line: #e3e6eb;
+    --accent: #2f5bea; --accent-ink: #ffffff;
+    --ok: #1f8a4c; --ok-bg: #e6f4ec; --warn: #b26b00; --warn-bg: #fdf1dc; --bad: #c62828; --bad-bg: #fde8e8;
+    --mark: #fff3b0; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --card: #1a1d24; --text: #e8eaee; --muted: #9aa1ad; --line: #2c313b;
+      --accent: #6d8dff; --accent-ink: #0d1020;
+      --ok: #5fd08d; --ok-bg: #16301f; --warn: #f0b552; --warn-bg: #33270f; --bad: #ff7b7b; --bad-bg: #3a1a1a;
+      --mark: #4a4216; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  h3 { font-size: 16px; margin: 0 0 6px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  .muted { color: var(--muted); }
+  .small { font-size: 14px; }
+  label { display: block; font-weight: 600; margin: 14px 0 6px; }
+  input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: var(--bg); color: var(--text); }
+  .check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; }
+  .check input { margin-top: 5px; }
+  button { font: inherit; cursor: pointer; border-radius: 8px; padding: 10px 18px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px; text-align: center; cursor: pointer; }
+  .drop.over { border-color: var(--accent); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--bg); border: 1px solid var(--line); }
+  .error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 12px; margin-top: 12px; }
+  .hidden { display: none !important; }
+  .spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .verdict { display: flex; gap: 16px; align-items: center; border-radius: 12px; padding: 16px; }
+  .verdict.ok { background: var(--ok-bg); color: var(--ok); } .verdict.warn { background: var(--warn-bg); color: var(--warn); } .verdict.bad { background: var(--bad-bg); color: var(--bad); }
+  .score { flex: none; width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; font-weight: 700; border: 3px solid currentColor; }
+  .verdict b { font-size: 18px; display: block; }
+  .finding { border-top: 1px solid var(--line); padding: 16px 0; }
+  .finding:first-of-type { border-top: 0; }
+  .fhead { display: flex; gap: 10px; align-items: baseline; }
+  .pill { flex: none; min-width: 34px; text-align: center; border-radius: 6px; padding: 1px 6px; font-weight: 700; font-size: 14px; }
+  .s-ok { background: var(--ok-bg); color: var(--ok); } .s-warn { background: var(--warn-bg); color: var(--warn); } .s-bad { background: var(--bad-bg); color: var(--bad); }
+  blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--bg); border-radius: 0 8px 8px 0; font-style: italic; }
+  .wording { background: var(--ok-bg); border-radius: 8px; padding: 10px 12px; margin: 8px 0; position: relative; }
+  .wording button { position: absolute; top: 6px; right: 6px; padding: 2px 8px; font-size: 13px; }
+  .refs a { margin-right: 6px; font-size: 13px; color: var(--accent); cursor: pointer; text-decoration: underline; }
+  .kv { font-size: 14px; margin: 4px 0; }
+  .kv span { color: var(--muted); }
+  ul { padding-left: 20px; margin: 6px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; border-bottom: 1px solid var(--line); padding: 6px 4px; vertical-align: top; }
+  .contract p { margin: 0 0 6px; font-size: 14px; }
+  .contract .pid { color: var(--muted); font-size: 12px; margin-right: 6px; font-family: ui-monospace, monospace; }
+  .contract p.hit { background: var(--mark); border-radius: 4px; }
+  .contract p.flash { outline: 2px solid var(--accent); }
+  details summary { cursor: pointer; font-weight: 600; }
+  footer { margin-top: 32px; font-size: 13px; color: var(--muted); }
+  @media print {
+    body { background: #fff; color: #000; }
+    .no-print, header button, footer .no-print { display: none !important; }
+    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid-page; }
+    details { display: block; } details > * { display: block; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Аудит договора</h1>
+    <div class="row">
+      <span id="credits" class="badge hidden"></span>
+      <button id="logout" class="hidden small">Сменить код</button>
+    </div>
+  </header>
+
+  <!-- 1. Access code -->
+  <section id="login" class="card hidden">
+    <h2>Вход по коду доступа</h2>
+    <p class="muted small">Код вы получили после оплаты пакета проверок. Например: K7F2-9QXA.</p>
+    <form id="loginForm" class="row">
+      <input id="codeInput" type="text" placeholder="XXXX-XXXX" autocomplete="off" style="max-width:220px;text-transform:uppercase">
+      <button class="primary" type="submit">Войти</button>
+    </form>
+    <div id="loginError" class="error hidden"></div>
+  </section>
+
+  <!-- 2. Upload -->
+  <section id="uploadCard" class="card hidden">
+    <h2>Загрузите договор</h2>
+    <form id="uploadForm">
+      <div id="drop" class="drop">
+        <div id="dropText"><b>Перетащите файл сюда</b> или нажмите, чтобы выбрать<br><span class="muted small">PDF, DOCX, фото или скан (JPG, PNG) — до 20 МБ</span></div>
+        <input id="file" type="file" accept=".pdf,.docx,.jpg,.jpeg,.png,.webp,.tif,.tiff,.txt" class="hidden">
+      </div>
+      <label for="party">Чьи интересы защищаем?</label>
+      <input id="party" type="text" list="parties" placeholder="Например: Арендатор" maxlength="200" required>
+      <datalist id="parties">
+        <option>Арендатор</option><option>Арендодатель</option><option>Покупатель</option><option>Продавец</option>
+        <option>Заказчик</option><option>Исполнитель</option><option>Поставщик</option><option>Заёмщик</option>
+        <option>Участник долевого строительства</option><option>Работник</option><option>Подрядчик</option>
+      </datalist>
+      <label class="check"><input id="deep" type="checkbox"> <span>Глубокая проверка <span class="muted small">— дольше, для сложных и крупных договоров</span></span></label>
+      <label class="check"><input id="consent" type="checkbox" required> <span class="small">Я согласен на обработку загруженного документа и понимаю, что отчёт — аналитический инструмент, а не юридическая консультация.</span></label>
+      <div class="row" style="margin-top:16px"><button id="submit" class="primary" type="submit" disabled>Проверить договор</button></div>
+      <div id="uploadError" class="error hidden"></div>
+    </form>
+  </section>
+
+  <!-- 3. Progress -->
+  <section id="progress" class="card hidden">
+    <div class="row"><div class="spinner"></div><b id="progressText">Загружаем файл…</b></div>
+    <p class="muted small" id="progressHint">Обычно это занимает 1–3 минуты. Можно не держать страницу открытой — результат сохранится.</p>
+  </section>
+
+  <!-- 4. Report -->
+  <section id="report" class="hidden"></section>
+
+  <footer>
+    Сервис помогает найти рискованные условия, но не заменяет консультацию юриста. Перед подписанием важных договоров проверьте выводы со специалистом.
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+};
+let code = store.get("accessCode");
+let file = null;
+
+/** Builds DOM nodes; all text goes through textContent, so contract content can't inject HTML. */
+function el(tag, attrs, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v);
+  }
+  for (const c of children.flat()) if (c != null && c !== false) n.append(c instanceof Node ? c : String(c));
+  return n;
+}
+const show = (id, on = true) => $(id).classList.toggle("hidden", !on);
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { ...(opts.headers || {}), "X-Access-Code": code || "" } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(body?.error?.message || `Ошибка ${res.status}`); e.code = body?.error?.code; e.status = res.status; throw e; }
+  return body;
+}
+
+function setCredits(info) {
+  $("credits").textContent = `Осталось проверок: ${info.credits_left}`;
+  show("credits"); show("logout");
+}
+
+// ---------- Login ----------
+async function login(c) {
+  code = c.trim().toUpperCase();
+  try {
+    setCredits(await api("/api/me"));
+    store.set("accessCode", code);
+    show("login", false);
+    const pending = store.get("pendingJob");
+    if (pending) { show("progress"); poll(pending); } else show("uploadCard");
+  } catch (e) {
+    store.set("accessCode", null); code = null;
+    show("login"); $("loginError").textContent = e.message; show("loginError");
+  }
+}
+$("loginForm").addEventListener("submit", (e) => { e.preventDefault(); show("loginError", false); login($("codeInput").value); });
+$("logout").addEventListener("click", () => { store.set("accessCode", null); store.set("pendingJob", null); location.reload(); });
+
+// ---------- Upload ----------
+const drop = $("drop");
+drop.addEventListener("click", () => $("file").click());
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); pick(e.dataTransfer.files[0]); });
+$("file").addEventListener("change", (e) => pick(e.target.files[0]));
+function pick(f) {
+  if (!f) return;
+  if (f.size > 20 * 1024 * 1024) { $("uploadError").textContent = "Файл больше 20 МБ."; show("uploadError"); return; }
+  file = f; show("uploadError", false);
+  $("dropText").replaceChildren(el("b", {}, f.name), el("br"), el("span", { class: "muted small" }, `${f.size < 1024 * 1024 ? Math.max(1, Math.round(f.size / 1024)) + " КБ" : (f.size / 1024 / 1024).toFixed(1) + " МБ"} · нажмите, чтобы выбрать другой`));
+  validate();
+}
+const validate = () => { $("submit").disabled = !(file && $("party").value.trim() && $("consent").checked); };
+["party", "consent"].forEach((id) => $(id).addEventListener("input", validate));
+$("consent").addEventListener("change", validate);
+
+$("uploadForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  show("uploadError", false); $("submit").disabled = true;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("client_party", $("party").value.trim());
+  if ($("deep").checked) form.append("deep", "true");
+  try {
+    const r = await api("/api/jobs", { method: "POST", body: form });
+    setCredits(r);
+    store.set("pendingJob", r.job_id);
+    show("uploadCard", false); show("progress");
+    poll(r.job_id);
+  } catch (err) {
+    $("uploadError").textContent = err.message; show("uploadError"); validate();
+  }
+});
+
+// ---------- Progress ----------
+const STAGES = ["Распознаём текст договора…", "Читаем договор целиком…", "Ищем скрытые условия и ловушки…", "Оцениваем риски…", "Готовим формулировки для исправления…"];
+async function poll(id) {
+  const started = Date.now();
+  for (;;) {
+    const sec = Math.round((Date.now() - started) / 1000);
+    $("progressText").textContent = STAGES[Math.min(Math.floor(sec / 25), STAGES.length - 1)];
+    let job;
+    try { job = await api(`/api/jobs/${id}`); }
+    catch (e) {
+      if (e.status === 404 || e.status === 401) { store.set("pendingJob", null); show("progress", false); show("uploadCard"); return; }
+      await sleep(5000); continue; // network blip: keep trying
+    }
+    if (job.status === "done") { store.set("pendingJob", null); show("progress", false); renderReport(job.result, job.file_name); return; }
+    if (job.status === "failed") {
+      store.set("pendingJob", null); show("progress", false); show("uploadCard");
+      $("uploadError").textContent = job.error?.message || "Проверка не удалась."; show("uploadError");
+      api("/api/me").then(setCredits).catch(() => {});
+      validate(); return;
+    }
+    await sleep(3000);
+  }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------- Report ----------
+const VERDICT = {
+  sign: ["ok", "Можно подписывать"],
+  sign_after_edits: ["warn", "Подписывать после правок"],
+  do_not_sign_without_major_changes: ["bad", "Не подписывать без существенных изменений"],
+};
+const CATEGORY = {
+  penalties_liability: "Штрафы и ответственность", termination_unilateral: "Расторжение и односторонние права",
+  payment_pricing: "Платежи и цена", hidden_trap: "Скрытая ловушка", ambiguity: "Размытая формулировка",
+  dispute_resolution: "Споры и подсудность", subject_performance: "Предмет и исполнение", acceptance: "Приёмка",
+  ip_confidentiality: "ИС и конфиденциальность", consumer_rights: "Права потребителя", other: "Прочее",
+};
+const STATUS = { unfavorable: "Невыгодно, но законно", potentially_void: "Можно оспорить", ambiguous: "Двусмысленно" };
+const sev = (s) => (s >= 7 ? "s-bad" : s >= 4 ? "s-warn" : "s-ok");
+
+function refLinks(refs) {
+  return el("span", { class: "refs" }, (refs || []).map((r) => el("a", { onclick: () => jump(r) }, r)));
+}
+function jump(id) {
+  const p = document.querySelector(`.contract [data-pid="${CSS.escape(id)}"]`);
+  if (!p) return;
+  p.closest("details").open = true;
+  p.scrollIntoView({ behavior: "smooth", block: "center" });
+  p.classList.add("flash"); setTimeout(() => p.classList.remove("flash"), 1800);
+}
+function copyBtn(text) {
+  return el("button", { class: "no-print", type: "button", onclick: (e) => { navigator.clipboard?.writeText(text); e.target.textContent = "Скопировано"; } }, "Копировать");
+}
+
+function renderReport(r, fileName) {
+  const a = r.audit;
+  const [cls, label] = VERDICT[a.overall.verdict] || ["warn", a.overall.verdict];
+  const hits = new Set(a.findings.flatMap((f) => f.clause_refs));
+  const root = $("report");
+
+  root.replaceChildren(
+    el("div", { class: "card" },
+      el("div", { class: "row", style: "justify-content:space-between;margin-bottom:12px" },
+        el("div", {}, el("b", {}, a.document.title || fileName), el("div", { class: "muted small" }, `${a.document.contract_type} · в интересах: ${a.document.client_party}`)),
+        el("div", { class: "row no-print" },
+          el("button", { onclick: () => window.print() }, "Сохранить PDF"),
+          el("button", { class: "primary", onclick: () => { root.classList.add("hidden"); show("uploadCard"); file = null; $("dropText").innerHTML = "<b>Перетащите файл сюда</b> или нажмите, чтобы выбрать"; validate(); window.scrollTo(0, 0); } }, "Новая проверка"))),
+      el("div", { class: `verdict ${cls}` },
+        el("div", { class: "score", title: "Общий риск по шкале 1–10" }, a.overall.risk_score),
+        el("div", {}, el("b", {}, label), el("span", { class: "small" }, `Общий риск ${a.overall.risk_score} из 10`))),
+      el("p", {}, a.overall.summary),
+      a.overall.top_risks?.length ? el("div", {}, el("h3", {}, "Главное"), el("ul", {}, a.overall.top_risks.map((t) => el("li", {}, t)))) : null,
+      a.document.subject_summary ? el("p", { class: "muted small" }, "Суть договора: ", a.document.subject_summary) : null,
+      r.extraction?.ocrPages?.length ? el("p", { class: "muted small" }, `Текст распознан со скана (${r.extraction.ocrPages.length} стр.) — проверьте цитаты по оригиналу.`) : null,
+    ),
+
+    el("div", { class: "card" },
+      el("h2", {}, `Найденные риски (${a.findings.length})`),
+      a.findings.length ? null : el("p", { class: "muted" }, "Существенных рисков не найдено."),
+      a.findings.map((f) => el("div", { class: "finding" },
+        el("div", { class: "fhead" }, el("span", { class: `pill ${sev(f.risk_score)}` }, f.risk_score), el("h3", {}, f.title)),
+        el("div", { class: "muted small" }, `${CATEGORY[f.category] || f.category} · ${STATUS[f.legal_status] || f.legal_status} · `, refLinks(f.clause_refs)),
+        f.quote ? el("blockquote", {}, `«${f.quote}»`, f.quote_verified ? null : el("div", { class: "small", style: "font-style:normal;color:var(--warn)" }, "⚠ Цитата не найдена в тексте дословно — сверьте с оригиналом")) : null,
+        el("p", {}, f.explanation),
+        f.financial_impact ? el("p", { class: "kv" }, el("span", {}, "Возможные потери: "), f.financial_impact) : null,
+        el("p", { class: "kv" }, el("span", {}, "Что сделать: "), f.recommendation),
+        f.suggested_wording ? el("div", { class: "wording" }, el("div", { class: "small muted" }, "Предлагаемая формулировка"), f.suggested_wording, copyBtn(f.suggested_wording)) : null,
+        f.negotiation_tip ? el("p", { class: "kv" }, el("span", {}, "Как обсудить с контрагентом: "), f.negotiation_tip) : null,
+        f.legal_basis?.length ? el("p", { class: "kv" }, el("span", {}, "Нормы: "), f.legal_basis.map((l) => `${l.source} ${l.article}${l.note ? ` — ${l.note}` : ""}`).join("; ")) : null,
+      )),
+    ),
+
+    a.missing_clauses.length ? el("div", { class: "card" },
+      el("h2", {}, "Чего не хватает в договоре"),
+      a.missing_clauses.map((m) => el("div", { class: "finding" },
+        el("div", { class: "fhead" }, el("span", { class: `pill ${sev(m.risk_score)}` }, m.risk_score), el("h3", {}, m.title)),
+        el("p", {}, m.why_important),
+        m.suggested_wording ? el("div", { class: "wording" }, el("div", { class: "small muted" }, "Предлагаемый пункт"), m.suggested_wording, copyBtn(m.suggested_wording)) : null,
+      ))) : null,
+
+    a.key_dates.length ? el("div", { class: "card" },
+      el("h2", {}, "Ключевые сроки"),
+      el("table", {}, el("tr", {}, el("th", {}, "Событие"), el("th", {}, "Срок"), el("th", {}, "Пункт")),
+        a.key_dates.map((d) => el("tr", {}, el("td", {}, d.event), el("td", {}, d.deadline), el("td", {}, refLinks(d.clause_refs)))))) : null,
+
+    a.questions_to_counterparty.length ? el("div", { class: "card" },
+      el("h2", {}, "Вопросы контрагенту"), el("ul", {}, a.questions_to_counterparty.map((q) => el("li", {}, q)))) : null,
+
+    r.paragraphs ? el("div", { class: "card contract" },
+      el("details", {}, el("summary", {}, "Текст договора (рискованные пункты подсвечены)"),
+        el("div", { style: "margin-top:12px" }, r.paragraphs.map((p) => el("p", { "data-pid": p.id, class: hits.has(p.id) ? "hit" : "" }, el("span", { class: "pid" }, p.id), p.text))))) : null,
+
+    el("p", { class: "muted small" }, `Уверенность анализа: ${{ high: "высокая", medium: "средняя", low: "низкая" }[a.confidence] || a.confidence}. ${a.limitations || ""}`),
+  );
+  root.classList.remove("hidden");
+  window.scrollTo(0, 0);
+}
+
+// ---------- Start ----------
+if (code) login(code); else show("login");
+</script>
+</body>
+</html>

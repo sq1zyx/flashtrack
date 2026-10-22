@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { config } from "../src/config.js";
 import { terminateOcr } from "../src/extract/ocr.js";
 import { auditContract, type Deps } from "../src/llm/audit.js";
@@ -11,6 +11,19 @@ import { prepareDocument } from "../src/pipeline.js";
 import { app } from "../src/server.js";
 import { planChunks } from "../src/text/chunk.js";
 import { normalize } from "../src/text/normalize.js";
+import { maskPii } from "../src/text/pii.js";
+import { createCode, getCode } from "../src/store.js";
+
+// The HTTP tests go through the real job queue; only the network call to Claude is faked.
+vi.mock("../src/llm/call.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/llm/call.js")>();
+  const fake: import("../src/llm/call.js").StructuredCaller = async (_req, schema) => ({
+    data: schema.parse((globalThis as { __fakeAudit?: unknown }).__fakeAudit),
+    usage: { ...orig.emptyUsage(), input_tokens: 1000, output_tokens: 500, calls: 1 },
+    model: "claude-sonnet-5-5",
+  });
+  return { ...orig, callClaude: fake, countTokens: async (_s: string, _t: string, e: number) => ({ tokens: e, exact: false }) };
+});
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
 
@@ -170,6 +183,24 @@ describe("audit", () => {
   });
 });
 
+// --- PII ---------------------------------------------------------------------------------------
+
+describe("PII masking", () => {
+  it("masks personal data but keeps company details", () => {
+    const doc = normalize([
+      "Петров П.П., паспорт серии 45 12 № 345678, ИНН 771234567890, тел. +7 (916) 123-45-67, petrov@mail.ru",
+      "ООО «Ромашка», ИНН 7701234567, р/с 40702810900000012345, СНИЛС 123-456-789 01",
+      "Повторно: телефон 8 916 123 45 67",
+    ], { reflow: false });
+    const { doc: masked, counts } = maskPii(doc);
+    const [a, b, c] = masked.paragraphs.map((p) => p.text);
+    expect(a).toBe("Петров П.П., паспорт серии [ПАСПОРТ_1], ИНН [ИНН_1], тел. [ТЕЛЕФОН_1], [EMAIL_1]");
+    expect(b).toBe("ООО «Ромашка», ИНН 7701234567, р/с [СЧЁТ_1], СНИЛС [СНИЛС_1]");
+    expect(c).toBe("Повторно: телефон [ТЕЛЕФОН_1]"); // same number → same placeholder
+    expect(counts).toEqual({ ПАСПОРТ: 1, ИНН: 1, ТЕЛЕФОН: 1, EMAIL: 1, СЧЁТ: 1, СНИЛС: 1 });
+  });
+});
+
 // --- HTTP ------------------------------------------------------------------------------------
 
 describe("HTTP API", () => {
@@ -183,34 +214,79 @@ describe("HTTP API", () => {
   });
   afterAll(() => close());
 
-  const post = (path: string, fields: Record<string, string>, file?: [Buffer, string]) => {
+  const post = (path: string, code: string, fields: Record<string, string>, file?: [Buffer, string]) => {
     const form = new FormData();
     for (const [k, v] of Object.entries(fields)) form.append(k, v);
     if (file) form.append("file", new Blob([new Uint8Array(file[0])]), file[1]);
-    return fetch(base + path, { method: "POST", body: form });
+    return fetch(base + path, { method: "POST", body: form, headers: code ? { "X-Access-Code": code } : {} });
   };
+  const get = (path: string, code: string) => fetch(base + path, { headers: { "X-Access-Code": code } });
+  const err = async (res: Response) => [res.status, (await res.json()).error.code];
 
-  it("/api/extract returns paragraphs", async () => {
-    const res = await post("/api/extract", {}, [fixture("lease.docx"), "Договор аренды.docx"]);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.file.name).toBe("Договор аренды.docx");
-    expect(body.paragraphs.length).toBeGreaterThan(15);
+  it("requires a valid access code", async () => {
+    expect(await err(await post("/api/jobs", "", { client_party: "Арендатор" }, [fixture("lease.docx"), "a.docx"]))).toEqual([401, "access_code_required"]);
+    expect(await err(await post("/api/jobs", "NOPE-NOPE", { client_party: "Арендатор" }, [fixture("lease.docx"), "a.docx"]))).toEqual([401, "access_code_invalid"]);
   });
 
-  it("validates input", async () => {
-    let res = await post("/api/audit", { client_party: "Арендатор" });
-    expect([res.status, (await res.json()).error.code]).toEqual([400, "file_required"]);
+  it("job flow: charge a credit, run in background, return the report", async () => {
+    (globalThis as { __fakeAudit?: unknown }).__fakeAudit = fakeAudit();
+    const { code } = createCode(1, "test");
+    let res = await post("/api/jobs", code.toLowerCase(), { client_party: "Арендатор" }, [fixture("lease.docx"), "Договор.docx"]);
+    expect(res.status).toBe(202);
+    const { job_id, credits_left } = await res.json();
+    expect(credits_left).toBe(0);
 
-    res = await post("/api/audit", {}, [fixture("lease.docx"), "a.docx"]);
-    expect([res.status, (await res.json()).error.code]).toEqual([400, "client_party_required"]);
+    let job: { status: string; result?: { audit: AuditResult; paragraphs: unknown[] } };
+    for (;;) {
+      job = await (await get(`/api/jobs/${job_id}`, code)).json();
+      if (job.status === "done" || job.status === "failed") break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(job.status).toBe("done");
+    expect(job.result!.audit.overall.risk_score).toBe(9);
+    expect(job.result!.paragraphs.length).toBeGreaterThan(15);
 
-    res = await post("/api/audit", { client_party: "Арендатор" }, [fixture("broken.pdf"), "a.pdf"]);
-    expect([res.status, (await res.json()).error.code]).toEqual([422, "pdf_corrupted"]);
+    // Out of credits now.
+    res = await post("/api/jobs", code, { client_party: "Арендатор" }, [fixture("lease.docx"), "a.docx"]);
+    expect(await err(res)).toEqual([402, "no_credits"]);
+    // Another code can't read this job.
+    const other = createCode(1).code;
+    expect((await get(`/api/jobs/${job_id}`, other)).status).toBe(404);
   });
 
-  it("rejects files over the size limit with 413", async () => {
-    const res = await post("/api/extract", {}, [Buffer.alloc(config.maxFileBytes + 1), "big.pdf"]);
-    expect([res.status, (await res.json()).error.code]).toEqual([413, "file_too_large"]);
+  it("a failed job refunds the credit", async () => {
+    const { code } = createCode(1);
+    const res = await post("/api/jobs", code, { client_party: "Арендатор" }, [fixture("broken.pdf"), "a.pdf"]);
+    const { job_id } = await res.json();
+    let job: { status: string; error?: { code: string } };
+    do {
+      await new Promise((r) => setTimeout(r, 50));
+      job = await (await get(`/api/jobs/${job_id}`, code)).json();
+    } while (job.status !== "failed" && job.status !== "done");
+    expect(job.error!.code).toBe("pdf_corrupted");
+    expect(getCode(code)!.credits_used).toBe(0);
+  });
+
+  it("validates input before charging", async () => {
+    const { code } = createCode(5);
+    expect(await err(await post("/api/jobs", code, { client_party: "Арендатор" }))).toEqual([400, "file_required"]);
+    expect(await err(await post("/api/jobs", code, {}, [fixture("lease.docx"), "a.docx"]))).toEqual([400, "client_party_required"]);
+    expect(await err(await post("/api/extract", code, {}, [Buffer.alloc(config.maxFileBytes + 1), "big.pdf"]))).toEqual([413, "file_too_large"]);
+    expect(getCode(code)!.credits_used).toBe(0);
+  });
+
+  it("admin API issues codes only with the token", async () => {
+    const mk = (token: string) => fetch(base + "/api/admin/codes", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ credits: 10, note: "риелтор" }),
+    });
+    expect((await mk("wrong")).status).toBe(401);
+    const res = await mk(config.adminToken);
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ credits_total: 10, credits_used: 0, note: "риелтор" });
+  });
+
+  it("serves the web UI", async () => {
+    const html = await (await fetch(base + "/")).text();
+    expect(html).toContain("Аудит договора");
   });
 });
