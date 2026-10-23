@@ -36,11 +36,18 @@ Debug=0
 KeyHoldMs=5
 ClickHoldMs=5
 StartHidden=0
-; Оформление: red, blue, purple, emerald, orange, pink / dark, midnight, amoled
+; Оформление: red, blue, purple, emerald, orange, pink, custom / dark, midnight, amoled
 Theme=red
 Base=dark
+AccentColor=E11D2E
 ; 1 = короткие уведомления внизу экрана
 ShowOSD=1
+; Клавиша, открывающая меню поверх игры
+MenuKey=Insert
+MenuOnTop=1
+; 1 = точка-индикатор в углу экрана (зелёная — макросы работают)
+Indicator=0
+Profile=Основной
 
 [Game]
 ; Твои бинды из настроек Fortnite
@@ -108,6 +115,15 @@ Enabled=0
 Trigger=MButton
 Delay=20
 
+[RapidFire]
+Enabled=0
+Trigger=
+Delay=30
+
+[AntiAFK]
+Enabled=0
+Interval=60
+
 [Crosshair]
 Enabled=0
 ShowOnStart=1
@@ -118,6 +134,10 @@ Length=8
 Thickness=2
 Gap=4
 DotSize=2
+Radius=9
+Opacity=100
+Outline=0
+OutlineColor=000000
 OffsetX=0
 OffsetY=0
 
@@ -194,8 +214,10 @@ BUILTIN := [
     {sec: "Macro:SimpleEdit", name: "Simple edit"},
     {sec: "Macro:CrouchPeek", name: "Crouch peek"},
     {sec: "Pickup", name: "Pick-up"},
+    {sec: "RapidFire", name: "Rapid fire"},
     {sec: "AutoSprint", name: "Auto sprint", badge: "AUTO"},
     {sec: "Competitive", name: "Competitive", badge: "PEEK"},
+    {sec: "AntiAFK", name: "Anti-AFK", badge: "AFK"},
 ]
 
 ; Состояние движка
@@ -207,6 +229,9 @@ DebugOn := false
 HoldMs := 5
 ClickHold := 5
 Pressed := Map()
+Stats := NewMap(), StatsVer := 0
+PROF_DEFAULT := "Основной"
+PrevWin := 0
 
 ; Состояние интерфейса
 THEME_ORDER := ["red", "blue", "purple", "emerald", "orange", "pink"]
@@ -261,7 +286,7 @@ ParseInto(text, cfg) {
     }
 }
 
-SaveIni() {
+SaveIni(path := "") {
     out := "", sec := ""
     for line in StrSplit(DEFAULT_INI, "`n", "`r") {
         t := Trim(line)
@@ -293,7 +318,7 @@ SaveIni() {
         out .= Extras(s, known)
     }
     try {
-        f := FileOpen(CFG, "w", "UTF-8-RAW")
+        f := FileOpen(path != "" ? path : CFG, "w", "UTF-8-RAW")
         f.Write(out)
         f.Close()
     } catch Error as e {
@@ -460,6 +485,7 @@ ApplyEngine() {
 
     ; Глобальные клавиши
     Reg("", Get("General", "SuspendKey"), ToggleSuspend, "Macros toggle", "S")
+    Reg("", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
     if Bool("Crosshair", "Enabled")
         Reg("", Get("Crosshair", "ToggleKey"), ToggleCrosshair, "Crosshair toggle")
 
@@ -467,21 +493,37 @@ ApplyEngine() {
 
     if Bool("DragEdit", "Enabled") {
         t := Get("DragEdit", "Trigger")
-        Reg(ctx, t, DragEdit.Bind(t), "Drag edit")
+        Reg(ctx, t, Counted.Bind("DragEdit", DragEdit.Bind(t)), "Drag edit")
     }
     if Bool("InfiniteEdit", "Enabled") {
         t := Get("InfiniteEdit", "Trigger")
-        Reg(ctx, t, InfiniteEdit.Bind(t), "Infinite edit")
+        Reg(ctx, t, Counted.Bind("InfiniteEdit", InfiniteEdit.Bind(t)), "Infinite edit")
     }
     if Bool("InstantEdit", "Enabled")
-        Reg(ctx, Get("InstantEdit", "Trigger"), InstantEdit, "Instant edit")
+        Reg(ctx, Get("InstantEdit", "Trigger"), Counted.Bind("InstantEdit", InstantEdit), "Instant edit")
     if Bool("InstantBuild", "Enabled") {
         for piece in ["Wall", "Floor", "Stairs", "Cone"]
-            Reg(ctx, Get("InstantBuild", piece "Trigger"), Build.Bind(piece), "Instant build")
+            Reg(ctx, Get("InstantBuild", piece "Trigger"), Counted.Bind("InstantBuild", Build.Bind(piece)), "Instant build")
     }
     if Bool("Pickup", "Enabled") {
         t := Get("Pickup", "Trigger")
-        Reg(ctx, t, Pickup.Bind(t), "Pick-up")
+        Reg(ctx, t, Counted.Bind("Pickup", Pickup.Bind(t)), "Pick-up")
+    }
+    if Bool("RapidFire", "Enabled") {
+        t := Get("RapidFire", "Trigger")
+        Reg(ctx, t, Counted.Bind("RapidFire", RapidFire.Bind(t)), "Rapid fire")
+    }
+    SetTimer(AntiAFKTick, Bool("AntiAFK", "Enabled") ? 5000 : 0)
+
+    ; Переназначение клавиш: секции [Remap:N]
+    for sec in C {
+        if !(sec ~= "i)^Remap:") || !Bool(sec, "Enabled")
+            continue
+        from := Get(sec, "From"), to := Get(sec, "To")
+        if (from = "" || to = "")
+            continue
+        if Reg(ctx, from, RemapKey.Bind(to, "down"), "Remap → " KeyLabel(to))
+            RegRaw(ctx, (IsMouse(from) ? "*" : "$*") from " up", RemapKey.Bind(to, "up"))
     }
 
     ; Пресеты и свои макросы: секции [Macro:Имя]
@@ -498,7 +540,7 @@ ApplyEngine() {
         m.timer := RunOnce.Bind(m)
         Macros.Push(m)
         t := Get(sec, "Trigger")
-        Reg(ctx, t, MacroPress.Bind(m, t), m.name)
+        Reg(ctx, t, Counted.Bind(sec, MacroPress.Bind(m, t)), m.name)
     }
 
     ; Непрерывная стройка: эти клавиши отпускают «ЛКМ» (сами клавиши проходят в игру)
@@ -513,6 +555,44 @@ ApplyEngine() {
 }
 
 ; ───────────────────────── Макросы ─────────────────────────
+
+; Считает срабатывания для карточек на Dashboard
+Counted(sec, fn, args*) {
+    global StatsVer
+    Stats[sec] := Stats.Get(sec, 0) + 1
+    StatsVer++
+    fn(args*)
+}
+
+RemapKey(to, dir, *) {
+    if IsWheel(to) {
+        if (dir = "down")
+            SendInput "{Blind}{" to "}"
+        return
+    }
+    SendInput "{Blind}{" to " " dir "}"
+}
+
+; Пока держишь — кликает «Выбор/выстрел» с заданным интервалом
+RapidFire(trig, *) {
+    StopPlace()
+    loop {
+        Tap(B("Select"))
+        Wait(Num("RapidFire", "Delay", 30))
+    } until !Held(trig)
+}
+
+; Если долго нет ввода, подпрыгивает, чтобы игра не выкинула за бездействие
+AntiAFKTick() {
+    global StatsVer
+    if A_IsSuspended || !WinActive("ahk_exe " Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe"))
+        return
+    if (A_TimeIdlePhysical < Max(Num("AntiAFK", "Interval", 60), 10) * 1000)
+        return
+    Tap(B("Jump"))
+    Stats["AntiAFK"] := Stats.Get("AntiAFK", 0) + 1
+    StatsVer++
+}
 
 AutoSprint() {
     if Bool("AutoSprint", "Enabled") {
@@ -678,6 +758,7 @@ ToggleSuspend(*) {
     Suspend(-1)
     Notify(A_IsSuspended ? "Макросы выключены" : "Макросы включены")
     PushState()
+    UpdateIndicator()
 }
 
 ; ───────────────────────── Импорт биндов из Fortnite ─────────────────────────
@@ -727,66 +808,90 @@ FromUEKey(k) {
 ; ───────────────────────── Прицел ─────────────────────────
 
 BuildOverlay() {
-    global XG, XR
-    XG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
-    XG.MarginX := 0, XG.MarginY := 0
-    XG.BackColor := "010101"
-    loop 5
-        XR.Push(XG.AddText("x0 y0 w1 h1 Background00FF00"))
+    global XG
+    DllCall("LoadLibrary", "str", "gdiplus", "ptr")
+    si := Buffer(24, 0)
+    NumPut("uint", 1, si)
+    DllCall("gdiplus\GdiplusStartup", "ptr*", &tok := 0, "ptr", si, "ptr", 0)
+    XG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x80020 -DPIScale")
 }
 
-CrossColor() {
-    c := Get("Crosshair", "Color", "00FF00")
-    return (c ~= "^[0-9A-Fa-f]{6}$" && c != "010101") ? c : "00FF00"
+CrossColor(key := "Color", def := "00FF00") {
+    c := Get("Crosshair", key, def)
+    return (c ~= "^[0-9A-Fa-f]{6}$") ? c : def
 }
 
-CrossGeom() {
+; Фигуры прицела относительно центра: линии, точка, кольцо
+CrossShapes() {
     style := StrLower(Get("Crosshair", "Style", "crossdot"))
     len := Max(Round(Num("Crosshair", "Length", 8)), 1)
     th := Max(Round(Num("Crosshair", "Thickness", 2)), 1)
     gap := Max(Round(Num("Crosshair", "Gap", 4)), 0)
     dot := Max(Round(Num("Crosshair", "DotSize", 2)), 1)
-    hasLines := style ~= "^(cross|crossdot|t|tdot)$"
-    hasTop := style ~= "^cross"
-    hasDot := style ~= "dot$"
-    S := Max(hasLines ? 2 * (gap + len) + th : 0, hasDot ? dot : 0, 1)
-    c := Round((S - th) / 2)
-    r := []
-    if hasLines {
-        r.Push([0, c, len, th])                  ; лево
-        r.Push([S - len, c, len, th])            ; право
-        r.Push([c, S - len, th, len])            ; низ
-        if hasTop
-            r.Push([c, 0, th, len])              ; верх
+    rad := Max(Round(Num("Crosshair", "Radius", 9)), 2)
+    o := th // 2
+    sh := {rects: [], dot: 0, ring: 0, th: th}
+    if (style ~= "^(cross|crossdot|t|tdot|crosscircle)$") {
+        sh.rects.Push([-gap - len, -o, len, th], [gap + (th & 1), -o, len, th], [-o, gap + (th & 1), th, len])
+        if !(style ~= "^t")
+            sh.rects.Push([-o, -gap - len, th, len])
     }
-    if hasDot
-        r.Push([Round((S - dot) / 2), Round((S - dot) / 2), dot, dot])
-    return {S: S, rects: r}
+    if (style ~= "dot$")
+        sh.dot := dot
+    if (style ~= "circle")
+        sh.ring := rad
+    ext := Max(sh.rects.Length ? gap + len + 1 : 0, sh.dot / 2 + 1, sh.ring ? sh.ring + th : 0) + 3
+    sh.size := Ceil(ext) * 2 + 1
+    return sh
 }
 
-PaintRects(ctrls, geo, ox, oy, col, show) {
-    for i, ctl in ctrls {
-        if (show && i <= geo.rects.Length) {
-            q := geo.rects[i]
-            ctl.Move(ox + q[1], oy + q[2], q[3], q[4])
-            ctl.Opt("Background" col)
-            ctl.Visible := true
-            ctl.Redraw()
-        } else
-            ctl.Visible := false
+DrawCrosshair(x, y) {
+    sh := CrossShapes()
+    n := sh.size, c := n // 2
+    alpha := Round(Max(Min(Num("Crosshair", "Opacity", 100), 100), 5) * 2.55)
+    argb := (alpha << 24) | Integer("0x" CrossColor())
+    oargb := (alpha << 24) | Integer("0x" CrossColor("OutlineColor", "000000"))
+    bi := Buffer(40, 0)
+    NumPut("uint", 40, "int", n, "int", -n, "ushort", 1, "ushort", 32, bi)
+    hdc := DllCall("CreateCompatibleDC", "ptr", 0, "ptr")
+    hbm := DllCall("CreateDIBSection", "ptr", hdc, "ptr", bi, "uint", 0, "ptr*", 0, "ptr", 0, "uint", 0, "ptr")
+    obm := DllCall("SelectObject", "ptr", hdc, "ptr", hbm, "ptr")
+    DllCall("gdiplus\GdipCreateFromHDC", "ptr", hdc, "ptr*", &g := 0)
+    passes := Bool("Crosshair", "Outline") ? [[oargb, 1], [argb, 0]] : [[argb, 0]]
+    for ps in passes {
+        col := ps[1], e := ps[2]
+        DllCall("gdiplus\GdipCreateSolidFill", "uint", col, "ptr*", &br := 0)
+        DllCall("gdiplus\GdipSetSmoothingMode", "ptr", g, "int", 3)
+        for r in sh.rects
+            DllCall("gdiplus\GdipFillRectangle", "ptr", g, "ptr", br, "float", c + r[1] - e, "float", c + r[2] - e, "float", r[3] + 2 * e, "float", r[4] + 2 * e)
+        DllCall("gdiplus\GdipSetSmoothingMode", "ptr", g, "int", 4)
+        if sh.dot {
+            d := sh.dot + 2 * e
+            DllCall("gdiplus\GdipFillEllipse", "ptr", g, "ptr", br, "float", c + 0.5 - d / 2, "float", c + 0.5 - d / 2, "float", d, "float", d)
+        }
+        if sh.ring {
+            DllCall("gdiplus\GdipCreatePen1", "uint", col, "float", sh.th + 2 * e, "int", 2, "ptr*", &pen := 0)
+            rr := sh.ring
+            DllCall("gdiplus\GdipDrawEllipse", "ptr", g, "ptr", pen, "float", c + 0.5 - rr, "float", c + 0.5 - rr, "float", rr * 2, "float", rr * 2)
+            DllCall("gdiplus\GdipDeletePen", "ptr", pen)
+        }
+        DllCall("gdiplus\GdipDeleteBrush", "ptr", br)
     }
+    DllCall("gdiplus\GdipDeleteGraphics", "ptr", g)
+    pt := Buffer(8), sz := Buffer(8), src := Buffer(8, 0), blend := Buffer(4)
+    NumPut("int", x - c, "int", y - c, pt)
+    NumPut("int", n, "int", n, sz)
+    NumPut("uchar", 0, "uchar", 0, "uchar", 255, "uchar", 1, blend)
+    DllCall("UpdateLayeredWindow", "ptr", XG.Hwnd, "ptr", 0, "ptr", pt, "ptr", sz, "ptr", hdc, "ptr", src, "uint", 0, "ptr", blend, "uint", 2)
+    DllCall("SelectObject", "ptr", hdc, "ptr", obm)
+    DllCall("DeleteObject", "ptr", hbm)
+    DllCall("DeleteDC", "ptr", hdc)
 }
 
 UpdateCrosshair() {
-    geo := CrossGeom()
-    col := CrossColor()
-    on := Bool("Crosshair", "Enabled") && XVisible
-    PaintRects(XR, geo, 0, 0, col, true)
-    if on {
-        x := Round((A_ScreenWidth - geo.S) / 2) + Round(Num("Crosshair", "OffsetX", 0))
-        y := Round((A_ScreenHeight - geo.S) / 2) + Round(Num("Crosshair", "OffsetY", 0))
-        XG.Show(Format("x{} y{} w{} h{} NA", x, y, geo.S, geo.S))
-        WinSetTransColor("010101", XG)
+    if (Bool("Crosshair", "Enabled") && XVisible) {
+        XG.Show("NA")
+        DrawCrosshair(A_ScreenWidth // 2 + Round(Num("Crosshair", "OffsetX", 0)), A_ScreenHeight // 2 + Round(Num("Crosshair", "OffsetY", 0)))
     } else
         XG.Hide()
 }
@@ -802,9 +907,10 @@ ToggleCrosshair(*) {
 ; Страница вызывает методы класса Bridge, а скрипт передаёт ей состояние через render().
 
 MakePalette() {
-    th := THEMES.Has(Get("General", "Theme", "red")) ? THEMES[Get("General", "Theme", "red")] : THEMES["red"]
+    tid := Get("General", "Theme", "red")
+    acc := (tid = "custom") ? Get("General", "AccentColor", "E11D2E") : (THEMES.Has(tid) ? THEMES[tid][2] : "E11D2E")
     bs := BASES.Has(Get("General", "Base", "dark")) ? BASES[Get("General", "Base", "dark")] : BASES["dark"]
-    return {bg: bs[1], key: bs[5], text: "ECECF1", accent: th[2]}
+    return {bg: bs[1], key: bs[5], text: "ECECF1", accent: acc}
 }
 
 BuildUI() {
@@ -892,6 +998,68 @@ class Bridge {
         Notify("Бинды импортированы")
         return 1
     }
+    switchProfile(n) {
+        SetTimer(SwitchProfile.Bind(n), -10)
+        return 1
+    }
+    newProfile() {
+        SetTimer(NewProfile, -10)
+        return 1
+    }
+    dupProfile(n) {
+        SetTimer(DupProfile.Bind(n), -10)
+        return 1
+    }
+    renameProfile(o, n) {
+        SetTimer(RenameProfile.Bind(o, n), -10)
+        return 1
+    }
+    deleteProfile(n) {
+        SetTimer(DeleteProfile.Bind(n), -10)
+        return 1
+    }
+    exportProfile(n) {
+        SetTimer(ExportProfile.Bind(n), -10)
+        return 1
+    }
+    importProfile() {
+        SetTimer(ImportProfile, -10)
+        return 1
+    }
+    resetSec(sec) {
+        ResetSections([sec])
+        Notify("Сброшено к стандартным")
+        return 1
+    }
+    resetGroup(g) {
+        list := []
+        if (g = "binds")
+            list.Push("Game")
+        else if (g = "crosshair")
+            list.Push("Crosshair")
+        else
+            for sec in TPL
+                if !(sec ~= "i)^(General|Game|Crosshair)$")
+                    list.Push(sec)
+        ResetSections(list)
+        Notify("Сброшено к стандартным")
+        return 1
+    }
+    newRemap() {
+        n := 1
+        while C.Has("Remap:" n)
+            n++
+        for k, v in Map("Enabled", "1", "From", "", "To", "")
+            SetVal("Remap:" n, k, v)
+        Commit()
+        return "Remap:" n
+    }
+    deleteSec(sec) {
+        if C.Has(sec) && (sec ~= "i)^Remap:")
+            C.Delete(sec)
+        Commit()
+        return 1
+    }
     setPage(p) {
         global CurPage
         CurPage := p
@@ -967,6 +1135,145 @@ MouseCap(res, ih, b, *) {
     ih.Stop()
 }
 
+SecList(prefix) {
+    r := []
+    for s in C
+        if (SubStr(s, 1, StrLen(prefix)) = prefix)
+            r.Push(s)
+    return r
+}
+
+; ───── Профили: файлы profiles\<имя>.ini; общие настройки [General] не меняются при переключении
+ProfDir() => A_ScriptDir "\profiles"
+ProfPath(n) => ProfDir() "\" n ".ini"
+CleanName(n) => Trim(RegExReplace(n, '[\\/:*?"<>|\[\]=;]'))
+
+ProfileList() {
+    r := [], cur := Get("General", "Profile", PROF_DEFAULT), has := false
+    if DirExist(ProfDir())
+        loop files ProfDir() "\*.ini" {
+            n := SubStr(A_LoopFileName, 1, -4)
+            r.Push(n)
+            has := has || (n = cur)
+        }
+    if !has
+        r.InsertAt(1, cur)
+    return r
+}
+
+SaveCurrentProfile() {
+    DirCreate(ProfDir())
+    SaveIni(ProfPath(Get("General", "Profile", PROF_DEFAULT)))
+}
+
+UniqueProfile(base) {
+    n := base, i := 2
+    while FileExist(ProfPath(n)) || n = Get("General", "Profile", PROF_DEFAULT)
+        n := base " " i++
+    return n
+}
+
+SwitchProfile(name) {
+    global C
+    if (name = Get("General", "Profile", PROF_DEFAULT))
+        return
+    SaveCurrentProfile()
+    gen := C["General"]
+    nc := NewMap()
+    ParseInto(DEFAULT_INI, nc)
+    if FileExist(ProfPath(name))
+        ParseInto(FileRead(ProfPath(name), "UTF-8"), nc)
+    nc["General"] := gen
+    C := nc
+    SetVal("General", "Profile", name)
+    Commit()
+    Notify("Профиль: " name)
+}
+
+NewProfile() {
+    SaveCurrentProfile()
+    n := UniqueProfile("Профиль")
+    FileOpen(ProfPath(n), "w", "UTF-8-RAW").Write(DEFAULT_INI)
+    SwitchProfile(n)
+}
+
+DupProfile(name) {
+    SaveCurrentProfile()
+    n := UniqueProfile(name " копия")
+    if FileExist(ProfPath(name))
+        FileCopy(ProfPath(name), ProfPath(n))
+    PushState()
+    Notify("Создан профиль «" n "»")
+}
+
+RenameProfile(old, new) {
+    new := CleanName(new)
+    if (new = "" || new = old)
+        return PushState()
+    if FileExist(ProfPath(new)) {
+        Notify("Профиль с таким названием уже есть")
+        return PushState()
+    }
+    if FileExist(ProfPath(old))
+        FileMove(ProfPath(old), ProfPath(new))
+    if (old = Get("General", "Profile", PROF_DEFAULT)) {
+        SetVal("General", "Profile", new)
+        SaveIni()
+        SaveCurrentProfile()
+    }
+    PushState()
+}
+
+DeleteProfile(name) {
+    if (name = Get("General", "Profile", PROF_DEFAULT)) {
+        Notify("Нельзя удалить активный профиль")
+        return
+    }
+    try FileDelete(ProfPath(name))
+    PushState()
+    Notify("Профиль «" name "» удалён")
+}
+
+ExportProfile(name) {
+    UI.Opt("+OwnDialogs")
+    path := FileSelect("S16", A_Desktop "\FlashMacro - " name ".ini", "Экспорт профиля", "Профиль FlashMacro (*.ini)")
+    if (path = "")
+        return
+    if !(path ~= "i)\.ini$")
+        path .= ".ini"
+    if (name = Get("General", "Profile", PROF_DEFAULT))
+        SaveIni(path)
+    else
+        FileCopy(ProfPath(name), path, 1)
+    Notify("Профиль сохранён в файл")
+}
+
+ImportProfile() {
+    UI.Opt("+OwnDialogs")
+    path := FileSelect(1, A_Desktop, "Импорт профиля", "Профиль FlashMacro (*.ini)")
+    if (path = "")
+        return
+    SplitPath(path, , , , &base)
+    SaveCurrentProfile()
+    n := UniqueProfile(CleanName(RegExReplace(base, "^FlashMacro - ")))
+    FileCopy(path, ProfPath(n))
+    PushState()
+    Notify("Импортирован профиль «" n "»")
+}
+
+; Сброс секций к стандартным значениям (свои макросы и переназначения не трогаем)
+ResetSections(list) {
+    for sec in list {
+        if !TPL.Has(sec)
+            continue
+        m := NewMap()
+        for k, v in TPL[sec]
+            m[k] := v
+        C[sec] := m
+    }
+    Commit()
+}
+
 NewCustom() {
     n := 1
     while C.Has("Macro:Macro " n)
@@ -994,10 +1301,13 @@ RenameCustom(old, new) {
 }
 
 Commit(*) {
+    global CLR
     SaveIni()
     ApplyEngine()
+    CLR := MakePalette()
     PushState()
     UpdateCrosshair()
+    UpdateIndicator()
 }
 
 EnabledTriggers() {
@@ -1010,9 +1320,14 @@ EnabledTriggers() {
             r.Push(Get("InstantBuild", p "Trigger"))
     if Bool("Competitive", "Enabled")
         r.Push(Get("Competitive", "PeekKey"))
-    for s in C
+    if Bool("RapidFire", "Enabled")
+        r.Push(Get("RapidFire", "Trigger"))
+    for s in C {
         if (s ~= "i)^Macro:") && Bool(s, "Enabled")
             r.Push(Get(s, "Trigger"))
+        if (s ~= "i)^Remap:") && Bool(s, "Enabled")
+            r.Push(Get(s, "From"))
+    }
     return r
 }
 
@@ -1042,8 +1357,11 @@ PushState() {
         active += Bool(m.sec, "Enabled")
     for s in custom
         active += Bool(s, "Enabled")
+    if (k := Get("General", "MenuKey")) && !caps.Has(Norm(k))
+        caps[Norm(k)] := "menu"
     st := Map("cfg", C, "suspended", A_IsSuspended ? 1 : 0, "caps", caps, "used", usedBy, "binds", binds
-        , "custom", custom, "active", active, "total", BUILTIN.Length + custom.Length)
+        , "custom", custom, "active", active, "total", BUILTIN.Length + custom.Length
+        , "remaps", SecList("Remap:"), "profiles", ProfileList(), "profile", Get("General", "Profile", PROF_DEFAULT), "stats", Stats)
     try Wnd.render(Json(st))
 }
 
@@ -1114,18 +1432,63 @@ ShowUI(*) {
     global UIShown
     if !UI
         return
+    UI.Opt(Bool("General", "MenuOnTop", true) ? "+AlwaysOnTop" : "-AlwaysOnTop")
     UI.Show("w" W " h" H)
     UIShown := true
     PushState()
     SetTimer(FlashTick, 40)
+    SetTimer(StatsTick, 500)
 }
 
-HideUI() {
+; Клавиша меню: открыть поверх игры / вернуться в игру
+ToggleMenu(*) {
+    global PrevWin
+    if !UI
+        return
+    if (UIShown && WinActive("ahk_id " UI.Hwnd)) {
+        UI.Hide()
+        HideUI(true)
+        if (PrevWin && WinExist("ahk_id " PrevWin))
+            try WinActivate("ahk_id " PrevWin)
+        return
+    }
+    PrevWin := WinExist("A")
+    ShowUI()
+    try WinActivate("ahk_id " UI.Hwnd)
+}
+
+StatsTick() {
+    static last := -1
+    if (StatsVer != last && Wnd) {
+        last := StatsVer
+        try Wnd.stats(Json(Stats))
+    }
+}
+
+; Точка-индикатор в углу экрана: зелёная — макросы работают, серая — пауза
+UpdateIndicator() {
+    static ig := 0
+    if !Bool("General", "Indicator") {
+        if ig
+            ig.Hide()
+        return
+    }
+    if !ig {
+        ig := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
+        ig.Show("x10 y10 w12 h12 NA")
+        RoundWin(ig, 12, 12, 12)
+    }
+    ig.BackColor := A_IsSuspended ? "6B6B76" : "22C55E"
+    ig.Show("x10 y10 w12 h12 NA")
+}
+
+HideUI(quiet := false) {
     global UIShown
     static told := false
     UIShown := false
     SetTimer(FlashTick, 0)
-    if !told {
+    SetTimer(StatsTick, 0)
+    if (!told && !quiet) {
         told := true
         Notify("FlashMacro работает в трее. Клик по иконке — открыть меню.", 2500)
     }
@@ -1196,6 +1559,8 @@ InitForms() {
         , Fld("key", "ConeTrigger", "Конус"), Fld("num", "PlaceDelay", "Задержка установки")
         , Fld("toggle", "Continuous", "Непрерывная стройка"), Fld("text", "StopKeys", "Клавиши, отпускающие ЛКМ", {w: 200})]}
     FORMS["Pickup"] := {desc: "Пока держишь клавишу — спамит «Взаимодействие», чтобы быстро подбирать лут.", fields: [en, tr, Fld("num", "Delay", "Интервал")]}
+    FORMS["RapidFire"] := {desc: "Пока держишь клавишу — быстро кликает «Выбор/выстрел» с заданным интервалом.", fields: [en, tr, Fld("num", "Delay", "Интервал кликов")]}
+    FORMS["AntiAFK"] := {desc: "Если долго не трогать клавиатуру и мышь, персонаж изредка подпрыгивает, чтобы игра не выкинула за бездействие. Работает только в окне Fortnite.", fields: [en, Fld("num", "Interval", "Прыгать после бездействия", {u: "сек"})]}
     FORMS["AutoSprint"] := {desc: "После каждой постройки и редакта снова нажимает спринт.", fields: [en, Fld("num", "Delay", "Задержка после действия")]}
     FORMS["Competitive"] := {desc: "Для игры с выключенным «Авто-подтверждением редактирования»: макросы подтверждают редакт клавишей редактирования. Пока держишь клавишу peek, редакт остаётся открытым — можно смотреть сквозь конус.", fields: [en, Fld("key", "PeekKey", "Клавиша peek")]}
     pd := Map("WallRetake", "Ставит стену и сразу переключает на оружие из слота 1."
@@ -1263,6 +1628,20 @@ InitHints() {
         , "page.Custom", "Свои макросы из любых последовательностей нажатий."
         , "page.Crosshair", "Свой прицел поверх игры с живым превью."
         , "page.Settings", "Горячая клавиша, режим работы, лог нажатий, темы оформления."
+        , "RapidFire.Delay", "Пауза между кликами в мс. Меньше — быстрее."
+        , "AntiAFK.Interval", "Через сколько секунд без нажатий персонаж подпрыгнет (минимум 10)."
+        , "MenuKey", "Клавиша, которая открывает это меню поверх игры и закрывает его обратно. Игра должна быть в режиме «Оконный полноэкранный»."
+        , "MenuOnTop", "Меню всегда поверх других окон, в том числе поверх Fortnite."
+        , "Indicator", "Маленькая точка в левом верхнем углу экрана: зелёная — макросы работают, серая — на паузе."
+        , "Radius", "Радиус кольца для стилей с кругом."
+        , "Opacity", "Непрозрачность прицела: 100 — полностью видимый."
+        , "Outline", "Тёмная обводка вокруг прицела — его видно и на светлом фоне."
+        , "OutlineColor", "Цвет обводки в формате RRGGBB."
+        , "From", "Клавиша, которую ты нажимаешь."
+        , "To", "Клавиша, которую получит игра вместо неё."
+        , "AccentColor", "Свой цвет акцента меню."
+        , "page.Remap", "Переназначение: одна клавиша нажимает другую, например боковая кнопка мыши = Shift."
+        , "page.Configs", "Профили настроек: создать, переключить, дублировать, сохранить в файл, загрузить из файла, сбросить."
         , "page.Support", "Как начать, нужные настройки Fortnite и что делать, если не работает.")
         HintText[k] := v
 }

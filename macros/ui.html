@@ -170,7 +170,7 @@ svg{overflow:hidden}
 /* ── настройки и лог ── */
 .logp{width:270px;flex:none;margin-left:16px;padding:16px;box-sizing:border-box}
 .logp h4{margin:0 0 10px;font-size:13px}
-.log{height:380px;overflow:hidden;border-radius:12px;background:@key@;padding:10px 12px;box-sizing:border-box;font-family:Consolas,monospace;font-size:11px;line-height:1.6;color:@muted@;white-space:pre-wrap;word-wrap:break-word}
+.log{height:560px;overflow:hidden;border-radius:12px;background:@key@;padding:10px 12px;box-sizing:border-box;font-family:Consolas,monospace;font-size:11px;line-height:1.6;color:@muted@;white-space:pre-wrap;word-wrap:break-word}
 .foot{display:flex;margin-top:14px}
 .foot .btn{margin-right:10px}
 
@@ -183,6 +183,66 @@ svg{overflow:hidden}
 .hc li b{color:@text@;font-weight:600}
 .warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.07)}
 .warn h3 svg{color:#F59E0B}
+
+/* ── новое: инспектор клавиш, профили, переназначения ── */
+.k.menu{background:#F59E0B;color:#111;box-shadow:0 0 14px rgba(245,158,11,.45)}
+.mk.menu{fill:#F59E0B}
+.k,.mk{cursor:pointer}
+.k:hover{box-shadow:0 0 0 1px @line2@,inset 0 -2px 0 rgba(0,0,0,.28)}
+.k.pick{box-shadow:0 0 0 2px #fff,0 0 16px rgba(255,255,255,.35)}
+.mk.pick{stroke:#fff;stroke-width:2}
+.cnt2{font-size:10px;color:@muted@;font-weight:600;margin-left:6px}
+.card.fire{animation:fire .55s ease-out}
+@keyframes fire{0%{box-shadow:0 0 0 0 @a60@}100%{box-shadow:0 0 0 14px @a0@}}
+.pop{position:fixed;z-index:40;width:300px;max-height:440px;overflow-y:auto;padding:14px 12px;border-radius:16px;background:@tip@;border:1px solid @line2@;box-shadow:0 18px 44px rgba(0,0,0,.55);display:none;box-sizing:border-box}
+.pop.show{display:block;animation:pin .16s ease-out}
+.pop h4{margin:0 4px 6px;font-size:15px;display:flex;align-items:center}
+.pop h4 .kc{margin-right:10px;cursor:default}
+.pop .info{color:@muted@;font-size:12px;line-height:1.5;margin:0 4px 6px;white-space:pre-line}
+.gh{font-size:10px;font-weight:700;letter-spacing:.14em;color:@muted@;margin:12px 6px 6px}
+.opt{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:9px;cursor:pointer;font-size:12.5px;transition:background .12s}
+.opt:hover{background:@key@}
+.opt span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opt .kc{flex:none;height:22px;line-height:22px;font-size:10px;min-width:20px;padding:0 7px}
+.opt.cur{background:@a14@}
+.opt.cur .kc{background:@accent@;border-color:@accent@;color:#fff}
+.opt svg{width:14px;height:14px;margin-right:8px;color:@accent@}
+.prof{display:flex;align-items:center;height:30px;padding:0 12px;margin-left:10px;border-radius:10px;background:@key@;border:1px solid @line2@;font-size:12px;font-weight:600;cursor:pointer;transition:border-color .15s}
+.prof:hover{border-color:@accent@}
+.prof small{color:@muted@;font-weight:600;margin-right:7px;font-size:11px}
+.prof svg{width:13px;height:13px;margin-left:7px;color:@muted@}
+.hue{display:inline-block;width:160px;height:16px;border-radius:8px;cursor:crosshair;vertical-align:middle;margin-right:12px;background:linear-gradient(90deg,#ff2d2d,#ffd000,#2de05a,#00d5ff,#3b5bff,#c03bff,#ff2d8a)}
+.plist{flex:1;padding:10px}
+.prow{display:flex;align-items:center;padding:12px 12px 12px 16px;border-radius:14px;margin-bottom:8px;border:1px solid @line@;background:@card@;transition:border-color .15s}
+.prow:last-child{margin-bottom:0}
+.prow.act{border-color:@a50@;box-shadow:0 0 0 1px @a24@}
+.prow .pn{flex:1;min-width:0;font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .pn small{display:block;color:@muted@;font-weight:600;font-size:11px;margin-top:3px}
+.ib{width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;color:@muted@;cursor:pointer;margin-left:2px;transition:background .15s,color .15s;flex:none}
+.ib:hover{background:@key@;color:@text@}
+.ib.del:hover{background:rgba(229,72,77,.15);color:#F2777B}
+.ib.dis{visibility:hidden}
+.ib svg{width:15px;height:15px}
+.badge{font-size:10px;font-weight:700;letter-spacing:.1em;padding:5px 10px;border-radius:8px;background:@accent@;color:#fff;margin-right:6px;flex:none}
+.btn.sm{height:30px;padding:0 12px;font-size:12px;border-radius:9px;flex:none}
+.btn.sm svg{width:13px;height:13px;margin-right:6px}
+.rbox{width:280px;flex:none;margin-left:16px;padding:18px;box-sizing:border-box}
+.rbox h4{margin:0 0 6px;font-size:14px}
+.rbox p{color:@muted@;font-size:12px;line-height:1.5;margin:0 0 14px}
+.rbox .btn{display:flex;margin-bottom:8px;justify-content:flex-start}
+.rrow{display:flex;align-items:center;min-height:56px;border-bottom:1px solid @line@}
+.rrow:last-child{border-bottom:0}
+.rrow .arrow{color:@muted@;margin:0 14px;display:flex}
+.rrow .arrow svg{width:18px;height:18px}
+.rrow .rl{color:@muted@;font-size:11px;margin-right:10px}
+.fh .btn{margin-left:auto}
+.dlg .in{width:100%;margin:0 0 16px}
+.xs{display:inline-flex;flex-wrap:wrap}
+.xs b{display:inline-flex;align-items:center;justify-content:center;width:38px;height:34px;border-radius:9px;background:@key@;margin:0 6px 6px 0;cursor:pointer;border:1px solid @line@;transition:border-color .15s,background .15s}
+.xs b:hover{border-color:@line2@}
+.xs b.sel{border-color:@accent@;background:@a14@}
+.xs svg{width:20px;height:20px}
+.ph .btn{margin-left:10px}
 
 /* ── подсказка, уведомление, окно ── */
 .tip{position:fixed;left:0;top:0;max-width:290px;padding:10px 13px;border-radius:12px;background:@tip@;border:1px solid @line2@;color:@text@;font-size:12px;line-height:1.5;box-shadow:0 14px 34px rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:opacity .14s;pointer-events:none;z-index:50}
@@ -205,6 +265,7 @@ svg{overflow:hidden}
     <div class="logo" data-drag="1"><div class="mark"><svg viewBox="0 0 24 24"><path d="M13.5 2L4.5 13.5h6.2L9.8 22l9.2-12h-6.4z" fill="#fff"/></svg></div><div class="wm">FLASH<b>MACRO</b></div></div>
     <span class="pill" id="pill" data-act="susp" data-tip=""><i></i><span id="pillt">MACROS ON</span></span>
     <span class="kc" data-t="key" data-sec="General" data-key="SuspendKey" data-act="key" id="suskey">—</span>
+    <div class="prof" id="profchip" data-act="profmenu" data-tip="Активный профиль настроек. Клик — быстро переключить."><small>Профиль</small><span id="profname">—</span><span id="profchev"></span></div>
     <div class="grow" data-drag="1"></div>
     <div class="status" id="status" data-drag="1"><i></i><span id="statust">Макросы активны</span></div>
     <div class="wb" data-act="min" data-tip="Свернуть окно"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></div>
@@ -216,11 +277,15 @@ svg{overflow:hidden}
     <div class="page" id="pg-Keybinds"></div>
     <div class="page" id="pg-Macros"></div>
     <div class="page" id="pg-Custom"></div>
+    <div class="page" id="pg-Remap"></div>
     <div class="page" id="pg-Crosshair"></div>
+    <div class="page" id="pg-Configs"></div>
     <div class="page" id="pg-Settings"></div>
     <div class="page" id="pg-Support"></div>
   </div>
 </div>
+<div class="pop" id="kpop" data-pop="1"></div>
+<div class="pop" id="ppop" data-pop="1" style="width:250px"></div>
 <div class="tip" id="tip"></div>
 <div class="toast" id="toast"></div>
 <div class="ov" id="ov"><div class="dlg" id="dlg"></div></div>
@@ -231,7 +296,10 @@ var ahk = window.__stub || null;     // мост в AutoHotkey (передаёт
 var M = null;                        // статичные описания: макросы, поля, подсказки, темы
 var S = null;                        // текущее состояние: конфиг, клавиши, пауза
 var page = 'Dashboard', curMacro = 'DragEdit', curCustom = '', capEl = null;
-var pressed = {}, themeKey = '', customKey = null, timers = {};
+var pressed = {}, themeKey = '', customKey = null, remapKey = null, profKey = null, timers = {}, pickNorm = '';
+var PAGES = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Remap', 'Crosshair', 'Configs', 'Settings', 'Support'];
+var GAMEB = [['Edit', 'Редактирование'], ['Select', 'Выбор / выстрел'], ['Wall', 'Стена'], ['Floor', 'Пол'], ['Stairs', 'Лестница'], ['Cone', 'Конус (крыша)'], ['Pickaxe', 'Кирка'], ['Interact', 'Взаимодействие'],
+  ['Crouch', 'Присесть'], ['Jump', 'Прыжок'], ['Sprint', 'Спринт'], ['Slot1', 'Слот оружия 1'], ['Slot2', 'Слот оружия 2'], ['Slot3', 'Слот оружия 3'], ['Slot4', 'Слот оружия 4'], ['Slot5', 'Слот оружия 5']];
 
 function setBridge(b) { ahk = b; }
 function $(id) { return document.getElementById(id); }
@@ -277,6 +345,17 @@ function call(name, a, b, c) {
       case 'minimize': return ahk.minimize();
       case 'hide': return ahk.hide();
       case 'drag': return ahk.drag();
+      case 'switchProfile': return ahk.switchProfile(a);
+      case 'newProfile': return ahk.newProfile();
+      case 'dupProfile': return ahk.dupProfile(a);
+      case 'renameProfile': return ahk.renameProfile(a, b);
+      case 'deleteProfile': return ahk.deleteProfile(a);
+      case 'exportProfile': return ahk.exportProfile(a);
+      case 'importProfile': return ahk.importProfile();
+      case 'resetSec': return ahk.resetSec(a);
+      case 'resetGroup': return ahk.resetGroup(a);
+      case 'newRemap': return ahk.newRemap();
+      case 'deleteSec': return ahk.deleteSec(a);
     }
   } catch (e) { toast('Ошибка: ' + (e.message || e)); }
   return '';
@@ -290,13 +369,18 @@ function mix(h1, h2, t) {
   for (var i = 0; i < 3; i++) { var v = Math.round(a[i] + (b[i] - a[i]) * t).toString(16); r += v.length < 2 ? '0' + v : v; }
   return r;
 }
+function accentHex() {
+  var tid = cv('General', 'Theme', 'red'), c = cv('General', 'AccentColor', 'E11D2E');
+  if (tid === 'custom' && /^[0-9A-Fa-f]{6}$/.test(c)) return c.toUpperCase();
+  return (M.themes[tid] || M.themes.red)[1];
+}
 function applyTheme() {
-  var tid = cv('General', 'Theme', 'red'), bid = cv('General', 'Base', 'dark');
-  if (!M.themes[tid]) tid = 'red';
+  var bid = cv('General', 'Base', 'dark');
   if (!M.bases[bid]) bid = 'dark';
-  if (themeKey === tid + bid) return;
-  themeKey = tid + bid;
-  var t = M.themes[tid], b = M.bases[bid], acc = '#' + t[1];
+  var accHex = accentHex();
+  if (themeKey === accHex + bid) return;
+  themeKey = accHex + bid;
+  var b = M.bases[bid], acc = '#' + accHex;
   var p = {
     bg: '#' + b[0], side: '#' + b[1], panel: '#' + b[2], card: '#' + b[3], key: '#' + b[4], line: '#' + b[5],
     line2: mix('#' + b[5], '#ffffff', 0.08), keyDark: mix('#' + b[4], '#000000', 0.25), tip: mix('#' + b[4], '#ffffff', 0.03),
@@ -325,6 +409,16 @@ var ICON = {
   build: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18M12 4v8M8 12v8M16 12v8"/>',
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
   pickup: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+  Remap: '<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  Configs: '<path d="M12 2l10 5-10 5L2 7z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  upload: '<path d="M12 21V9M7 14l5-5 5 5M5 3h14"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  check: '<path d="M5 12l5 5L20 7"/>',
+  chev: '<path d="M6 9l6 6 6-6"/>',
+  rapid: '<path d="M4 14l6-6M10 18l10-10M4 20l2-2"/>',
+  afk: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   sprint: '<path d="M13 19l9-7-9-7zM2 19l9-7-9-7z"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -339,7 +433,7 @@ var ICON = {
 function ico(n, cls) {
   return '<svg class="' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICON[n] || '') + '</svg>';
 }
-var CARDICON = { DragEdit: 'edit', InfiniteEdit: 'edit', InstantEdit: 'edit', InstantBuild: 'build', Pickup: 'pickup', AutoSprint: 'sprint', Competitive: 'eye' };
+var CARDICON = { DragEdit: 'edit', InfiniteEdit: 'edit', InstantEdit: 'edit', InstantBuild: 'build', Pickup: 'pickup', AutoSprint: 'sprint', Competitive: 'eye', RapidFire: 'rapid', AntiAFK: 'afk' };
 
 // ───────────── подписи клавиш ─────────────
 var KEYLBL = { lbutton: 'LMB', rbutton: 'RMB', mbutton: 'MMB', xbutton1: 'MB4', xbutton2: 'MB5', wheelup: 'WhUp', wheeldown: 'WhDn',
@@ -347,8 +441,17 @@ var KEYLBL = { lbutton: 'LMB', rbutton: 'RMB', mbutton: 'MMB', xbutton1: 'MB4', 
   backspace: 'Bksp', space: 'Space', enter: 'Enter', tab: 'Tab', pgdn: 'PgDn', pgup: 'PgUp', lalt: 'Alt', ralt: 'RAlt', home: 'Home',
   end: 'End', insert: 'Ins', 'delete': 'Del' };
 function keyLabel(k) { if (k === '' || k === undefined) return '—'; return KEYLBL[lc(k)] || String(k).toUpperCase(); }
+var KEYALIAS = { lctrl: 'lcontrol', rctrl: 'rcontrol', ctrl: 'lcontrol', control: 'lcontrol', esc: 'escape', del: 'delete', ins: 'insert', shift: 'lshift', alt: 'lalt', win: 'lwin', bs: 'backspace', pgdown: 'pgdn', pageup: 'pgup', pagedown: 'pgdn', 'return': 'enter' };
+function keyNorm(k) { k = lc(k); return KEYALIAS[k] || k; }
 
 // ───────────── построение страниц ─────────────
+function xIcon(st) {
+  var h = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">';
+  if (/^(cross|crossdot|t|tdot|crosscircle)$/.test(st)) h += '<path d="M3 12h6M15 12h6M12 15v6' + (/^t/.test(st) ? '' : 'M12 3v6') + '"/>';
+  if (/circle/.test(st)) h += '<circle cx="12" cy="12" r="' + (st === 'crosscircle' ? 7 : 6) + '"/>';
+  if (/dot$/.test(st)) h += '<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>';
+  return h + '</svg>';
+}
 function field(sec, f, extraCls) {
   var a = ' data-sec="' + esc(sec) + '" data-key="' + f.k + '"' + (extraCls ? ' class="' + extraCls + '"' : '');
   var cls = extraCls ? ' ' + extraCls : '';
@@ -365,7 +468,14 @@ function field(sec, f, extraCls) {
         var id = M.themeOrder[j];
         t += '<i class="swt" data-act="seg" data-val="' + id + '" data-tip="Тема «' + esc(M.themes[id][0]) + '»" style="background:#' + M.themes[id][1] + '"></i>';
       }
-      return t + '</span>';
+      return t + '<i class="swt" id="cusw" data-act="seg" data-val="custom" data-tip="Свой цвет — выбери ниже на полосе или впиши код"></i></span>';
+    case 'hue':
+      return '<span class="hue" data-act="hue" data-tip="Кликни по полосе, чтобы выбрать свой цвет акцента"></span><input class="in" data-t="input" data-sec="General" data-key="AccentColor" style="width:84px;text-transform:uppercase">';
+    case 'xstyle':
+      var xs = '<span class="xs" data-t="seg" data-sec="' + esc(sec) + '" data-key="' + f.k + '">';
+      var names = { dot: 'Точка', cross: 'Крест', crossdot: 'Крест с точкой', t: 'T', tdot: 'T с точкой', circle: 'Круг', circledot: 'Круг с точкой', crosscircle: 'Крест в круге' };
+      for (var q = 0; q < f.o.length; q++) xs += '<b data-act="seg" data-val="' + f.o[q] + '" data-tip="' + names[f.o[q]] + '">' + xIcon(f.o[q]) + '</b>';
+      return xs + '</span>';
     case 'color':
       var c = '<span class="sws" data-t="swatch" data-sec="' + esc(sec) + '" data-key="' + f.k + '">';
       var cols = ['00FF00', 'FF2D2D', '00E5FF', 'FFE600', 'FFFFFF', 'FF00E6'];
@@ -383,7 +493,7 @@ function head(title, sub, right) {
 }
 
 function buildSide() {
-  var h = '<div class="navh">МЕНЮ</div>', pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Crosshair', 'Settings'];
+  var h = '<div class="navh">МЕНЮ</div>', pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Remap', 'Crosshair', 'Configs', 'Settings'];
   for (var i = 0; i < pages.length; i++) h += navItem(pages[i]);
   h += '<div class="sep"></div>' + navItem('Support');
   h += '<div class="sfoot"><b>FlashMacro ' + esc(M.version) + '</b><br>Наведи курсор на любой элемент, чтобы увидеть подсказку.</div>';
@@ -393,7 +503,7 @@ function navItem(p) { return '<div class="nav" id="nav-' + p + '" data-act="nav"
 
 function buildDashboard() {
   var lg = [['Trigger', M.accentHint, 'Клавиши, которые запускают включённые макросы.'], ['Pressed by a macro', '#ffffff', 'Вспыхивает, когда макрос нажимает клавишу прямо сейчас.'],
-    ['Macros toggle', '#3B82F6', 'Клавиша вкл/выкл всех макросов.'], ['Crosshair toggle', '#22C55E', 'Клавиша вкл/выкл прицела.']];
+    ['Macros toggle', '#3B82F6', 'Клавиша вкл/выкл всех макросов.'], ['Crosshair toggle', '#22C55E', 'Клавиша вкл/выкл прицела.'], ['Menu key', '#F59E0B', 'Клавиша, открывающая это меню поверх игры.']];
   var leg = '<div class="legend">';
   for (var i = 0; i < lg.length; i++) leg += '<span class="lg" data-tip="' + lg[i][2] + '"><i style="background:' + (i === 0 ? '' : lg[i][1]) + '"' + (i === 0 ? ' class="acc"' : '') + '></i>' + lg[i][0] + '</span>';
   leg += '</div>';
@@ -403,18 +513,18 @@ function buildDashboard() {
     for (var j = 0; j < M.kb[r].length; j++) {
       var k = M.kb[r][j], w = Math.round(k[2] * 34 + (k[2] - 1) * 5);
       if (k[1] === '') kb += '<div class="k sp" style="width:' + w + 'px"></div>';
-      else kb += '<div class="k" data-norm="' + esc(k[1]) + '" data-cap="1" style="width:' + w + 'px">' + esc(k[0]) + '</div>';
+      else kb += '<div class="k" data-norm="' + esc(k[1]) + '" data-cap="1" data-act="cap" style="width:' + w + 'px">' + esc(k[0]) + '</div>';
     }
     kb += '</div>';
   }
   kb += '</div>';
   var mouse = '<div class="panel mouse"><svg viewBox="0 0 132 200">' +
     '<path class="mbody" d="M24 78h84v62c0 32-19 54-42 54s-42-22-42-54z"/>' +
-    '<path class="mk" data-norm="lbutton" data-cap="1" d="M62 8C39 9 24 28 24 52v22h38z"/>' +
-    '<path class="mk" data-norm="rbutton" data-cap="1" d="M70 8c23 1 38 20 38 44v22H70z"/>' +
-    '<rect class="mk" data-norm="mbutton" data-cap="1" x="60" y="24" width="12" height="28" rx="6"/>' +
-    '<rect class="mk" data-norm="xbutton2" data-cap="1" x="6" y="92" width="13" height="30" rx="6"/>' +
-    '<rect class="mk" data-norm="xbutton1" data-cap="1" x="6" y="128" width="13" height="30" rx="6"/>' +
+    '<path class="mk" data-norm="lbutton" data-cap="1" data-act="cap" d="M62 8C39 9 24 28 24 52v22h38z"/>' +
+    '<path class="mk" data-norm="rbutton" data-cap="1" data-act="cap" d="M70 8c23 1 38 20 38 44v22H70z"/>' +
+    '<rect class="mk" data-norm="mbutton" data-cap="1" data-act="cap" x="60" y="24" width="12" height="28" rx="6"/>' +
+    '<rect class="mk" data-norm="xbutton2" data-cap="1" data-act="cap" x="6" y="92" width="13" height="30" rx="6"/>' +
+    '<rect class="mk" data-norm="xbutton1" data-cap="1" data-act="cap" x="6" y="128" width="13" height="30" rx="6"/>' +
     '<text class="mtx" x="40" y="50">L</text><text class="mtx" x="85" y="50">R</text>' +
     '<text class="mtx" x="8" y="111" style="font-size:9px">5</text><text class="mtx" x="8" y="147" style="font-size:9px">4</text></svg></div>';
   var g = '<div class="grid">';
@@ -425,17 +535,17 @@ function buildDashboard() {
                : '<span class="kc" data-t="key" data-act="key" data-sec="' + esc(sec) + '" data-key="Trigger" data-tip="' + esc(hint(sec, 'Trigger')) + '">—</span>') +
       ico(CARDICON[sec] || 'target', 'cico') + '</div>' +
       '<div class="nm" data-act="macro" data-sec="' + esc(sec) + '">' + esc(m.name) + '</div>' +
-      '<div class="cbot"><span class="st" data-t="state" data-sec="' + esc(sec) + '" data-key="Enabled">OFF</span>' +
+      '<div class="cbot"><span><span class="st" data-t="state" data-sec="' + esc(sec) + '" data-key="Enabled">OFF</span><span class="cnt2" data-stat="' + esc(sec) + '"></span></span>' +
       '<span class="sw" data-t="toggle" data-act="toggle" data-sec="' + esc(sec) + '" data-key="Enabled" data-tip="Включить или выключить «' + esc(m.name) + '»"><i></i></span></div></div>';
   }
   g += '<div class="card add" data-act="newCustom" data-tip="Создать свой макрос из любой последовательности нажатий.">' + ico('plus') + 'Add macro</div></div>';
   $('pg-Dashboard').innerHTML = head('Dashboard', '', leg) + '<div class="dash">' + kb + mouse + '</div>' +
-    '<div class="h3">MACROS<span class="grow"></span><span class="cnt" id="cnt" data-tip="Сколько макросов включено из общего числа (вместе со своими)."></span></div>' + g;
+    '<div class="h3">MACROS<span class="grow"></span><span class="cnt" id="cnt" data-tip="Сколько макросов включено из общего числа (вместе со своими)."></span></div>' + g +
+    '<div class="help" style="margin-top:4px">Кликни по любой клавише на клавиатуре или кнопке мыши выше, чтобы увидеть, что на ней висит, и назначить её на макрос или бинд.</div>';
 }
 
 function buildKeybinds() {
-  var cols = [[['Edit', 'Редактирование'], ['Select', 'Выбор / выстрел'], ['Wall', 'Стена'], ['Floor', 'Пол'], ['Stairs', 'Лестница'], ['Cone', 'Конус (крыша)'], ['Pickaxe', 'Кирка'], ['Interact', 'Взаимодействие']],
-    [['Crouch', 'Присесть'], ['Jump', 'Прыжок'], ['Sprint', 'Спринт'], ['Slot1', 'Слот оружия 1'], ['Slot2', 'Слот оружия 2'], ['Slot3', 'Слот оружия 3'], ['Slot4', 'Слот оружия 4'], ['Slot5', 'Слот оружия 5']]];
+  var cols = [GAMEB.slice(0, 8), GAMEB.slice(8)];
   var h = '<div class="two">';
   for (var c = 0; c < 2; c++) {
     h += '<div class="panel" style="flex:1;padding:4px 20px;' + (c === 0 ? 'margin-right:16px' : '') + '">';
@@ -451,7 +561,8 @@ function buildKeybinds() {
 }
 
 function formHtml(sec, name, desc, fields, cf) {
-  var h = '<div class="fh"><h2>' + esc(name) + '</h2>' + (cf ? '' : '<span class="st" data-t="state" data-sec="' + esc(sec) + '" data-key="Enabled">OFF</span>') + '</div>';
+  var h = '<div class="fh"><h2>' + esc(name) + '</h2>' + (cf ? '' : '<span class="st" data-t="state" data-sec="' + esc(sec) + '" data-key="Enabled">OFF</span>' +
+    '<span class="btn sm" data-act="resetSec" data-sec="' + esc(sec) + '" data-tip="Вернуть стандартные настройки этого макроса (клавиша, задержки, режим).">' + ico('reset') + 'Сбросить</span>') + '</div>';
   if (desc) h += '<div class="desc">' + esc(desc) + '</div>';
   for (var i = 0; i < fields.length; i++) h += row(sec, fields[i], cf);
   return h;
@@ -480,10 +591,13 @@ function buildCustom() {
 function buildCrosshair() {
   var F = [{ t: 'toggle', k: 'Enabled', label: 'Прицел включён' }, { t: 'toggle', k: 'ShowOnStart', label: 'Показывать при запуске' },
     { t: 'key', k: 'ToggleKey', label: 'Клавиша вкл/выкл' },
-    { t: 'choice', k: 'Style', label: 'Стиль', o: ['dot', 'cross', 'crossdot', 't', 'tdot'], l: ['•', '+', '+ •', 'T', 'T •'] },
+    { t: 'xstyle', k: 'Style', label: 'Стиль', o: ['dot', 'cross', 'crossdot', 't', 'tdot', 'circle', 'circledot', 'crosscircle'] },
     { t: 'color', k: 'Color', label: 'Цвет' },
+    { t: 'num', k: 'Opacity', label: 'Непрозрачность', u: '%' },
+    { t: 'toggle', k: 'Outline', label: 'Обводка' }, { t: 'text', k: 'OutlineColor', label: 'Цвет обводки', w: 84 },
     { t: 'num', k: 'Length', label: 'Длина линий', u: 'px' }, { t: 'num', k: 'Thickness', label: 'Толщина', u: 'px' },
     { t: 'num', k: 'Gap', label: 'Отступ от центра', u: 'px' }, { t: 'num', k: 'DotSize', label: 'Размер точки', u: 'px' },
+    { t: 'num', k: 'Radius', label: 'Радиус круга', u: 'px' },
     { t: 'num', k: 'OffsetX', label: 'Сдвиг по X', u: 'px' }, { t: 'num', k: 'OffsetY', label: 'Сдвиг по Y', u: 'px' }];
   var h = '<div class="panel narrow" style="flex:1;padding:4px 22px">';
   for (var i = 0; i < F.length; i++) h += row('Crosshair', F[i]);
@@ -492,12 +606,122 @@ function buildCrosshair() {
     '<div class="xcap">Прицел рисуется поверх экрана. В Fortnite выбери режим окна <b>«Оконный полноэкранный»</b>, иначе его не будет видно.</div></div>';
   $('pg-Crosshair').innerHTML = head('Crosshair', 'Свой прицел поверх игры') + '<div class="two">' + h + prev + '</div>';
 }
+function buildRemap() {
+  var btn = '<span class="grow"></span><span class="btn pri" data-act="newRemap" data-tip="Добавить новое переназначение клавиши.">' + ico('plus') + 'Добавить</span>';
+  $('pg-Remap').innerHTML = head('Remap', 'Одна клавиша нажимает другую', btn) + '<div class="panel" style="padding:4px 22px" id="rlist"></div>' +
+    '<div class="help">Например: боковая кнопка мыши <b>MB4</b> → <b>Shift</b>. Переназначения работают там же, где и макросы (в окне Fortnite), и выключаются вместе с ними.</div>';
+}
+function syncRemaps() {
+  var list = S.remaps || [], key = list.join('|');
+  if (key === remapKey) return;
+  remapKey = key;
+  if (!list.length) { $('rlist').innerHTML = '<div class="empty"><b>Переназначений пока нет</b>Нажми «Добавить», чтобы, например, сделать боковую кнопку мыши клавишей Shift.</div>'; return; }
+  var h = '';
+  for (var i = 0; i < list.length; i++) {
+    var sec = esc(list[i]);
+    h += '<div class="rrow"><span class="rl">Нажимаю</span><span class="kc" data-t="key" data-act="key" data-sec="' + sec + '" data-key="From" data-tip="' + esc(hint('', 'From')) + '" style="min-width:70px">—</span>' +
+      '<span class="arrow">' + ico('arrow') + '</span><span class="rl">игра получает</span><span class="kc" data-t="key" data-act="key" data-sec="' + sec + '" data-key="To" data-tip="' + esc(hint('', 'To')) + '" style="min-width:70px">—</span>' +
+      '<span class="grow"></span><span class="sw" data-t="toggle" data-act="toggle" data-sec="' + sec + '" data-key="Enabled" data-tip="Включить или выключить это переназначение"><i></i></span>' +
+      '<span class="ib del" data-act="delRemap" data-sec="' + sec + '" data-tip="Удалить переназначение" style="margin-left:10px">' + ico('trash') + '</span></div>';
+  }
+  $('rlist').innerHTML = h;
+}
+function buildConfigs() {
+  var btns = '<span class="grow"></span><span class="btn" data-act="importProfile" data-tip="Загрузить профиль из файла .ini (например, от друга).">' + ico('upload') + 'Импорт из файла</span>' +
+    '<span class="btn pri" data-act="newProfile" data-tip="Создать новый профиль со стандартными настройками и сразу переключиться на него.">' + ico('plus') + 'Новый профиль</span>';
+  var reset = '<div class="panel rbox"><h4>Сброс настроек</h4><p>Вернуть стандартные значения в текущем профиле. Свои макросы и переназначения не удаляются.</p>' +
+    '<span class="btn" data-act="resetGroup" data-g="macros" data-tip="Все встроенные макросы и пресеты: клавиши, задержки, вкл/выкл.">' + ico('reset') + 'Сбросить макросы</span>' +
+    '<span class="btn" data-act="resetGroup" data-g="binds" data-tip="Бинды Fortnite на странице Keybinds.">' + ico('reset') + 'Сбросить бинды Fortnite</span>' +
+    '<span class="btn" data-act="resetGroup" data-g="crosshair" data-tip="Все настройки прицела.">' + ico('reset') + 'Сбросить прицел</span></div>';
+  $('pg-Configs').innerHTML = head('Configs', 'Профили настроек', btns) + '<div class="two"><div class="panel plist" id="plist"></div>' + reset + '</div>' +
+    '<div class="help">Профиль хранит макросы, бинды, переназначения и прицел. Тема и горячие клавиши меню общие для всех профилей. Файлы профилей лежат в папке <code>profiles</code> рядом с программой.</div>';
+}
+function syncProfiles() {
+  var list = S.profiles || [], cur = S.profile, key = list.join('|') + '#' + cur;
+  $('profname').innerHTML = esc(cur);
+  if (key === profKey) return;
+  profKey = key;
+  var h = '';
+  for (var i = 0; i < list.length; i++) {
+    var n = list[i], a = n === cur, en = esc(n);
+    h += '<div class="prow' + (a ? ' act' : '') + '"><div class="pn">' + en + '<small>' + (a ? 'Активный профиль' : 'Сохранённый профиль') + '</small></div>' +
+      (a ? '<span class="badge">АКТИВЕН</span>' : '<span class="btn sm" data-act="switchProfile" data-name="' + en + '" data-tip="Переключиться на этот профиль">' + ico('check') + 'Активировать</span>') +
+      '<span class="ib" data-act="renameProfile" data-name="' + en + '" data-tip="Переименовать">' + ico('edit') + '</span>' +
+      '<span class="ib" data-act="dupProfile" data-name="' + en + '" data-tip="Сделать копию">' + ico('copy') + '</span>' +
+      '<span class="ib" data-act="exportProfile" data-name="' + en + '" data-tip="Сохранить в файл .ini">' + ico('download') + '</span>' +
+      '<span class="ib del' + (a ? ' dis' : '') + '" data-act="deleteProfile" data-name="' + en + '" data-tip="Удалить профиль">' + ico('trash') + '</span></div>';
+  }
+  $('plist').innerHTML = h;
+}
+
+// Быстрый выбор профиля из шапки
+function openProfMenu(el) {
+  var list = S.profiles || [], h = '<div class="gh" style="margin-top:2px">ПРОФИЛИ</div>';
+  for (var i = 0; i < list.length; i++)
+    h += '<div class="opt' + (list[i] === S.profile ? ' cur' : '') + '" data-act="switchProfile" data-name="' + esc(list[i]) + '">' + (list[i] === S.profile ? ico('check') : '<svg></svg>') + '<span>' + esc(list[i]) + '</span></div>';
+  h += '<div class="gh"></div><div class="opt" data-act="nav" data-page="Configs">' + ico('Configs') + '<span>Управление профилями…</span></div>';
+  showPop('ppop', el, h);
+}
+
+// Инспектор клавиши: что на ней висит и куда её назначить
+function slotList() {
+  var r = [['МАКРОСЫ', 'Drag edit', 'DragEdit', 'Trigger'], ['МАКРОСЫ', 'Infinite edit', 'InfiniteEdit', 'Trigger'], ['МАКРОСЫ', 'Instant edit', 'InstantEdit', 'Trigger'],
+    ['МАКРОСЫ', 'Instant build — стена', 'InstantBuild', 'WallTrigger'], ['МАКРОСЫ', 'Instant build — пол', 'InstantBuild', 'FloorTrigger'],
+    ['МАКРОСЫ', 'Instant build — лестница', 'InstantBuild', 'StairsTrigger'], ['МАКРОСЫ', 'Instant build — конус', 'InstantBuild', 'ConeTrigger'],
+    ['МАКРОСЫ', 'Pick-up', 'Pickup', 'Trigger'], ['МАКРОСЫ', 'Rapid fire', 'RapidFire', 'Trigger'], ['МАКРОСЫ', 'Competitive — peek', 'Competitive', 'PeekKey']];
+  for (var i = 0; i < M.builtin.length; i++) if (M.builtin[i].sec.indexOf('Macro:') === 0) r.push(['МАКРОСЫ', M.builtin[i].name, M.builtin[i].sec, 'Trigger']);
+  for (var j = 0; j < S.custom.length; j++) r.push(['СВОИ МАКРОСЫ', S.custom[j].substr(6), S.custom[j], 'Trigger']);
+  for (var n = 0; n < GAMEB.length; n++) r.push(['БИНДЫ FORTNITE', GAMEB[n][1], 'Game', GAMEB[n][0]]);
+  r.push(['СИСТЕМА', 'Вкл/выкл все макросы', 'General', 'SuspendKey'], ['СИСТЕМА', 'Открыть меню', 'General', 'MenuKey'], ['СИСТЕМА', 'Вкл/выкл прицела', 'Crosshair', 'ToggleKey']);
+  return r;
+}
+function findCap(n) {
+  var els = document.querySelectorAll('[data-norm]');
+  for (var i = 0; i < els.length; i++) if (els[i].getAttribute('data-norm') === n) return els[i];
+  return null;
+}
+function openKey(el) {
+  pickNorm = el.getAttribute('data-norm');
+  var label = el.tagName.toLowerCase() === 'div' ? el.innerText : keyLabel(pickNorm);
+  var h = '<h4><span class="kc">' + esc(keyLabel(pickNorm) === '—' ? label : keyLabel(pickNorm)) + '</span>Что на этой клавише</h4><div class="info">' + esc(capTip(pickNorm)) + '</div>';
+  var sl = slotList(), grp = '';
+  for (var i = 0; i < sl.length; i++) {
+    var x = sl[i], cur = cv(x[2], x[3]);
+    if (x[0] !== grp) { grp = x[0]; h += '<div class="gh">' + grp + '</div>'; }
+    h += '<div class="opt' + (cur !== '' && keyNorm(cur) === pickNorm ? ' cur' : '') + '" data-act="assign" data-sec="' + esc(x[2]) + '" data-key="' + x[3] + '" data-tip="Клик — назначить эту клавишу. Повторный клик — убрать.">' +
+      '<span>' + esc(x[1]) + '</span><span class="kc">' + esc(keyLabel(cur)) + '</span></div>';
+  }
+  showPop('kpop', el, h);
+  caps();
+}
+function showPop(id, anchor, html) {
+  hidePops(id);
+  var p = $(id), r = anchor.getBoundingClientRect(), W = document.documentElement.clientWidth, H = document.documentElement.clientHeight;
+  p.innerHTML = html;
+  setCls(p, 'show', true);
+  var w = p.offsetWidth, h = p.offsetHeight, x = r.left, y = r.bottom + 8;
+  if (x + w > W - 10) x = W - w - 10;
+  if (y + h > H - 10) y = Math.max(10, r.top - h - 8);
+  p.style.left = Math.max(10, x) + 'px'; p.style.top = y + 'px';
+  p.scrollTop = 0;
+}
+function hidePops(except) {
+  var ids = ['kpop', 'ppop'];
+  for (var i = 0; i < ids.length; i++) if (ids[i] !== except) setCls($(ids[i]), 'show', false);
+  if (except !== 'kpop' && pickNorm) { pickNorm = ''; caps(); }
+}
+function modalInput(title, value, ok) {
+  modal(title, '', [['Отмена', ''], ['Сохранить', 'pri', function () { ok($('mi').value); }]], value);
+}
+
 function buildSettings() {
-  var F = [{ t: 'key', k: 'SuspendKey', label: 'Вкл/выкл все макросы' }, { t: 'toggle', k: 'OnlyInGame', label: 'Работать только в окне Fortnite' },
+  var F = [{ t: 'key', k: 'SuspendKey', label: 'Вкл/выкл все макросы' }, { t: 'key', k: 'MenuKey', label: 'Открыть меню поверх игры' },
+    { t: 'toggle', k: 'MenuOnTop', label: 'Меню поверх всех окон' }, { t: 'toggle', k: 'Indicator', label: 'Индикатор в углу экрана' },
+    { t: 'toggle', k: 'OnlyInGame', label: 'Работать только в окне Fortnite' },
     { t: 'text', k: 'GameExe', label: 'Процесс игры', w: 270 }, { t: 'toggle', k: 'Debug', label: 'Лог нажатий' },
     { t: 'num', k: 'KeyHoldMs', label: 'Удержание клавиши' }, { t: 'num', k: 'ClickHoldMs', label: 'Удержание кнопки мыши' },
     { t: 'toggle', k: 'StartHidden', label: 'Запускать свёрнутым в трей' }, { t: 'toggle', k: 'ShowOSD', label: 'Уведомления на экране' },
-    { t: 'theme', k: 'Theme', label: 'Цвет акцента' },
+    { t: 'theme', k: 'Theme', label: 'Цвет акцента' }, { t: 'hue', k: 'AccentColor', label: 'Свой цвет' },
     { t: 'choice', k: 'Base', label: 'Фон меню', o: ['dark', 'midnight', 'amoled'], l: ['Тёмный', 'Полночь', 'AMOLED'] }];
   var h = '<div class="panel" style="flex:1;padding:4px 22px">';
   for (var i = 0; i < F.length; i++) h += row('General', F[i]);
@@ -527,7 +751,8 @@ function buildSupport() {
 
 function build() {
   applyTheme();
-  buildSide(); buildDashboard(); buildKeybinds(); buildMacros(); buildCustom(); buildCrosshair(); buildSettings(); buildSupport();
+  buildSide(); buildDashboard(); buildKeybinds(); buildMacros(); buildCustom(); buildRemap(); buildCrosshair(); buildConfigs(); buildSettings(); buildSupport();
+  $('profchev').innerHTML = ico('chev');
   $('pill').setAttribute('data-tip', 'Включает или выключает все макросы сразу. Справа — горячая клавиша для этого (работает и в игре).');
   $('suskey').setAttribute('data-tip', hint('General', 'SuspendKey'));
   wireInputs();
@@ -557,8 +782,10 @@ function update() {
     }
   }
   var acc = document.querySelectorAll('.lg i.acc');
-  for (var a = 0; a < acc.length; a++) acc[a].style.background = M.themes[cv('General', 'Theme', 'red')] ? '#' + M.themes[cv('General', 'Theme', 'red')][1] : '';
+  for (var a = 0; a < acc.length; a++) acc[a].style.background = '#' + accentHex();
   $('cnt').innerHTML = '<b>' + S.active + '</b> active · ' + S.total + ' total';
+  var cw = $('cusw'); if (cw) cw.style.background = '#' + (/^[0-9A-Fa-f]{6}$/.test(cv('General', 'AccentColor')) ? cv('General', 'AccentColor') : 'E11D2E');
+  updateStats();
   caps();
   drawPreview();
 }
@@ -567,7 +794,7 @@ function caps() {
   for (var i = 0; i < els.length; i++) {
     var el = els[i], n = el.getAttribute('data-norm'), st = pressed[n] ? 'press' : ((S && S.caps[n]) || '');
     var base = el.tagName.toLowerCase() === 'div' ? 'k' : 'mk';
-    var want = base + (st ? ' ' + st : '');
+    var want = base + (st ? ' ' + st : '') + (n === pickNorm ? ' pick' : '');
     if (el.getAttribute('class') !== want) el.setAttribute('class', want);
   }
 }
@@ -603,27 +830,64 @@ function syncCustom() {
   if (document.activeElement !== nm) nm.value = curCustom.substr(6);
 }
 
-// Превью прицела (та же геометрия, что у оверлея)
+// Превью прицела (те же фигуры, что рисует оверлей)
+function num(k, d) { var v = parseFloat(cv('Crosshair', k, d)); return isNaN(v) ? d : v; }
 function drawPreview() {
   var sc = $('scene'); if (!sc || page !== 'Crosshair') return;
-  var style = lc(cv('Crosshair', 'Style', 'crossdot')), len = Math.max(1, +cv('Crosshair', 'Length', 8) || 1), th = Math.max(1, +cv('Crosshair', 'Thickness', 2) || 1);
-  var gap = Math.max(0, +cv('Crosshair', 'Gap', 4) || 0), dot = Math.max(1, +cv('Crosshair', 'DotSize', 2) || 1), col = cv('Crosshair', 'Color', '00FF00');
+  var st = lc(cv('Crosshair', 'Style', 'crossdot')), len = Math.max(1, Math.round(num('Length', 8))), th = Math.max(1, Math.round(num('Thickness', 2)));
+  var gap = Math.max(0, Math.round(num('Gap', 4))), dot = Math.max(1, Math.round(num('DotSize', 2))), rad = Math.max(2, Math.round(num('Radius', 9)));
+  var op = Math.max(5, Math.min(100, num('Opacity', 100))) / 100, col = cv('Crosshair', 'Color', '00FF00'), ocol = cv('Crosshair', 'OutlineColor', '000000');
   if (!/^[0-9A-Fa-f]{6}$/.test(col)) col = '00FF00';
-  var lines = /^(cross|crossdot|t|tdot)$/.test(style), top = /^cross/.test(style), hasDot = /dot$/.test(style);
-  var S2 = Math.max(lines ? 2 * (gap + len) + th : 0, hasDot ? dot : 0, 1), c = Math.round((S2 - th) / 2), r = [];
-  if (lines) { r.push([0, c, len, th], [S2 - len, c, len, th], [c, S2 - len, th, len]); if (top) r.push([c, 0, th, len]); }
-  if (hasDot) r.push([Math.round((S2 - dot) / 2), Math.round((S2 - dot) / 2), dot, dot]);
-  var ox = Math.round((sc.offsetWidth - S2) / 2), oy = Math.round((sc.offsetHeight - S2) / 2), h = '';
-  for (var i = 0; i < r.length; i++)
-    h += '<div class="xh" style="left:' + (ox + r[i][0]) + 'px;top:' + (oy + r[i][1]) + 'px;width:' + r[i][2] + 'px;height:' + r[i][3] + 'px;background:#' + col + '"></div>';
-  sc.innerHTML = h;
+  if (!/^[0-9A-Fa-f]{6}$/.test(ocol)) ocol = '000000';
+  var o = Math.floor(th / 2), odd = th & 1, rects = [];
+  if (/^(cross|crossdot|t|tdot|crosscircle)$/.test(st)) {
+    rects.push([-gap - len, -o, len, th], [gap + odd, -o, len, th], [-o, gap + odd, th, len]);
+    if (!/^t/.test(st)) rects.push([-o, -gap - len, th, len]);
+  }
+  var hasDot = /dot$/.test(st), ring = /circle/.test(st);
+  var W = sc.offsetWidth, H = sc.offsetHeight, cx = Math.floor(W / 2), cy = Math.floor(H / 2);
+  function pass(c, e) {
+    var g = '';
+    for (var i = 0; i < rects.length; i++)
+      g += '<rect shape-rendering="crispEdges" x="' + (cx + rects[i][0] - e) + '" y="' + (cy + rects[i][1] - e) + '" width="' + (rects[i][2] + 2 * e) + '" height="' + (rects[i][3] + 2 * e) + '" fill="#' + c + '"/>';
+    if (hasDot) g += '<circle cx="' + (cx + .5) + '" cy="' + (cy + .5) + '" r="' + (dot / 2 + e) + '" fill="#' + c + '"/>';
+    if (ring) g += '<circle cx="' + (cx + .5) + '" cy="' + (cy + .5) + '" r="' + rad + '" fill="none" stroke="#' + c + '" stroke-width="' + (th + 2 * e) + '"/>';
+    return g;
+  }
+  sc.innerHTML = '<svg width="' + W + '" height="' + H + '" style="position:absolute;left:0;top:0"><g opacity="' + op + '">' +
+    (isOn(cv('Crosshair', 'Outline')) ? pass(ocol, 1) : '') + pass(col, 0) + '</g></svg>';
+}
+
+function updateStats() {
+  var els = document.querySelectorAll('[data-stat]');
+  for (var i = 0; i < els.length; i++) {
+    var n = S.stats ? S.stats[els[i].getAttribute('data-stat')] : 0;
+    els[i].innerHTML = n ? '· ' + n + '×' : '';
+  }
+}
+function stats(json) {
+  var ns = JSON.parse(json), old = S.stats || {};
+  for (var k in ns) if (ns[k] !== old[k]) fire(k);
+  S.stats = ns;
+  updateStats();
+}
+function fire(sec) {
+  var els = document.querySelectorAll('.card[data-t="card"]');
+  for (var i = 0; i < els.length; i++) if (els[i].getAttribute('data-sec') === sec) {
+    var el = els[i];
+    setCls(el, 'fire', false);
+    void el.offsetWidth;
+    setCls(el, 'fire', true);
+    (function (e) { setTimeout(function () { setCls(e, 'fire', false); }, 600); })(el);
+  }
 }
 
 // ───────────── вызовы из AutoHotkey ─────────────
 function init(meta) { M = JSON.parse(meta); build(); }
 function render(state) {
   S = JSON.parse(state);
-  applyTheme(); syncCustom(); update();
+  applyTheme(); syncCustom(); syncRemaps(); syncProfiles(); update();
+  if (pickNorm && hasCls($('kpop'), 'show')) { var el = findCap(pickNorm); if (el) openKey(el); }
   if (S.log !== undefined) setLog(S.log);
 }
 function flash(list) {
@@ -650,8 +914,8 @@ function importAsk(json) {
 function importNone(msg) { modal('Импорт из Fortnite', msg, [['Понятно', 'pri']]); }
 
 // ───────────── окно подтверждения ─────────────
-function modal(title, text, btns) {
-  var h = '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p><div class="acts">';
+function modal(title, text, btns, input) {
+  var h = '<h3>' + esc(title) + '</h3>' + (text ? '<p>' + esc(text) + '</p>' : '') + (input !== undefined ? '<input class="in" id="mi" value="' + esc(input) + '">' : '') + '<div class="acts">';
   for (var i = 0; i < btns.length; i++) h += '<span class="btn ' + btns[i][1] + '" data-mb="' + i + '">' + esc(btns[i][0]) + '</span>';
   $('dlg').innerHTML = h + '</div>';
   setCls($('ov'), 'show', true);
@@ -663,12 +927,13 @@ function modal(title, text, btns) {
     var fn = btns[+b.getAttribute('data-mb')][2];
     if (fn) fn();
   };
+  if (input !== undefined) setTimeout(function () { try { $('mi').focus(); $('mi').select(); } catch (e) {} }, 50);
 }
 
 // ───────────── навигация и действия ─────────────
 function showPage(p) {
   page = p;
-  var pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Crosshair', 'Settings', 'Support'];
+  var pages = PAGES;
   for (var i = 0; i < pages.length; i++) {
     $('pg-' + pages[i]).className = 'page' + (pages[i] === p ? ' show' : '');
     $('nav-' + pages[i]).className = 'nav' + (pages[i] === p ? ' sel' : '');
@@ -681,6 +946,7 @@ function showPage(p) {
   }
   $('content').scrollTop = 0;
   hideTip();
+  hidePops();
   call('setPage', p);
   if (S) { if (p === 'Custom') syncCustom(); update(); }
 }
@@ -688,9 +954,41 @@ function isPresetOrBuiltin(sec) {
   for (var i = 0; i < M.builtin.length; i++) if (M.builtin[i].sec === sec) return true;
   return false;
 }
-function act(a, el) {
-  var sec = el.getAttribute('data-sec');
+function act(a, el, e) {
+  var sec = el.getAttribute('data-sec'), name = el.getAttribute('data-name');
   switch (a) {
+    case 'cap': if (pickNorm === el.getAttribute('data-norm') && hasCls($('kpop'), 'show')) hidePops(); else openKey(el); break;
+    case 'profmenu': if (hasCls($('ppop'), 'show')) hidePops(); else openProfMenu(el); break;
+    case 'assign':
+      var curv = cv(sec, el.getAttribute('data-key')), nv = (curv !== '' && keyNorm(curv) === pickNorm) ? '' : pickNorm;
+      setLocal(sec, el.getAttribute('data-key'), nv); update();
+      var ke = findCap(pickNorm); if (ke) openKey(ke);
+      call('setVal', sec, el.getAttribute('data-key'), nv);
+      break;
+    case 'hue':
+      var r = el.getBoundingClientRect(), x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      var hx = hsl(x * 330, 0.82, 0.56);
+      setLocal('General', 'AccentColor', hx); setLocal('General', 'Theme', 'custom'); applyTheme(); update();
+      call('setVal', 'General', 'AccentColor', hx); call('setVal', 'General', 'Theme', 'custom');
+      break;
+    case 'switchProfile': hidePops(); call('switchProfile', name); break;
+    case 'newProfile': call('newProfile'); break;
+    case 'importProfile': call('importProfile'); break;
+    case 'dupProfile': call('dupProfile', name); break;
+    case 'exportProfile': call('exportProfile', name); break;
+    case 'renameProfile': modalInput('Переименовать профиль', name, function (v) { call('renameProfile', name, v); }); break;
+    case 'deleteProfile':
+      modal('Удалить профиль?', '«' + name + '» будет удалён вместе с его файлом.', [['Отмена', ''], ['Удалить', 'danger', function () { call('deleteProfile', name); }]]);
+      break;
+    case 'resetSec':
+      modal('Сбросить настройки?', 'Настройки этого макроса вернутся к стандартным.', [['Отмена', ''], ['Сбросить', 'pri', function () { call('resetSec', sec); }]]);
+      break;
+    case 'resetGroup':
+      var g = el.getAttribute('data-g'), what = { macros: 'Все встроенные макросы', binds: 'Бинды Fortnite', crosshair: 'Настройки прицела' }[g];
+      modal('Сбросить к стандартным?', what + ' в текущем профиле вернутся к стандартным значениям.', [['Отмена', ''], ['Сбросить', 'pri', function () { call('resetGroup', g); }]]);
+      break;
+    case 'newRemap': call('newRemap'); break;
+    case 'delRemap': call('deleteSec', sec); break;
     case 'nav': showPage(el.getAttribute('data-page')); break;
     case 'macro': case 'sub':
       if (isPresetOrBuiltin(sec)) { curMacro = sec; showPage('Macros'); } else { curCustom = sec; showPage('Custom'); }
@@ -733,9 +1031,23 @@ function act(a, el) {
 }
 document.onclick = function (e) {
   e = e || window.event;
-  var el = up(e.target || e.srcElement, 'data-act');
-  if (el) act(el.getAttribute('data-act'), el);
+  var t = e.target || e.srcElement, el = up(t, 'data-act');
+  if (!up(t, 'data-pop') && !(el && /^(cap|profmenu)$/.test(el.getAttribute('data-act')))) hidePops();
+  if (el) act(el.getAttribute('data-act'), el, e);
 };
+document.onkeydown = function (e) {
+  e = e || window.event;
+  if (e.keyCode === 27) { hidePops(); setCls($('ov'), 'show', false); }
+  if (e.keyCode === 13 && hasCls($('ov'), 'show') && $('mi')) {
+    var bs = $('dlg').querySelectorAll('[data-mb]'); if (bs.length) bs[bs.length - 1].click();
+  }
+};
+function hsl(h, s, l) {
+  var c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2, r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; } else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; } else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+  function hx(v) { var t = Math.round((v + m) * 255).toString(16); return t.length < 2 ? '0' + t : t; }
+  return (hx(r) + hx(g) + hx(b)).toUpperCase();
+}
 document.onmousedown = function (e) {
   e = e || window.event;
   hideTip();
@@ -765,6 +1077,7 @@ function onInput(e) {
   if (!sec) return;
   setLocal(sec, key, el.value);
   if (sec === 'Crosshair') drawPreview();
+  if (key === 'AccentColor' && /^[0-9A-Fa-f]{6}$/.test(el.value)) { setLocal('General', 'Theme', 'custom'); applyTheme(); call('setVal', 'General', 'Theme', 'custom'); }
   var id = sec + '|' + key;
   clearTimeout(timers[id]);
   timers[id] = setTimeout(function () { call('setVal', sec, key, el.value); }, 450);
