@@ -20,12 +20,21 @@ ProcessSetPriority "High"
 DllCall("winmm\timeBeginPeriod", "UInt", 1)
 OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 
+; ───── Подписка ─────
+; Адрес сервера оплаты и проверки ключей (папка flashmacro-server), например "https://flashmacro.ru".
+; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
+LICENSE_API := ""
+APP_VERSION := "3.1"
+LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
+
 ; ───────────────────────── Настройки по умолчанию ─────────────────────────
 ; Это же шаблон config.ini: порядок секций и ключей при сохранении берётся отсюда.
 
 DEFAULT_INI := "
 (
 [General]
+; Язык меню: ru или en (пусто — по языку Windows)
+Language=
 ; Клавиша вкл/выкл всех макросов
 SuspendKey=PgDn
 ; 1 = макросы работают только в окне Fortnite
@@ -48,6 +57,15 @@ MenuOnTop=1
 ; 1 = точка-индикатор в углу экрана (зелёная — макросы работают)
 Indicator=0
 Profile=Основной
+
+[License]
+Key=
+Plan=
+ExpiresTs=
+LastOk=
+; Свой адрес сервера (необязательно, иначе LICENSE_API из FlashMacro.ahk)
+Api=
+BuyUrl=
 
 [Game]
 ; Твои бинды из настроек Fortnite
@@ -259,6 +277,12 @@ W := 1120, H := 740
 UI := 0, WB := 0, Wnd := 0, DPI := 1, UIShown := false
 XG := 0, XR := []
 XVisible := Bool("Crosshair", "ShowOnStart", true)
+if (Get("General", "Language") = "") {
+    SetVal("General", "Language", (A_Language ~= "^(0419|0422|0423|043F|0428|0443)$") ? "ru" : "en")
+    SaveIni()
+}
+Lic := LicFromCache()
+LastLang := Lang()
 CurPage := "Dashboard"
 FORMS := Map(), HintText := Map(), OsdG := 0, LogLines := [], ImportFound := Map()
 SEQ_HELP := "Последовательность через запятую: число — пауза в мс, X — нажать, +X — зажать, -X — отпустить, {Edit} — бинд со страницы Keybinds. Пример: {Wall}, 10, LButton, 15, {Slot1}"
@@ -272,6 +296,8 @@ SetupTray()
 UpdateCrosshair()
 if Bool("Optimize", "AutoGame")
     SetTimer(GameWatch, 3000)
+SetTimer(LicenseCheck, -300)
+SetTimer(LicPeriodic, 6 * 3600 * 1000)
 if !Bool("General", "StartHidden")
     ShowUI()
 Notify("FlashMacro запущен")
@@ -503,6 +529,12 @@ ApplyEngine() {
     Reg("", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
     if Bool("Crosshair", "Enabled")
         Reg("", Get("Crosshair", "ToggleKey"), ToggleCrosshair, "Crosshair toggle")
+
+    ; Без активной подписки работают только меню, клавиши меню и оптимизация
+    if !Lic.ok {
+        SetTimer(AntiAFKTick, 0)
+        return
+    }
 
     ctx := Bool("General", "OnlyInGame", true) ? Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe") : "*"
 
@@ -904,7 +936,7 @@ DrawCrosshair(x, y) {
 }
 
 UpdateCrosshair() {
-    if (Bool("Crosshair", "Enabled") && XVisible) {
+    if (Bool("Crosshair", "Enabled") && XVisible && Lic.ok) {
         XG.Show("NA")
         DrawCrosshair(A_ScreenWidth // 2 + Round(Num("Crosshair", "OffsetX", 0)), A_ScreenHeight // 2 + Round(Num("Crosshair", "OffsetY", 0)))
     } else
@@ -1054,7 +1086,7 @@ class Bridge {
             list.Push("Crosshair")
         else
             for sec in TPL
-                if !(sec ~= "i)^(General|Game|Crosshair|Optimize)$")
+                if !(sec ~= "i)^(General|Game|Crosshair|Optimize|License)$")
                     list.Push(sec)
         ResetSections(list)
         Notify("Сброшено к стандартным")
@@ -1074,6 +1106,34 @@ class Bridge {
             C.Delete(sec)
         Commit()
         return 1
+    }
+    licActivate(key) {
+        global Lic
+        key := StrUpper(Trim(RegExReplace(key, "\s")))
+        SetVal("License", "Key", key)
+        SetVal("License", "LastOk", "")
+        SaveIni()
+        Lic := {ok: 0, state: key = "" ? "nokey" : "checking"}
+        PushState()
+        SetTimer(LicenseCheck, -10)
+        return 1
+    }
+    licRemove() {
+        for k in ["Key", "Plan", "ExpiresTs", "LastOk"]
+            SetVal("License", k, "")
+        SaveIni()
+        SetTimer(LicenseCheck, -10)
+        return 1
+    }
+    licRecheck() {
+        SetTimer(LicenseCheck, -10)
+        return 1
+    }
+    openBuy() {
+        u := BuyUrl()
+        if (u != "")
+            Run(u)
+        return u != "" ? 1 : 0
     }
     optToggle(id, on) => Json(OptApply(id, on ? true : false))
     optRefresh() {
@@ -1229,7 +1289,7 @@ SwitchProfile(name) {
     if FileExist(ProfPath(name))
         ParseInto(FileRead(ProfPath(name), "UTF-8"), nc)
     nc["General"] := gen
-    for keep in ["Optimize", "OptBackup"]
+    for keep in ["Optimize", "OptBackup", "License"]
         if C.Has(keep)
             nc[keep] := C[keep]
     C := nc
@@ -1349,8 +1409,12 @@ RenameCustom(old, new) {
 }
 
 Commit(*) {
-    global CLR
+    global CLR, LastLang
     SaveIni()
+    if (Lang() != LastLang) {
+        LastLang := Lang()
+        SetupTray()
+    }
     ApplyEngine()
     CLR := MakePalette()
     PushState()
@@ -1410,7 +1474,7 @@ PushState() {
     st := Map("cfg", C, "suspended", A_IsSuspended ? 1 : 0, "caps", caps, "used", usedBy, "binds", binds
         , "custom", custom, "active", active, "total", BUILTIN.Length + custom.Length
         , "remaps", SecList("Remap:"), "profiles", ProfileList(), "profile", Get("General", "Profile", PROF_DEFAULT), "stats", Stats
-        , "opt", OptCache, "admin", A_IsAdmin ? 1 : 0)
+        , "opt", OptCache, "admin", A_IsAdmin ? 1 : 0, "license", LicState(), "lang", Lang())
     try Wnd.render(Json(st))
 }
 
@@ -1424,7 +1488,7 @@ MetaJson() {
         kb.Push(r)
     }
     return Json(Map("builtin", BUILTIN, "forms", FORMS, "macroFields", MacroFields(), "hints", HintText
-        , "themes", THEMES, "themeOrder", THEME_ORDER, "bases", BASES, "kb", kb, "version", "v3.0"))
+        , "themes", THEMES, "themeOrder", THEME_ORDER, "bases", BASES, "kb", kb, "version", "v" APP_VERSION))
 }
 
 Json(v) {
@@ -1693,6 +1757,8 @@ InitHints() {
         , "AccentColor", "Свой цвет акцента меню."
         , "page.Remap", "Переназначение: одна клавиша нажимает другую, например боковая кнопка мыши = Shift."
         , "page.Configs", "Профили настроек: создать, переключить, дублировать, сохранить в файл, загрузить из файла, сбросить."
+        , "Language", "Язык меню и уведомлений."
+        , "page.License", "Подписка, ключ и продление."
         , "page.Optimize", "Оптимизация Windows и игры: приоритет, питание, ускорение мыши, Game DVR, очистка кэша, тяжёлые программы."
         , "page.Support", "Как начать, нужные настройки Fortnite и что делать, если не работает.")
         HintText[k] := v
@@ -1957,6 +2023,10 @@ OptRevertAll() {
 }
 
 OptName(id) {
+    static e := Map("priority", "priority", "power", "power plan", "gamedvr", "Game DVR", "timer", "timer", "mouseaccel", "mouse acceleration"
+        , "hags", "GPU scheduling", "gamemode", "game mode", "fso", "fullscreen optimizations", "autogame", "FlashMacro game mode")
+    if (Lang() = "en")
+        return e.Has(id) ? e[id] : id
     static n := Map("priority", "приоритет", "power", "схема питания", "gamedvr", "Game DVR", "timer", "таймер", "mouseaccel", "ускорение мыши"
         , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим FlashMacro")
     return n.Has(id) ? n[id] : id
@@ -2109,6 +2179,7 @@ RoundWin(g, w, h, r) {
 
 Notify(msg, ms := 1600) {
     global OsdG
+    msg := Tr(msg)
     inMenu := UIShown && UI && WinActive("ahk_id " UI.Hwnd)
     if (inMenu && Wnd) {
         try Wnd.toast(msg)
@@ -2144,12 +2215,12 @@ SetupTray() {
     A_IconTip := "FlashMacro"
     t := A_TrayMenu
     t.Delete()
-    t.Add("Открыть меню", ShowUI)
-    t.Add("Макросы вкл/выкл", ToggleSuspend)
-    t.Add("Прицел вкл/выкл", ToggleCrosshair)
+    t.Add(Tr("Открыть меню"), ShowUI)
+    t.Add(Tr("Макросы вкл/выкл"), ToggleSuspend)
+    t.Add(Tr("Прицел вкл/выкл"), ToggleCrosshair)
     t.Add()
-    t.Add("Выход", (*) => ExitApp())
-    t.Default := "Открыть меню"
+    t.Add(Tr("Выход"), (*) => ExitApp())
+    t.Default := Tr("Открыть меню")
     t.ClickCount := 1
 }
 
@@ -2166,4 +2237,135 @@ DebugLog(msg) {
             s .= l "`n"
         try Wnd.setLog(s)
     }
+}
+
+; ───────────────────────── Подписка ─────────────────────────
+; Ключ проверяется на сервере при запуске и каждые 6 часов. Без интернета программа
+; работает LIC_GRACE_H часов после последней успешной проверки.
+
+LicApi() => RTrim(Get("License", "Api", LICENSE_API), "/")
+
+BuyUrl() {
+    u := Get("License", "BuyUrl")
+    if (u = "" && LicApi() != "")
+        u := LicApi() "/#pricing"
+    return u
+}
+
+Hwid() {
+    static id := ""
+    if (id = "") {
+        g := RegGet("HKLM\SOFTWARE\Microsoft\Cryptography", "MachineGuid", "")
+        id := (g != "") ? "MG-" g : "PC-" A_ComputerName
+    }
+    return id
+}
+
+LicFromCache() {
+    if (LicApi() = "")
+        return {ok: 1, state: "free"}
+    if (Get("License", "Key") = "")
+        return {ok: 0, state: "nokey"}
+    last := Get("License", "LastOk"), exp := Get("License", "ExpiresTs")
+    if (last = "")
+        return {ok: 0, state: "checking"}
+    if (exp != "" && exp < A_NowUTC)
+        return {ok: 0, state: "expired"}
+    if (DateDiff(A_NowUTC, last, "Hours") >= LIC_GRACE_H)
+        return {ok: 0, state: "offline_expired"}
+    return {ok: 1, state: "active"}
+}
+
+LicPeriodic() => LicenseCheck()
+
+LicenseCheck(*) {
+    global Lic
+    wasOk := Lic.ok
+    api := LicApi(), key := Get("License", "Key")
+    if (api = "") {
+        Lic := {ok: 1, state: "free"}
+    } else if (key = "") {
+        Lic := {ok: 0, state: "nokey"}
+    } else {
+        res := ""
+        try {
+            req := ComObject("WinHttp.WinHttpRequest.5.1")
+            req.Open("POST", api "/api/license/activate", false)
+            req.SetTimeouts(4000, 4000, 6000, 8000)
+            req.SetRequestHeader("Content-Type", "application/json")
+            req.Send(Json(Map("key", key, "hwid", Hwid(), "app", APP_VERSION)))
+            res := req.ResponseText
+        }
+        if !InStr(res, '"valid"') {
+            c := LicFromCache()
+            Lic := c.ok ? {ok: 1, state: "offline"} : {ok: 0, state: c.state = "checking" ? "offline_expired" : c.state}
+        } else if (JsonVal(res, "valid") = "true") {
+            ex := JsonVal(res, "expires_unix")
+            SetVal("License", "Plan", JsonVal(res, "plan"))
+            SetVal("License", "ExpiresTs", (ex = "" || ex = "0") ? "" : DateAdd("19700101000000", Integer(ex), "Seconds"))
+            SetVal("License", "LastOk", A_NowUTC)
+            Lic := {ok: 1, state: "active"}
+        } else {
+            err := JsonVal(res, "error")
+            Lic := {ok: 0, state: err != "" ? err : "invalid_key"}
+            SetVal("License", "LastOk", "")
+        }
+        SaveIni()
+    }
+    ApplyEngine()
+    UpdateCrosshair()
+    PushState()
+    if (Lic.ok && !wasOk && Lic.state = "active")
+        Notify("Подписка активна")
+}
+
+JsonVal(text, name) {
+    if RegExMatch(text, '"' name '"\s*:\s*(?:"((?:[^"\\]|\\.)*)"|(true|false|null|-?[\d.]+))', &m)
+        return (m[2] != "") ? (m[2] = "null" ? "" : m[2]) : m[1]
+    return ""
+}
+
+LicState() {
+    ts := Get("License", "ExpiresTs"), exp := ""
+    if (ts != "")
+        exp := FormatTime(DateAdd(ts, DateDiff(A_Now, A_NowUTC, "Seconds"), "Seconds"), "dd.MM.yyyy")
+    key := Get("License", "Key")
+    return Map("ok", Lic.ok ? 1 : 0, "state", Lic.state, "plan", Get("License", "Plan"), "expires", exp
+        , "key", StrLen(key) > 8 ? SubStr(key, 1, 8) "…" SubStr(key, -4) : key, "api", LicApi() != "" ? 1 : 0, "buy", BuyUrl() != "" ? 1 : 0)
+}
+
+; ───────────────────────── Язык ─────────────────────────
+
+Lang() => (Get("General", "Language", "ru") = "en") ? "en" : "ru"
+
+; Перевод уведомлений и меню трея (сам интерфейс переводится в ui.html)
+Tr(msg) {
+    static en := 0, pats := 0
+    if (Lang() != "en")
+        return msg
+    if !en {
+        en := Map("FlashMacro запущен", "FlashMacro started", "Макросы выключены", "Macros off", "Макросы включены", "Macros on"
+            , "Бинды импортированы", "Binds imported", "Сброшено к стандартным", "Reset to defaults"
+            , "Профиль с таким названием уже есть", "A profile with this name already exists"
+            , "Нельзя удалить активный профиль", "You can't delete the active profile", "Профиль сохранён в файл", "Profile saved to file"
+            , "Макрос с таким названием уже есть", "A macro with this name already exists"
+            , "FlashMacro работает в трее. Клик по иконке — открыть меню.", "FlashMacro keeps running in the tray. Click the icon to open the menu."
+            , "Рекомендуемые настройки применены", "Recommended settings applied", "Настройки Windows возвращены как были", "Windows settings restored"
+            , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
+            , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
+            , "Открыть меню", "Open menu", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
+        pats := [["^Профиль: (.*)$", "Profile: $1"], ["^Создан профиль «(.*)»$", "Profile “$1” created"]
+            , ["^Профиль «(.*)» удалён$", "Profile “$1” deleted"], ["^Импортирован профиль «(.*)»$", "Profile “$1” imported"]
+            , ["^Применено, кроме: (.*)$", "Applied, except: $1"], ["^Возвращено, кроме \(нужны права администратора\): (.*)$", "Restored, except (admin rights needed): $1"]
+            , ["^Не удалось сохранить config.ini: (.*)$", "Could not save config.ini: $1"]
+            , ["^(.*) уже занята \((.*)\), (.*) не назначен$", "$1 is already used ($2), $3 was not assigned"]
+            , ["^Не удалось назначить клавишу (.*) \((.*)\)$", "Could not assign key $1 ($2)"]
+            , ["^(.*): ВКЛ$", "$1: ON"], ["^(.*): ВЫКЛ$", "$1: OFF"]]
+    }
+    if en.Has(msg)
+        return en[msg]
+    for p in pats
+        if RegExMatch(msg, p[1])
+            return RegExReplace(msg, p[1], p[2])
+    return msg
 }

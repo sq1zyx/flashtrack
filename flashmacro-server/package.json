@@ -1,0 +1,17 @@
+{
+  "name": "flashmacro-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Оплата подписок FlashMacro (Stripe, ЮKassa), выдача и проверка лицензионных ключей",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "better-sqlite3": "11.8.1",
+    "express": "4.21.2",
+    "stripe": "17.7.0"
+  }
+}

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FlashMacro</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Бесплатные макросы для Fortnite на клавиатуре и мыши: drag edit, instant build, свои макросы, прицел поверх игры и оптимизация Windows.">
+<meta name="description" content="Макросы для Fortnite на клавиатуре и мыши: drag edit, instant build, свои макросы, прицел поверх игры и оптимизация Windows. Подписка от $8.99 / 849 ₽.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
@@ -37,6 +37,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
@@ -74,6 +75,7 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -.01em; text-wrap: bal
 .mark { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); display: grid; place-items: center; box-shadow: 0 6px 20px var(--accent-glow); flex: none; }
 .mark svg { width: 18px; height: 18px; }
 .nav { display: flex; gap: 22px; margin-left: auto; }
+.top .wrap > .seg { margin-left: 4px; }
 .nav a { text-decoration: none; color: var(--muted); font-weight: 500; font-size: 15px; transition: color .15s; }
 .nav a:hover { color: var(--text); }
 .top .btn { height: 40px; padding: 0 16px; font-size: 14px; }
@@ -209,6 +211,45 @@ summary::after { content: "+"; font: 700 20px var(--mono); color: var(--accent);
 details[open] summary::after { transform: rotate(45deg); }
 details p { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
 
+/* переключатели языка и валюты */
+.seg { display: inline-flex; padding: 4px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); gap: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); font: 700 12px var(--mono); padding: 7px 12px; border-radius: 9px; cursor: pointer; letter-spacing: .04em; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.top .seg button { padding: 6px 10px; }
+
+/* тарифы */
+.pricing-head { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.plan { position: relative; display: flex; flex-direction: column; padding: 26px 24px 24px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.plan.hl { border-color: rgba(229, 36, 47, .6); box-shadow: 0 0 0 1px rgba(229, 36, 47, .25), 0 24px 60px rgba(229, 36, 47, .12); background: linear-gradient(180deg, rgba(229, 36, 47, .07), var(--surface) 55%); }
+.plan .tag { position: absolute; top: -12px; left: 24px; font: 700 10.5px var(--mono); letter-spacing: .1em; padding: 5px 10px; border-radius: 8px; background: var(--accent); color: #fff; }
+.plan h3 { font-size: 17px; font-weight: 700; }
+.price { margin: 18px 0 4px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.price b { font: 800 40px/1 var(--display); letter-spacing: -.02em; }
+.price s { color: var(--muted); font-size: 15px; }
+.per { color: var(--muted); font-size: 14px; min-height: 22px; }
+.plan ul { list-style: none; padding: 0; margin: 20px 0 24px; display: grid; gap: 10px; font-size: 14.5px; }
+.plan li { display: flex; gap: 10px; align-items: flex-start; }
+.plan li::before { content: ""; flex: none; width: 16px; height: 16px; margin-top: 3px; border-radius: 5px; background: var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E5242F' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/11px no-repeat; }
+.plan .btn { margin-top: auto; justify-content: center; }
+.paynote { margin-top: 16px; color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.paynote span { display: inline-flex; align-items: center; gap: 8px; }
+.paynote i { width: 6px; height: 6px; border-radius: 3px; background: var(--muted); }
+
+/* окно покупки */
+.ov { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, .6); display: grid; place-items: center; padding: 16px; }
+.dlg { width: 100%; max-width: 440px; background: var(--surface); border: 1px solid var(--line-2); border-radius: 22px; padding: 26px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.dlg h3 { font-size: 20px; margin-bottom: 6px; }
+.dlg .sum { display: flex; justify-content: space-between; padding: 14px 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 16px 0; font-weight: 600; }
+.dlg label { display: block; font: 700 11px var(--mono); letter-spacing: .12em; color: var(--muted); margin-bottom: 8px; }
+.dlg input { width: 100%; height: 48px; border-radius: 13px; border: 1px solid var(--line-2); background: var(--card); color: var(--text); font: 500 16px var(--body); padding: 0 14px; outline: none; }
+.dlg input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dlg .hint { color: var(--muted); font-size: 13.5px; margin: 10px 0 18px; }
+.dlg .row { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.dlg .err { color: #F87171; font-size: 14px; margin-top: 12px; min-height: 0; }
+.legal { color: var(--muted); font-size: 12.5px; margin-top: 14px; }
+.legal a { color: var(--text); }
+
 /* финал и подвал */
 .final { margin-block: 64px 0; padding: 44px; border-radius: 28px; text-align: left; position: relative; overflow: hidden;
   background: linear-gradient(120deg, var(--accent-deep) 0%, #3A0A0E 55%, var(--surface) 100%); border: 1px solid rgba(229, 36, 47, .35);
@@ -216,16 +257,18 @@ details p { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
 .final h2 { font-size: clamp(24px, 3vw, 36px); line-height: 1.12; }
 .final p { margin: 10px 0 0; color: rgba(255, 255, 255, .78); }
 .final .btn.pri { background: #fff; color: #111; border-color: #fff; box-shadow: 0 12px 30px rgba(0, 0, 0, .35); }
+footer a { color: var(--text); }
 footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); color: var(--muted); font-size: 13.5px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; }
 
 @media (max-width: 980px) {
   .hero { grid-template-columns: minmax(0, 1fr); padding-block: 44px 40px; gap: 40px; }
   .sh { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .feat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plans { grid-template-columns: minmax(0, 1fr); max-width: 520px; }
   .f.big { grid-column: span 2; }
   .xh-wrap { grid-template-columns: minmax(0, 1fr); }
   .nav { display: none; }
-  .top .btn { margin-left: auto; }
+  .top .wrap > .seg { margin-left: auto; }
 }
 @media (max-width: 640px) {
   .feat, .opt, .steps { grid-template-columns: minmax(0, 1fr); }
@@ -237,7 +280,11 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
   .final { grid-template-columns: minmax(0, 1fr); padding: 28px; }
   section.block { padding-block: 48px; }
   .bar .st { display: none; }
+  .top .wrap { gap: 10px; }
+  .top .btn { padding: 0 12px; }
+  .top .seg button { padding: 6px 8px; }
 }
+@media (max-width: 400px) { .logo { font-size: 14px; gap: 8px; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
   html { scroll-behavior: auto; }
@@ -245,7 +292,6 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
 </style>
 </head>
 <body>
-
 
 <header class="top">
   <div class="wrap">
@@ -257,10 +303,11 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
       <a href="#features">Возможности</a>
       <a href="#crosshair">Прицел</a>
       <a href="#optimize">Оптимизация</a>
-      <a href="#install">Установка</a>
+      <a href="#pricing">Цены</a>
       <a href="#faq">Вопросы</a>
     </nav>
-    <a class="btn pri dl" href="#install">Скачать</a>
+    <div class="seg" id="langseg" role="group" aria-label="Язык / Language"><button type="button" data-lang="ru">RU</button><button type="button" data-lang="en">EN</button></div>
+    <a class="btn pri" href="#pricing">Купить</a>
   </div>
 </header>
 
@@ -269,15 +316,15 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
     <div>
       <div class="eyebrow">Fortnite · клавиатура и мышь · Windows</div>
       <h1 style="margin-top:18px">Редакт и стройка <em>на одной клавише</em></h1>
-      <p class="lead">FlashMacro — бесплатные макросы для Fortnite с удобным меню поверх игры: drag edit, instant build, свои комбинации, прицел и оптимизация Windows. Открытый код, без подписки и ключей.</p>
+      <p class="lead">FlashMacro — макросы для Fortnite с удобным меню поверх игры: drag edit, instant build, свои комбинации, прицел и оптимизация Windows. Меню на русском и английском, подсказки на каждом элементе.</p>
       <div class="cta">
-        <a class="btn pri dl" href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Скачать бесплатно</a>
-        <a class="btn" href="#features">Что умеет</a>
+        <a class="btn pri" href="#pricing">Выбрать тариф</a>
+        <a class="btn" href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Скачать программу</a>
       </div>
       <div class="facts">
         <span><i></i>Windows 10 / 11</span>
         <span><i></i>Установка в один клик</span>
-        <span><i></i>Код можно прочитать</span>
+        <span><i></i>От $8.99 / 849 ₽ в месяц</span>
       </div>
     </div>
 
@@ -394,32 +441,72 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
     <div class="note">Ещё во вкладке: <b>очистка кэша шейдеров</b> DirectX, NVIDIA и AMD, <b>список тяжёлых фоновых программ</b> с закрытием по подтверждению и <b>лёгкий режим</b>, в котором меню выгружается из памяти, пока закрыто. «Ускорителей пинга» и правок ядра нет: они почти ничего не дают и могут сломать систему.</div>
   </section>
 
+  <section class="block" id="pricing">
+    <div class="sh">
+      <div><div class="eyebrow">Цены</div><h2>Один набор функций, разный срок</h2></div>
+      <p>Во всех тарифах доступны все макросы, прицел, профили, переназначения и оптимизация. Ключ приходит на почту и показывается сразу после оплаты.</p>
+    </div>
+    <div class="pricing-head">
+      <div class="seg" id="curseg" role="group" aria-label="Валюта"><button type="button" data-cur="usd">$ USD</button><button type="button" data-cur="rub">₽ RUB</button></div>
+      <span class="muted" id="renewnote">Оплата в рублях — без автопродления: когда срок закончится, просто купи ещё раз.</span>
+    </div>
+    <div class="plans">
+      <div class="plan" data-plan="m1">
+        <h3>1 месяц</h3>
+        <div class="price"><b data-price="m1">—</b></div>
+        <div class="per" data-per="m1"></div>
+        <ul><li>Все макросы и пресеты</li><li>Прицел, профили, переназначения</li><li>Оптимизация Windows</li><li>Обновления на время подписки</li></ul>
+        <button class="btn" type="button" data-buy="m1">Купить на месяц</button>
+      </div>
+      <div class="plan hl" data-plan="m3">
+        <span class="tag" id="save3">ВЫГОДНЕЕ</span>
+        <h3>3 месяца</h3>
+        <div class="price"><b data-price="m3">—</b><s data-old="m3"></s></div>
+        <div class="per" data-per="m3"></div>
+        <ul><li>Всё из тарифа на месяц</li><li>Один платёж за три месяца</li><li>Обновления на время подписки</li></ul>
+        <button class="btn pri" type="button" data-buy="m3">Купить на 3 месяца</button>
+      </div>
+      <div class="plan" data-plan="life">
+        <h3>Навсегда</h3>
+        <div class="price"><b data-price="life">—</b></div>
+        <div class="per">Один платёж, без продлений</div>
+        <ul><li>Все функции без срока</li><li>Все будущие обновления</li><li>Ключ на один ПК, перенос через поддержку</li></ul>
+        <button class="btn" type="button" data-buy="life">Купить навсегда</button>
+      </div>
+    </div>
+    <div class="paynote">
+      <span><i></i>В долларах — любая карта мира через Stripe</span>
+      <span><i></i>В рублях — карты РФ, СБП и ЮMoney через ЮKassa</span>
+      <span><i></i>Ключ работает на одном ПК</span>
+    </div>
+  </section>
+
   <section class="block" id="install">
     <div class="sh">
       <div><div class="eyebrow">Установка</div><h2>Три шага до первой катки</h2></div>
-      <p>Установщик сам ставит AutoHotkey v2, создаёт папку и ярлык на рабочем столе. Настройки при обновлении сохраняются.</p>
+      <p>Скачать программу можно до покупки: меню и оптимизация работают сразу, макросы включаются после ввода ключа.</p>
     </div>
     <div class="steps">
-      <div class="step"><h3>Скачай установщик</h3><p>Файл <code>install-FlashMacro.bat</code> лежит в папке <code>macros</code> репозитория.</p></div>
-      <div class="step"><h3>Запусти двойным кликом</h3><p>Если Windows покажет синее окно — «Подробнее» → «Выполнить в любом случае».</p></div>
+      <div class="step"><h3>Скачай и запусти установщик</h3><p>Он сам поставит AutoHotkey v2 и создаст ярлык на рабочем столе. Если Windows покажет синее окно — «Подробнее» → «Выполнить в любом случае».</p></div>
+      <div class="step"><h3>Введи ключ</h3><p>Вкладка License → вставь ключ из письма → «Активировать». Ключ привязывается к этому ПК.</p></div>
       <div class="step"><h3>Укажи свои бинды</h3><p>Во вкладке Keybinds поставь те же клавиши, что в Fortnite, и включи нужные макросы.</p></div>
     </div>
     <div class="cta" style="margin-top:22px">
-      <a class="btn pri" id="dlbtn" href="../macros/install-FlashMacro.bat" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Скачать install-FlashMacro.bat</a>
+      <a class="btn pri" id="dlbtn" href="/download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Скачать install-FlashMacro.bat</a>
     </div>
   </section>
 
   <section class="block" id="compare">
     <div class="sh">
-      <div><div class="eyebrow">Сравнение</div><h2>Чем FlashMacro отличается от платных макросов</h2></div>
-      <p>Сравнение с типичным набором функций платных KBM-макросов для Fortnite.</p>
+      <div><div class="eyebrow">Сравнение</div><h2>Чем FlashMacro отличается от других макросов</h2></div>
+      <p>Сравнение с типичным набором функций других KBM-макросов для Fortnite.</p>
     </div>
     <div class="cmp">
       <table>
-        <thead><tr><th>ФУНКЦИЯ</th><th class="us">FLASHMACRO</th><th>ПЛАТНЫЕ МАКРОСЫ</th></tr></thead>
+        <thead><tr><th>ФУНКЦИЯ</th><th class="us">FLASHMACRO</th><th>ДРУГИЕ МАКРОСЫ</th></tr></thead>
         <tbody>
-          <tr><td>Цена</td><td class="us">Бесплатно</td><td>Подписка или разовый платёж</td></tr>
-          <tr><td>Исходный код</td><td class="us"><span class="y">Открыт, можно прочитать</span></td><td class="n">Закрыт</td></tr>
+          <tr><td>Оплата в рублях</td><td class="us"><span class="y">Карты РФ, СБП, ЮMoney</span></td><td class="n">Зависит от программы</td></tr>
+          <tr><td>Меню на русском</td><td class="us"><span class="y">Русский и английский</span></td><td class="n">Зависит от программы</td></tr>
           <tr><td>Edit, build, пресеты, свои макросы</td><td class="us"><span class="y">Есть</span></td><td><span class="y">Есть</span></td></tr>
           <tr><td>Профили с экспортом в файл</td><td class="us"><span class="y">Есть</span></td><td class="n">Зависит от программы</td></tr>
           <tr><td>Переназначение клавиш</td><td class="us"><span class="y">Есть</span></td><td class="n">Зависит от программы</td></tr>
@@ -437,30 +524,54 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
     </div>
     <div class="faq">
       <details><summary>Могут ли забанить?</summary><p>Epic запрещает макросы в турнирах и соревновательных режимах. FlashMacro не читает память игры и ничего в неё не внедряет: он нажимает клавиши так же, как ты. Но решение о том, где и как его использовать, остаётся за тобой, и риск тоже.</p></details>
+      <details><summary>Как работает подписка?</summary><p>Ключ приходит на почту и показывается на странице после оплаты. Вставь его во вкладке License — программа проверит его на сервере и привяжет к твоему ПК. Без интернета FlashMacro работает ещё 3 дня после последней проверки.</p></details>
+      <details><summary>Что будет, когда срок закончится?</summary><p>Меню и оптимизация продолжат работать, а макросы, переназначения и прицел выключатся до продления. Подписка в долларах продлевается автоматически, в рублях — нет: просто купи следующий период.</p></details>
+      <details><summary>Как отменить автопродление?</summary><p>В письме от Stripe после оплаты есть ссылка на управление подпиской — там же её можно отменить. Уже оплаченный срок доработает до конца.</p></details>
+      <details><summary>Можно ли перенести ключ на другой ПК?</summary><p>Да, напиши в поддержку — привязку сбросят, и ключ можно будет активировать на новом компьютере.</p></details>
       <details><summary>Нужно ли что-то ставить отдельно?</summary><p>Нет. Установщик сам скачает AutoHotkey v2, если его нет, и создаст ярлык на рабочем столе.</p></details>
       <details><summary>Почему не видно прицел в игре?</summary><p>Прицел рисуется поверх экрана, поэтому Fortnite должен быть в режиме окна «Оконный полноэкранный». В обычном полноэкранном режиме оверлей не виден. Это же нужно, чтобы меню открывалось поверх игры по Insert.</p></details>
       <details><summary>Макрос не срабатывает. Что делать?</summary><p>Проверь, что бинды во вкладке Keybinds совпадают с настройками Fortnite. Увеличь задержки до 15–20 мс — при низком FPS игра не успевает за слишком быстрыми нажатиями. Для проверки без игры выключи «Работать только в окне Fortnite» и включи лог нажатий.</p></details>
-      <details><summary>Ругается антивирус или SmartScreen</summary><p>Установщик — обычный .bat, а сама программа — текстовый скрипт AutoHotkey, который можно открыть Блокнотом и прочитать. SmartScreen предупреждает о любых файлах без цифровой подписи.</p></details>
+      <details><summary>Ругается антивирус или SmartScreen</summary><p>SmartScreen предупреждает о любых файлах без цифровой подписи. Установщик — обычный .bat-файл, его можно открыть Блокнотом и посмотреть, что он делает.</p></details>
       <details><summary>Как удалить?</summary><p>Выйди из программы через трей или Settings и удали папку FlashMacro с рабочего стола. Если включал оптимизацию — сначала нажми «Вернуть как было» во вкладке Optimize.</p></details>
+      <details><summary>Можно вернуть деньги?</summary><p>Условия возврата описаны на странице «Возврат». Если ключ не активировался из-за ошибки на нашей стороне — вернём оплату.</p></details>
     </div>
   </section>
 
   <section class="final">
     <div>
       <h2>Готов попробовать?</h2>
-      <p>Установка занимает минуту, настройки сохраняются при каждом обновлении.</p>
+      <p>Установка занимает минуту, ключ приходит сразу после оплаты.</p>
     </div>
-    <a class="btn pri" href="#install">Скачать FlashMacro</a>
+    <a class="btn pri" href="#pricing">Выбрать тариф</a>
   </section>
 
   <footer>
-    <span>FlashMacro — проект с открытым кодом на AutoHotkey v2.</span>
+    <span>© FlashMacro · <a href="legal.html#offer">Оферта</a> · <a href="legal.html#privacy">Конфиденциальность</a> · <a href="legal.html#refund">Возврат</a></span>
     <span>Не связан с Epic Games. Fortnite — товарный знак Epic Games, Inc.</span>
   </footer>
 </main>
 
+<div class="ov" id="buyov" hidden>
+  <form class="dlg" id="buyform" novalidate>
+    <h3>Оформление</h3>
+    <div class="muted" id="buymethod">Оплата картой через Stripe</div>
+    <div class="sum"><span id="buyplan">—</span><span id="buyprice">—</span></div>
+    <label for="buyemail">ПОЧТА ДЛЯ КЛЮЧА</label>
+    <input id="buyemail" type="email" autocomplete="email" placeholder="you@example.com" required>
+    <div class="hint">Сюда придёт ключ и чек. Ключ также покажем сразу после оплаты.</div>
+    <div class="row">
+      <button class="btn" type="button" id="buycancel">Отмена</button>
+      <button class="btn pri" type="submit" id="buygo">Перейти к оплате</button>
+    </div>
+    <div class="err" id="buyerr" role="alert"></div>
+    <div class="legal">Нажимая «Перейти к оплате», ты принимаешь <a href="legal.html#offer">оферту</a> и <a href="legal.html#refund">условия возврата</a>.</div>
+  </form>
+</div>
+
 <script>
+window.T = window.T || function (x) { return x; };
 (function () {
+  var T = function (x) { return window.T(x); };
   // ───── живой макет программы ─────
   var ROWS = [
     ['Q','W','E','R','T','Y','U','I','O','P'],
@@ -491,7 +602,7 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
   MACROS.forEach(function (m) {
     var c = document.createElement('div'); c.className = 'mc'; c.id = 'mc-' + m.id;
     c.innerHTML = '<span class="kchip">' + (m.label || m.key.toUpperCase()) + '</span><b>' + m.name + '</b>' +
-      '<div class="ln"><span>' + (m.on ? 'ON' : 'OFF') + '</span><button class="sw" type="button" aria-label="Включить ' + m.name + '"></button></div>';
+      '<div class="ln"><span>' + (m.on ? 'ON' : 'OFF') + '</span><button class="sw" type="button" aria-label="' + T('Включить') + ' ' + m.name + '"></button></div>';
     c.querySelector('.sw').addEventListener('click', function () { m.on = !m.on; paint(); });
     cards.appendChild(c);
   });
@@ -514,7 +625,7 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
     paused = !paused;
     pill.classList.toggle('off', paused);
     pill.textContent = paused ? '● MACROS OFF' : '● MACROS ON';
-    document.getElementById('stt').textContent = paused ? 'На паузе' : 'Макросы активны';
+    document.getElementById('stt').textContent = T(paused ? 'На паузе' : 'Макросы активны');
     paint();
   });
 
@@ -522,6 +633,7 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
   function log(msg, trig) {
     if (first) { logEl.innerHTML = ''; first = false; }
     var d = document.createElement('div');
+    msg = T(msg);
     d.innerHTML = trig ? '<span class="t">' + msg + '</span>' : msg;
     logEl.insertBefore(d, logEl.firstChild);
     while (logEl.children.length > 7) logEl.removeChild(logEl.lastChild);
@@ -538,7 +650,7 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
   var BUILD = { z: 'стена', x: 'пол', c: 'лестница', v: 'конус' };
   function run(k) {
     flash(k, 120);
-    if (paused) { log(k.toUpperCase() + ' — макросы на паузе'); return; }
+    if (paused) { log(k.toUpperCase() + ' ' + T('— макросы на паузе')); return; }
     var drag = MACROS[0], build = MACROS[1], pick = MACROS[2], retake = MACROS[3];
     if (k === 'g' && drag.on) {
       fire('drag'); log('Drag edit', true);
@@ -546,8 +658,8 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
       setTimeout(function () { log('ЛКМ ↓ выделение тайлов'); }, 160);
       setTimeout(function () { log('ЛКМ ↑ подтверждено'); }, 420);
     } else if (BUILD[k] && build.on) {
-      fire('build'); log('Instant build: ' + BUILD[k], true);
-      setTimeout(function () { log(k.toUpperCase() + ' → ЛКМ клик'); }, 80);
+      fire('build'); log('Instant build: ' + T(BUILD[k]), true);
+      setTimeout(function () { log(k.toUpperCase() + ' → ' + T('ЛКМ клик')); }, 80);
     } else if (k === 'e' && pick.on) {
       fire('pick'); log('Pick-up', true); log('E × 5 за 100 мс');
     } else if (k === 'f' && retake.on) {
@@ -557,7 +669,7 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
     } else if (k === 'ins') {
       log('Insert — меню поверх игры', true);
     } else {
-      log(k.toUpperCase() + ' — клавиша свободна');
+      log(k.toUpperCase() + ' ' + T('— клавиша свободна'));
     }
   }
   document.addEventListener('keydown', function (e) {
@@ -589,14 +701,14 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
   var xs = document.getElementById('xstyle');
   STYLES.forEach(function (s) {
     var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.innerHTML = icon(s);
-    b.setAttribute('aria-label', NAMES[s]); b.title = NAMES[s];
+    b.setAttribute('aria-label', T(NAMES[s])); b.title = T(NAMES[s]); b.dataset.name = NAMES[s];
     b.addEventListener('click', function () { X.style = s; draw(); });
     b.dataset.v = s; xs.appendChild(b);
   });
   var xc = document.getElementById('xcolor');
   COLORS.forEach(function (c) {
     var b = document.createElement('button'); b.type = 'button'; b.className = 'dot'; b.style.background = '#' + c;
-    b.setAttribute('aria-label', 'Цвет #' + c);
+    b.setAttribute('aria-label', '#' + c);
     b.addEventListener('click', function () { X.color = c; draw(); });
     b.dataset.v = c; xc.appendChild(b);
   });
@@ -629,6 +741,107 @@ footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); colo
   }
   draw();
   window.addEventListener('resize', draw);
+})();
+</script>
+
+<script>
+(function () {
+  // Адрес сервера оплаты (папка flashmacro-server). Пусто — тот же адрес, что у сайта.
+  var API = '';
+  var PRICES = { m1: { usd: 8.99, rub: 849 }, m3: { usd: 19.99, rub: 1890 }, life: { usd: 49.99, rub: 4790 } };
+  var NAMES = { m1: '1 месяц', m3: '3 месяца', life: 'Навсегда' };
+  var EN = {", в котором меню выгружается из памяти, пока закрыто. «Ускорителей пинга» и правок ядра нет: они почти ничего не дают и могут сломать систему.": ", which unloads the menu from memory while it's closed. No “ping boosters” or kernel tweaks: they do almost nothing and can break your system.", "1 месяц": "1 month", "3 месяца": "3 months", "Навсегда": "Lifetime", "DirectX, NVIDIA и AMD,": "for DirectX, NVIDIA and AMD,", "Drag edit: держишь клавишу и выделяешь тайлы, отпустил — подтверждено. Infinite edit спамит редакты в темпе твоего FPS, Instant edit делает один редакт за нажатие.": "Drag edit: hold the key and select tiles, release to confirm. Infinite edit spams edits at your FPS pace, Instant edit does one edit per press.", "E × 5 за 100 мс": "E × 5 in 100 ms", "Edit, build, пресеты, свои макросы": "Edit, build, presets, custom macros", "Edit-макросы": "Edit macros", "Epic запрещает макросы в турнирах и соревновательных режимах. FlashMacro не читает память игры и ничего в неё не внедряет: он нажимает клавиши так же, как ты. Но решение о том, где и как его использовать, остаётся за тобой, и риск тоже.": "Epic does not allow macros in tournaments and competitive modes. FlashMacro doesn't read game memory or inject anything into the game: it presses keys just like you do. Where and how you use it is your call, and so is the risk.", "FlashMacro — макросы для Fortnite с удобным меню поверх игры: drag edit, instant build, свои комбинации, прицел и оптимизация Windows. Меню на русском и английском, подсказки на каждом элементе.": "FlashMacro is a Fortnite macro tool with a clean in-game menu: drag edit, instant build, custom combos, a crosshair and Windows optimization. Menu in English and Russian, with a hint on every control.", "FlashMacro — наверх": "FlashMacro — back to top", "Fortnite · клавиатура и мышь · Windows": "Fortnite · keyboard & mouse · Windows", "Game DVR перестаёт писать видео в фоне и отнимать кадры.": "Game DVR stops recording in the background and eating frames.", "Insert открывает меню прямо поверх Fortnite и возвращает обратно. Шесть цветов темы или свой, три варианта фона.": "Insert opens the menu right over Fortnite and takes you back. Six theme colors or your own, three backgrounds.", "Rapid fire и Anti-AFK": "Rapid fire and Anti-AFK", "SmartScreen предупреждает о любых файлах без цифровой подписи. Установщик — обычный .bat-файл, его можно открыть Блокнотом и посмотреть, что он делает.": "SmartScreen warns about any file without a digital signature. The installer is a plain .bat file; open it in Notepad to see exactly what it does.", "Без фоновой записи Xbox": "No Xbox background recording", "Боевые пресеты": "Combat presets", "Боковая кнопка мыши становится Shift, Caps Lock — Ctrl. Работает только в игре и выключается вместе с макросами.": "A side mouse button becomes Shift, Caps Lock becomes Ctrl. Works only in game and turns off with the macros.", "Больше FPS без сомнительных твиков": "More FPS without sketchy tweaks", "Быстрые клики, пока держишь клавишу, и защита от вылета за бездействие в креативе. Счётчик на каждой карточке показывает, сколько раз сработал макрос.": "Fast clicks while you hold a key, and protection from idle kicks in Creative. A counter on every card shows how many times a macro fired.", "В долларах — любая карта мира через Stripe": "In dollars: any card worldwide via Stripe", "В письме от Stripe после оплаты есть ссылка на управление подпиской — там же её можно отменить. Уже оплаченный срок доработает до конца.": "The Stripe receipt email has a link to manage your subscription, where you can cancel it. The paid period keeps working until it ends.", "В программе прицел рисуется поверх экрана со сглаживанием и включается горячей клавишей. Ниже — те же настройки, что и в меню.": "In the app the crosshair is drawn over the screen with anti-aliasing and toggled with a hotkey. Below are the same settings as in the menu.", "В рублях — карты РФ, СБП и ЮMoney через ЮKassa": "In rubles: Russian cards, SBP and YooMoney via YooKassa", "ВЫГОДНЕЕ НА": "SAVE", "Валюта": "Currency", "Введи ключ": "Enter your key", "Вкладка License → вставь ключ из письма → «Активировать». Ключ привязывается к этому ПК.": "License tab → paste the key from the email → “Activate”. The key is tied to this PC.", "Включить": "Turn on", "Во вкладке Keybinds поставь те же клавиши, что в Fortnite, и включи нужные макросы.": "On the Keybinds tab, set the same keys as in Fortnite and turn on the macros you need.", "Во всех тарифах доступны все макросы, прицел, профили, переназначения и оптимизация. Ключ приходит на почту и показывается сразу после оплаты.": "Every plan includes all macros, the crosshair, profiles, remaps and optimization. The key is emailed to you and shown right after payment.", "Возврат": "Refunds", "Возможности": "Features", "Вопросы": "FAQ", "Все будущие обновления": "All future updates", "Все макросы и пресеты": "All macros and presets", "Все функции без срока": "Every feature, no expiry", "Встроена": "Built in", "Всё из тарифа на месяц": "Everything in the monthly plan", "Всё, что нужно для edit-плея и стройки": "Everything you need for editing and building", "Выбрать тариф": "Choose a plan", "Выйди из программы через трей или Settings и удали папку FlashMacro с рабочего стола. Если включал оптимизацию — сначала нажми «Вернуть как было» во вкладке Optimize.": "Quit the app from the tray or Settings and delete the FlashMacro folder from your desktop. If you used optimization, press “Restore” on the Optimize tab first.", "Высокий приоритет Fortnite": "High priority for Fortnite", "Готов попробовать?": "Ready to try it?", "Готовые комбинации в одну клавишу, каждую можно отредактировать.": "Ready-made one-key combos, each one editable.", "ДЛИНА ЛИНИЙ": "LINE LENGTH", "ДРУГИЕ МАКРОСЫ": "OTHER MACROS", "Да, напиши в поддержку — привязку сбросят, и ключ можно будет активировать на новом компьютере.": "Yes. Contact support, they'll reset the binding and you can activate the key on your new PC.", "Если ответа нет — во вкладке Support внутри программы есть подсказки по настройке.": "If your question isn't here, the Support tab in the app has setup tips.", "Есть": "Yes", "Ещё во вкладке:": "Also on the tab:", "Живой макет программы": "Live app preview", "Зависит от программы": "Depends on the app", "Запустил Fortnite — всё включилось. Вышел — вернулось как было.": "Launch Fortnite and everything turns on. Quit and it all goes back.", "Игровой режим FlashMacro": "FlashMacro game mode", "Каждый макрос включается тумблером, клавишу меняешь кликом. Подсказки на русском появляются при наведении на любой элемент меню.": "Each macro has its own toggle, and you change keys with a click. Hover over anything in the menu for a hint.", "Как отменить автопродление?": "How do I cancel auto-renewal?", "Как работает подписка?": "How does the subscription work?", "Как удалить?": "How do I uninstall it?", "Карта РФ, СБП или ЮMoney через ЮKassa": "Russian card, SBP or YooMoney via YooKassa", "Карты РФ, СБП, ЮMoney": "Russian cards, SBP, YooMoney", "Клавиатура в меню": "Keyboard in the menu", "Кликни по клавише на схеме — увидишь, что на ней висит, и сразу назначишь её на макрос или бинд Fortnite.": "Click a key on the layout to see what it does and assign it to a macro or Fortnite bind right away.", "Ключ на один ПК, перенос через поддержку": "Key for one PC, transfer via support", "Ключ приходит на почту и показывается на странице после оплаты. Вставь его во вкладке License — программа проверит его на сервере и привяжет к твоему ПК. Без интернета FlashMacro работает ещё 3 дня после последней проверки.": "The key is emailed to you and shown on the page after payment. Paste it on the License tab and the app checks it with the server and ties it to your PC. Without internet, FlashMacro keeps working for 3 days after the last check.", "Ключ работает на одном ПК": "The key works on one PC", "Конфиденциальность": "Privacy", "Коротко о важном": "The short version", "Крест": "Cross", "Крест в круге": "Cross in circle", "Крест с точкой": "Cross with dot", "Круг": "Circle", "Точка": "Dot", "Купить": "Buy", "Купить на 3 месяца": "Buy 3 months", "Купить на месяц": "Buy 1 month", "Купить навсегда": "Buy lifetime", "Курсор двигается ровно на столько, на сколько двигаешь мышь.": "The cursor moves exactly as far as you move the mouse.", "ЛКМ клик": "LMB click", "ЛОГ НАЖАТИЙ": "KEY LOG", "Любая последовательность нажатий и пауз: один раз, пока держишь или вкл/выкл. Скорость и интервал настраиваются.": "Any sequence of presses and pauses: once, while held, or toggled. Speed and interval are adjustable.", "Макрос не срабатывает. Что делать?": "A macro doesn't fire. What should I do?", "Макросы активны": "Macros active", "На паузе": "Paused", "Максимальная производительность": "Ultimate Performance", "Мгновенная стройка": "Instant building", "Меньше микрофризов и задержки кадра. Вступает в силу после перезагрузки.": "Fewer micro-stutters and lower frame latency. Takes effect after a restart.", "Меню и оптимизация продолжат работать, а макросы, переназначения и прицел выключатся до продления. Подписка в долларах продлевается автоматически, в рублях — нет: просто купи следующий период.": "The menu and optimization keep working, while macros, remaps and the crosshair turn off until you renew. Dollar subscriptions renew automatically; ruble ones don't, so just buy the next period.", "Меню на русском": "Menu in Russian", "Меню поверх игры": "Menu over the game", "Могут ли забанить?": "Can I get banned?", "Можно вернуть деньги?": "Can I get a refund?", "Можно ли перенести ключ на другой ПК?": "Can I move my key to another PC?", "Мышь без ускорения": "No mouse acceleration", "На каждом элементе": "On every control", "Нажал клавишу стены, пола, лестницы или конуса — постройка сразу стоит. Непрерывный режим держит ЛКМ, пока не сменишь оружие или не начнёшь редакт.": "Press the wall, floor, stairs or cone key and the piece is placed instantly. Continuous mode holds LMB until you switch weapons or start editing.", "Нажимая «Перейти к оплате», ты принимаешь": "By pressing “Continue to payment”, you accept the", "Нажми G или Z на клавиатуре…": "Press G or Z on your keyboard…", "Не связан с Epic Games. Fortnite — товарный знак Epic Games, Inc.": "Not affiliated with Epic Games. Fortnite is a trademark of Epic Games, Inc.", "Не удалось связаться с сервером оплаты. Проверь интернет и попробуй ещё раз.": "Couldn't reach the payment server. Check your connection and try again.", "Нет. Установщик сам скачает AutoHotkey v2, если его нет, и создаст ярлык на рабочем столе.": "No. The installer downloads AutoHotkey v2 if needed and creates a desktop shortcut.", "Нужно ли что-то ставить отдельно?": "Do I need to install anything else?", "ОТСТУП ОТ ЦЕНТРА": "CENTER GAP", "Обводка": "Outline", "Обновления на время подписки": "Updates during your subscription", "Один набор функций, разный срок": "Same features, different term", "Один платёж за три месяца": "One payment for three months", "Один платёж, без продлений": "One payment, no renewals", "Он сам поставит AutoHotkey v2 и создаст ярлык на рабочем столе. Если Windows покажет синее окно — «Подробнее» → «Выполнить в любом случае».": "It installs AutoHotkey v2 and creates a desktop shortcut. If Windows shows a blue window, click “More info” → “Run anyway”.", "Оплата в рублях": "Pay in rubles", "Оплата в рублях — без автопродления: когда срок закончится, просто купи ещё раз.": "Ruble payments don't auto-renew: when the term ends, just buy again.", "Оплата картой через Stripe": "Card payment via Stripe", "Оптимизация": "Optimization", "Оптимизация Windows": "Windows optimization", "Оптимизация Windows с откатом": "Windows optimization with undo", "От $8.99 / 849 ₽ в месяц": "From $8.99 / 849 ₽ a month", "Отдельные настройки для арены, креатива и тренировки. Переключение из шапки меню, экспорт в файл, чтобы поделиться с другом.": "Separate setups for Arena, Creative and practice. Switch from the menu header, export to a file to share with a friend.", "Отмена": "Cancel", "Оферта": "Terms", "Оформление": "Checkout", "ПОЧТА ДЛЯ КЛЮЧА": "EMAIL FOR YOUR KEY", "Перейти к оплате": "Continue to payment", "Переназначение клавиш": "Key remapping", "Перехожу к оплате…": "Opening payment…", "Платёжная система не ответила. Попробуй ещё раз через минуту.": "The payment system didn't respond. Try again in a minute.", "Подписки в долларах продлеваются автоматически, отменить можно в любой момент.": "Dollar subscriptions renew automatically; cancel any time.", "Подсказки на русском": "Hints in your language", "Попробуй: нажми": "Try it: press", "Почему не видно прицел в игре?": "Why can't I see the crosshair in game?", "Превью прицела": "Crosshair preview", "Прицел": "Crosshair", "Прицел рисуется поверх экрана, поэтому Fortnite должен быть в режиме окна «Оконный полноэкранный». В обычном полноэкранном режиме оверлей не виден. Это же нужно, чтобы меню открывалось поверх игры по Insert.": "The crosshair is drawn over the screen, so Fortnite must be in “Windowed Fullscreen” mode. The overlay isn't visible in exclusive fullscreen. This is also needed for the Insert menu to open over the game.", "Прицел, профили, переназначения": "Crosshair, profiles, remaps", "Проверь адрес почты.": "Check your email address.", "Проверь, что бинды во вкладке Keybinds совпадают с настройками Fortnite. Увеличь задержки до 15–20 мс — при низком FPS игра не успевает за слишком быстрыми нажатиями. Для проверки без игры выключи «Работать только в окне Fortnite» и включи лог нажатий.": "Make sure the binds on the Keybinds tab match your Fortnite settings. Raise delays to 15–20 ms: at low FPS the game can't keep up with very fast presses. To test without the game, turn off “Only in the Fortnite window” and turn on the key log.", "Профили": "Profiles", "Профили с экспортом в файл": "Profiles with file export", "Процессор достаётся игре раньше браузера, Discord и обновлений.": "The game gets the CPU before your browser, Discord and updates.", "Процессор не сбрасывает частоту между кадрами, FPS ровнее.": "The CPU doesn't drop its clock between frames, so FPS is steadier.", "Разделы": "Sections", "Редакт и стройка": "Edits and builds", "Ругается антивирус или SmartScreen": "My antivirus or SmartScreen complains", "Русский и английский": "English and Russian", "СТИЛЬ": "STYLE", "Свои макросы": "Custom macros", "Скачай и запусти установщик": "Download and run the installer", "Скачать install-FlashMacro.bat": "Download install-FlashMacro.bat", "Скачать программу": "Download the app", "Скачать программу можно до покупки: меню и оптимизация работают сразу, макросы включаются после ввода ключа.": "You can download the app before buying: the menu and optimization work right away, macros turn on once you enter a key.", "Собери свой прицел прямо здесь": "Build your crosshair right here", "Сравнение": "Comparison", "Сравнение с типичным набором функций других KBM-макросов для Fortnite.": "Compared with the typical feature set of other KBM macros for Fortnite.", "Сюда придёт ключ и чек. Ключ также покажем сразу после оплаты.": "Your key and receipt will be sent here. We'll also show the key right after payment.", "ТОЛЩИНА": "THICKNESS", "Только настройки Windows, которые реально влияют на игру. Перед изменением старые значения сохраняются, кнопка «Вернуть как было» откатывает всё обратно.": "Only Windows settings that actually affect the game. Old values are saved first, and “Restore” puts everything back.", "Точный таймер и планирование GPU": "Precise timer and GPU scheduling", "Три шага до первой катки": "Three steps to your first match", "Тёмная обводка": "Dark outline", "Укажи свои бинды": "Set your binds", "Условия возврата описаны на странице «Возврат». Если ключ не активировался из-за ошибки на нашей стороне — вернём оплату.": "Refund terms are on the “Refunds” page. If your key didn't activate because of an error on our side, we'll refund you.", "Установка": "Install", "Установка в один клик": "One-click install", "Установка занимает минуту, ключ приходит сразу после оплаты.": "Setup takes a minute, and your key arrives right after payment.", "ФУНКЦИЯ": "FEATURE", "ЦВЕТ": "COLOR", "Цены": "Pricing", "Часто продаётся отдельно": "Often sold separately", "Чем FlashMacro отличается от других макросов": "How FlashMacro compares", "Что будет, когда срок закончится?": "What happens when my term ends?", "Этот способ оплаты пока не подключён. Попробуй другую валюту или напиши в поддержку.": "This payment method isn't available yet. Try the other currency or contact support.", "Язык / Language": "Language", "в месяц": "a month", "в месяц, автопродление": "a month, auto-renews", "за 31 день": "for 31 days", "и": "and", "конус": "cone", "лестница": "stairs", "пол": "floor", "стена": "wall", "лёгкий режим": "lite mode", "на одной клавише": "on one key", "оферту": "terms", "условия возврата": "refund policy", "очистка кэша шейдеров": "shader cache cleanup", "права администратора": "admin rights", "с закрытием по подтверждению и": "with confirm-to-close, and", "список тяжёлых фоновых программ": "a list of heavy background programs", "— instant build. Можно и мышкой по клавишам.": "— instant build. You can click the keys too.", "— клавиша свободна": "— key is free", "— макросы на паузе": "— macros paused", "G ↓↑ редактирование": "G ↓↑ edit", "ЛКМ ↓ выделение тайлов": "LMB ↓ selecting tiles", "ЛКМ ↑ подтверждено": "LMB ↑ confirmed", "Z стена → ЛКМ → слот 1": "Z wall → LMB → slot 1", "Insert — меню поверх игры": "Insert — menu over the game"};
+  function sget(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function sset(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  var lang = sget('fm-lang') || ((navigator.language || '').toLowerCase().indexOf('ru') === 0 ? 'ru' : 'en');
+  var cur = sget('fm-cur') || (lang === 'ru' ? 'rub' : 'usd');
+  var T = window.T = function (x) {
+    if (lang !== 'en' || x == null) return x;
+    var k = String(x).trim();
+    return Object.prototype.hasOwnProperty.call(EN, k) ? String(x).replace(k, EN[k]) : x;
+  };
+  function money(v, c) { return c === 'usd' ? '$' + v.toFixed(2) : Math.round(v).toLocaleString('ru-RU').replace(/\u00a0/g, ' ') + ' ₽'; }
+
+  function renderPrices() {
+    document.querySelectorAll('[data-price]').forEach(function (el) { el.textContent = money(PRICES[el.dataset.price][cur], cur); });
+    var m1 = PRICES.m1[cur], m3 = PRICES.m3[cur];
+    document.querySelector('[data-per="m1"]').textContent = T(cur === 'usd' ? 'в месяц, автопродление' : 'за 31 день');
+    document.querySelector('[data-per="m3"]').textContent = '≈ ' + money(m3 / 3, cur) + ' ' + T('в месяц');
+    document.querySelector('[data-old="m3"]').textContent = money(m1 * 3, cur);
+    document.getElementById('save3').textContent = T('ВЫГОДНЕЕ НА') + ' ' + Math.round((1 - m3 / (m1 * 3)) * 100) + '%';
+    document.getElementById('renewnote').textContent = T(cur === 'rub'
+      ? 'Оплата в рублях — без автопродления: когда срок закончится, просто купи ещё раз.'
+      : 'Подписки в долларах продлеваются автоматически, отменить можно в любой момент.');
+    document.querySelectorAll('#curseg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.cur === cur); });
+  }
+  document.querySelectorAll('#curseg button').forEach(function (b) {
+    b.addEventListener('click', function () { cur = b.dataset.cur; sset('fm-cur', cur); renderPrices(); });
+  });
+
+  // ───── язык ─────
+  var orig = null;
+  function collect() {
+    orig = [];
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3 && /[А-Яа-яЁё]/.test(c.nodeValue)) orig.push([c, null, c.nodeValue]);
+        else if (c.nodeType === 1 && c.tagName !== 'SCRIPT' && c.tagName !== 'STYLE') {
+          ['aria-label', 'placeholder', 'title'].forEach(function (a) { var v = c.getAttribute(a); if (v && /[А-Яа-яЁё]/.test(v)) orig.push([c, a, v]); });
+          walk(c);
+        }
+      }
+    })(document.body);
+  }
+  function applyLang(l) {
+    lang = l; sset('fm-lang', l);
+    document.documentElement.lang = l;
+    if (!orig) collect();
+    orig.forEach(function (o) {
+      var v = l === 'en' ? T(o[2]) : o[2];
+      if (o[1]) o[0].setAttribute(o[1], v); else o[0].nodeValue = v;
+    });
+    document.querySelectorAll('#langseg button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.lang === l); });
+    document.querySelectorAll('#xstyle .chip').forEach(function (b) { b.title = T(b.dataset.name); b.setAttribute('aria-label', T(b.dataset.name)); });
+    renderPrices();
+  }
+  document.querySelectorAll('#langseg button').forEach(function (b) { b.addEventListener('click', function () { applyLang(b.dataset.lang); }); });
+
+  // ───── покупка ─────
+  var ov = document.getElementById('buyov'), form = document.getElementById('buyform'), email = document.getElementById('buyemail');
+  var err = document.getElementById('buyerr'), go = document.getElementById('buygo'), plan = null;
+  function openBuy(p) {
+    plan = p;
+    document.getElementById('buyplan').textContent = 'FlashMacro — ' + T(NAMES[p]);
+    document.getElementById('buyprice').textContent = money(PRICES[p][cur], cur);
+    document.getElementById('buymethod').textContent = T(cur === 'usd' ? 'Оплата картой через Stripe' : 'Карта РФ, СБП или ЮMoney через ЮKassa');
+    err.textContent = '';
+    ov.hidden = false;
+    email.value = sget('fm-email') || email.value;
+    setTimeout(function () { email.focus(); }, 30);
+  }
+  function closeBuy() { ov.hidden = true; go.disabled = false; }
+  document.querySelectorAll('[data-buy]').forEach(function (b) { b.addEventListener('click', function () { openBuy(b.dataset.buy); }); });
+  document.getElementById('buycancel').addEventListener('click', closeBuy);
+  ov.addEventListener('click', function (e) { if (e.target === ov) closeBuy(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !ov.hidden) closeBuy(); });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var mail = email.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(mail)) { err.textContent = T('Проверь адрес почты.'); return; }
+    sset('fm-email', mail);
+    err.textContent = ''; go.disabled = true; go.textContent = T('Перехожу к оплате…');
+    fetch(API + '/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plan: plan, currency: cur, email: mail, lang: lang }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, j: j }; }); })
+      .then(function (r) {
+        if (r.ok && r.j.url) { location.href = r.j.url; return; }
+        err.textContent = T(r.status === 503 ? 'Этот способ оплаты пока не подключён. Попробуй другую валюту или напиши в поддержку.'
+          : r.j.error === 'bad_email' ? 'Проверь адрес почты.' : 'Платёжная система не ответила. Попробуй ещё раз через минуту.');
+      })
+      .catch(function () { err.textContent = T('Не удалось связаться с сервером оплаты. Проверь интернет и попробуй ещё раз.'); })
+      .then(function () { go.disabled = false; go.textContent = T('Перейти к оплате'); });
+  });
+
+  applyLang(lang);
 })();
 </script>
 

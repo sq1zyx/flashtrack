@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlashMacro — оплата</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Onest:wght@400;600&family=JetBrains+Mono:wght@700&display=swap">
+<style>
+:root { --bg: #0A0A0D; --card: #17171D; --line: #24242C; --text: #EDEDF2; --muted: #92929F; --accent: #E5242F; --ok: #22C55E; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--text); font: 16px/1.6 Onest, system-ui, sans-serif; display: grid; place-items: center; padding: 24px 16px; }
+.box { width: 100%; max-width: 560px; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 32px; }
+h1 { font: 700 24px/1.25 Unbounded, sans-serif; margin: 0 0 8px; }
+p { color: var(--muted); margin: 0 0 16px; }
+.key { display: flex; gap: 10px; align-items: center; background: #0F0F13; border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 20px 0; }
+.key code { flex: 1; font: 700 17px JetBrains Mono, monospace; letter-spacing: .04em; overflow-wrap: anywhere; }
+button, .btn { border: 0; border-radius: 12px; background: var(--accent); color: #fff; font: 600 14px Onest, sans-serif; padding: 10px 16px; cursor: pointer; text-decoration: none; display: inline-block; }
+.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0 0 20px; }
+dt { color: var(--muted); } dd { margin: 0; }
+ol { padding-left: 20px; color: var(--muted); } ol b { color: var(--text); }
+.spin { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: s 1s linear infinite; margin-bottom: 16px; }
+@keyframes s { to { transform: rotate(360deg); } }
+[hidden] { display: none !important; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<main class="box">
+  <div id="wait"><div class="spin"></div><h1 data-t="wait">Ждём подтверждение оплаты…</h1><p data-t="waitp">Обычно это занимает несколько секунд. Страницу можно не обновлять.</p></div>
+  <div id="done" hidden>
+    <h1 data-t="ok">Оплата прошла</h1>
+    <p data-t="okp">Ключ отправлен на почту. Сохрани его — он понадобится при переустановке.</p>
+    <div class="key"><code id="k"></code><button id="copy" class="ghost" data-t="copy">Копировать</button></div>
+    <dl><dt data-t="plan">Тариф</dt><dd id="plan"></dd><dt data-t="exp">Действует до</dt><dd id="exp"></dd></dl>
+    <ol>
+      <li data-t="s1"><b>Скачай установщик</b> и запусти его.</li>
+      <li data-t="s2">Открой вкладку <b>License</b> в программе.</li>
+      <li data-t="s3">Вставь ключ и нажми <b>«Активировать»</b>.</li>
+    </ol>
+    <div class="row"><a class="btn" href="/download" data-t="dl">Скачать FlashMacro</a><a class="btn ghost" href="/" data-t="home">На главную</a></div>
+  </div>
+  <div id="err" hidden><h1 data-t="nf">Заказ не найден</h1><p data-t="nfp">Проверь ссылку или напиши в поддержку — ключ также приходит на почту.</p><a class="btn ghost" href="/" data-t="home">На главную</a></div>
+</main>
+<script>
+(function () {
+  var lang = 'ru';
+  try { lang = localStorage.getItem('fm-lang') || (navigator.language || '').slice(0, 2); } catch (e) {}
+  if (lang !== 'en') lang = 'ru';
+  var EN = {
+    wait: 'Waiting for payment confirmation…', waitp: 'This usually takes a few seconds. No need to refresh.',
+    ok: 'Payment received', okp: 'Your key has been emailed to you. Keep it: you will need it if you reinstall.',
+    copy: 'Copy', plan: 'Plan', exp: 'Valid until', dl: 'Download FlashMacro', home: 'Home',
+    s1: '<b>Download the installer</b> and run it.', s2: 'Open the <b>License</b> tab in the app.', s3: 'Paste the key and press <b>“Activate”</b>.',
+    nf: 'Order not found', nfp: 'Check the link or contact support. Your key is also sent by email.'
+  };
+  var PLANS = { ru: { m1: '1 месяц', m3: '3 месяца', life: 'Навсегда' }, en: { m1: '1 month', m3: '3 months', life: 'Lifetime' } };
+  if (lang === 'en') {
+    document.documentElement.lang = 'en'; document.title = 'FlashMacro — payment';
+    [].forEach.call(document.querySelectorAll('[data-t]'), function (el) { if (EN[el.dataset.t]) el.innerHTML = EN[el.dataset.t]; });
+  }
+  var ref = new URLSearchParams(location.search).get('ref');
+  function show(id) { ['wait', 'done', 'err'].forEach(function (x) { document.getElementById(x).hidden = x !== id; }); }
+  if (!ref) return show('err');
+  var tries = 0;
+  function poll() {
+    fetch('/api/order/' + encodeURIComponent(ref)).then(function (r) { return r.status === 404 ? null : r.json(); }).then(function (o) {
+      if (!o) return show('err');
+      if (o.status !== 'paid') { if (++tries < 100) setTimeout(poll, 3000); return; }
+      document.getElementById('k').textContent = o.key;
+      document.getElementById('plan').textContent = PLANS[lang][o.plan] || o.plan;
+      document.getElementById('exp').textContent = o.expires ? new Date(o.expires).toLocaleDateString(lang === 'en' ? 'en-GB' : 'ru-RU') : (lang === 'en' ? 'Forever' : 'Бессрочно');
+      show('done');
+    }).catch(function () { setTimeout(poll, 4000); });
+  }
+  poll();
+  document.getElementById('copy').addEventListener('click', function () {
+    var b = this; navigator.clipboard.writeText(document.getElementById('k').textContent).then(function () { b.textContent = lang === 'en' ? 'Copied' : 'Скопировано'; });
+  });
+})();
+</script>
+</body>
+</html>
