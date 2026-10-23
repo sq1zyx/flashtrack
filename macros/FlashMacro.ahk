@@ -13,6 +13,7 @@ SetMouseDelay -1
 SetWinDelay -1
 SetControlDelay -1
 A_MaxHotkeysPerInterval := 5000
+CoordMode "Mouse", "Screen"
 ProcessSetPriority "High"
 
 ; Точность Sleep до ~1 мс вместо ~15 мс
@@ -30,11 +31,16 @@ SuspendKey=PgDn
 ; 1 = макросы работают только в окне Fortnite
 OnlyInGame=1
 GameExe=FortniteClient-Win64-Shipping.exe
-; 1 = лог нажатий в левом верхнем углу
+; 1 = лог нажатий макросов (Settings → справа)
 Debug=0
 KeyHoldMs=5
 ClickHoldMs=5
 StartHidden=0
+; Оформление: red, blue, purple, emerald, orange, pink / dark, midnight, amoled
+Theme=red
+Base=dark
+; 1 = короткие уведомления внизу экрана
+ShowOSD=1
 
 [Game]
 ; Твои бинды из настроек Fortnite
@@ -203,9 +209,14 @@ ClickHold := 5
 Pressed := Map()
 
 ; Состояние интерфейса
-CLR := {bg: "0E0E11", side: "121216", panel: "17171C", card: "1C1C22", key: "26262D", border: "2A2A31"
-    , text: "ECECF1", muted: "8B8B96", accent: "E11D2E", accentDim: "3A1217", blue: "3B82F6"
-    , green: "22C55E", white: "FFFFFF", off: "3A3A44"}
+THEME_ORDER := ["red", "blue", "purple", "emerald", "orange", "pink"]
+THEMES := Map("red", ["Красная", "E11D2E", "3A1217", "7A1A24"], "blue", ["Синяя", "3B82F6", "14233F", "1E3A6E"]
+    , "purple", ["Фиолетовая", "8B5CF6", "241A3D", "45307A"], "emerald", ["Изумрудная", "10B981", "0F2E25", "145C46"]
+    , "orange", ["Оранжевая", "F97316", "3A1E0C", "7A3A12"], "pink", ["Розовая", "EC4899", "3A1328", "7A1F4F"])
+BASES := Map("dark", ["0E0E11", "121216", "17171C", "1C1C22", "26262D", "2A2A31"]
+    , "midnight", ["0B0F1A", "0F1424", "141A2E", "182036", "222B45", "263052"]
+    , "amoled", ["000000", "08080A", "0E0E11", "131316", "1E1E23", "25252B"])
+CLR := MakePalette()
 W := 1100, H := 700, TOP := 50, SIDE := 200, X0 := 220, FY := TOP + 60, FX := X0 + 215
 UI := 0, DPI := 1, Bucket := 0, UIShown := false
 Pages := Map(), Groups := Map(), Widgets := [], KeyCaps := Map(), CapBase := Map(), Painted := Map()
@@ -215,11 +226,13 @@ PV := [], XG := 0, XR := []
 XVisible := Bool("Crosshair", "ShowOnStart", true)
 CurPage := "Dashboard", CurMacro := "DragEdit", CurCustom := ""
 FORMS := Map()
+Hints := Map(), HintText := Map(), TipG := 0, OsdG := 0, LogEd := 0, LogLines := []
 SEQ_HELP := "Последовательность через запятую: число — пауза в мс, X — нажать, +X — зажать, -X — отпустить, {Edit} — бинд со страницы Keybinds. Пример: {Wall}, 10, LButton, 15, {Slot1}"
 
 ApplyEngine()
 BuildOverlay()
 InitForms()
+InitHints()
 BuildUI()
 SetupTray()
 RefreshUI()
@@ -797,6 +810,36 @@ ToggleCrosshair(*) {
 
 ; ───────────────────────── Меню: виджеты ─────────────────────────
 
+MakePalette() {
+    th := THEMES.Has(Get("General", "Theme", "red")) ? THEMES[Get("General", "Theme", "red")] : THEMES["red"]
+    bs := BASES.Has(Get("General", "Base", "dark")) ? BASES[Get("General", "Base", "dark")] : BASES["dark"]
+    return {bg: bs[1], side: bs[2], panel: bs[3], card: bs[4], key: bs[5], border: bs[6]
+        , text: "ECECF1", muted: "8B8B96", accent: th[2], accentDim: th[3], glow: th[4]
+        , blue: "3B82F6", green: "22C55E", white: "FFFFFF", off: "3A3A44"}
+}
+
+; Смена темы: пересобираем меню на месте, не перезапуская программу
+ApplyTheme(*) {
+    global CLR, UI, UIShown, PillBtn, Pages, Groups, Widgets, KeyCaps, CapBase, Painted
+    global NavBtns, NavBars, SubBtns, CustomSlots, CustomWidgets, Hints, PV
+    page := CurPage
+    SaveIni()
+    SetTimer(FlashTick, 0)
+    SetTimer(HoverTick, 0)
+    HideTip()
+    UI.GetPos(&ux, &uy)
+    UI.Destroy()
+    UI := 0, PillBtn := 0, UIShown := false
+    CLR := MakePalette()
+    Pages := Map(), Groups := Map(), Widgets := [], KeyCaps := Map(), CapBase := Map(), Painted := Map()
+    NavBtns := Map(), NavBars := Map(), SubBtns := Map(), CustomSlots := [], CustomWidgets := [], Hints := Map(), PV := []
+    BuildUI()
+    ShowUI()
+    UI.Move(ux, uy)
+    ShowPage(page)
+    UpdateCrosshair()
+}
+
 Track(ctl) {
     if IsObject(Bucket)
         Bucket.Push(ctl)
@@ -804,7 +847,14 @@ Track(ctl) {
 }
 
 Rnd(ctl, w, h, r) {
-    try WinSetRegion(Format("0-0 w{} h{} R{}-{}", Round(w * DPI), Round(h * DPI), Round(r * DPI), Round(r * DPI)), ctl)
+    pw := Round(w * DPI), ph := Round(h * DPI), e := Min(Round(r * 2 * DPI), pw, ph)
+    rgn := DllCall("CreateRoundRectRgn", "int", 0, "int", 0, "int", pw + 1, "int", ph + 1, "int", e, "int", e, "ptr")
+    DllCall("SetWindowRgn", "ptr", ctl.Hwnd, "ptr", rgn, "int", 0)
+}
+
+RoundWin(g, w, h, r) {
+    rgn := DllCall("CreateRoundRectRgn", "int", 0, "int", 0, "int", w + 1, "int", h + 1, "int", r, "int", r, "ptr")
+    DllCall("SetWindowRgn", "ptr", g.Hwnd, "ptr", rgn, "int", 1)
 }
 
 Rect(x, y, w, h, col, r := 0) {
@@ -819,7 +869,7 @@ Lbl(x, y, w, h, txt, bg, font := "s10", col := "", opts := "", face := "Segoe UI
     return Track(UI.AddText(Format("x{} y{} w{} h{} +0x80 Background{} {}", x, y, w, h, bg, opts), txt))
 }
 
-Btn(x, y, w, h, txt, bg, fn, font := "s10", col := "", r := 6) {
+Btn(x, y, w, h, txt, bg, fn, font := "s10", col := "", r := 8) {
     ctl := Lbl(x, y, w, h, txt, bg, font, col, "Center +0x200")
     ctl.OnEvent("Click", fn)
     if r
@@ -830,7 +880,7 @@ Btn(x, y, w, h, txt, bg, fn, font := "s10", col := "", r := 6) {
 NavItem(x, y, w, h, txt, bg, fn, face := "Segoe UI") {
     ctl := Lbl(x, y, w, h, "   " txt, bg, "s10", CLR.text, "+0x200", face)
     ctl.OnEvent("Click", fn)
-    Rnd(ctl, w, h, 8)
+    Rnd(ctl, w, h, 10)
     return ctl
 }
 
@@ -867,7 +917,7 @@ class CardState {
         on := ToBool(v)
         this.c.Text := on ? "ON" : "OFF"
         this.c.SetFont("c" (on ? CLR.accent : CLR.muted))
-        this.border.Opt("Background" (on ? "7A1A24" : CLR.border))
+        this.border.Opt("Background" (on ? CLR.glow : CLR.border))
     }
 }
 
@@ -875,7 +925,7 @@ class KeyBadge {
     __New(x, y, w, h, sec, key) {
         this.sec := sec, this.key := key
         this.c := Lbl(x, y, w, h, "—", CLR.key, "s9 bold", CLR.text, "Center +0x200")
-        Rnd(this.c, w, h, 6)
+        Rnd(this.c, w, h, 8)
         this.c.OnEvent("Click", (*) => this.Click())
         Widgets.Push(this)
     }
@@ -893,8 +943,8 @@ class KeyBadge {
 }
 
 class Seg {
-    __New(x, y, opts, labels, bw, sec, key) {
-        this.sec := sec, this.key := key, this.opts := opts, this.btns := []
+    __New(x, y, opts, labels, bw, sec, key, fn := 0) {
+        this.sec := sec, this.key := key, this.opts := opts, this.btns := [], this.fn := fn
         for i, o in opts
             this.btns.Push(Btn(x + (i - 1) * (bw + 4), y, bw, 26, labels[i], CLR.key, this.Pick.Bind(this, o), "s9"))
         Widgets.Push(this)
@@ -903,7 +953,10 @@ class Seg {
         if (this.sec = "")
             return
         SetVal(this.sec, this.key, o)
-        Commit()
+        if this.fn
+            this.fn.Call()
+        else
+            Commit()
     }
     Set(v) {
         for i, o in this.opts {
@@ -913,11 +966,32 @@ class Seg {
     }
 }
 
+class ThemePick {
+    __New(x, y, sec, key) {
+        this.sec := sec, this.key := key, this.btns := Map()
+        for i, id in THEME_ORDER {
+            b := Btn(x + (i - 1) * 36, y, 28, 28, "", THEMES[id][2], this.Pick.Bind(this, id), "s9", CLR.white, 14)
+            Hint(b, "Тема «" THEMES[id][1] "»")
+            this.btns[id] := b
+        }
+        Widgets.Push(this)
+    }
+    Pick(id, *) {
+        SetVal(this.sec, this.key, id)
+        ApplyTheme()
+    }
+    Set(v) {
+        for id, b in this.btns
+            b.Text := (id = v) ? "●" : ""
+    }
+}
+
 class EditField {
     __New(x, y, w, sec, key) {
         this.sec := sec, this.key := key
         UI.SetFont("norm s10 c" CLR.text, "Segoe UI")
         this.c := Track(UI.AddEdit(Format("x{} y{} w{} h24 -E0x200 Background{}", x, y, w, CLR.key)))
+        Rnd(this.c, w, 24, 6)
         this.c.OnEvent("Change", (*) => this.Changed())
         Widgets.Push(this)
     }
@@ -960,7 +1034,7 @@ CaptureKey(ctl) {
     ctl.Text := "…"
     ctl.Opt("Background" CLR.accent)
     ctl.Redraw()
-    ToolTip "Нажми клавишу или кнопку мыши`nEsc — отмена, Backspace — очистить"
+    Notify("Нажми клавишу или кнопку мыши`nEsc — отмена, Backspace — очистить", 8000)
     res := {k: ""}
     ih := InputHook("L0 T8")
     ih.KeyOpt("{All}", "E")
@@ -973,7 +1047,7 @@ CaptureKey(ctl) {
     ih.Wait()
     for b in btns
         try Hotkey("*" b, "Off")
-    ToolTip
+    HideOSD()
     Suspend(wasSusp ? 1 : 0)
     ctl.Opt("Background" CLR.key)
     busy := false
@@ -1038,7 +1112,8 @@ AddField(x, y, sec, f, list := 0) {
     switch f.t {
         case "toggle": w := Toggle(x, y + 2, sec, f.k)
         case "key": w := KeyBadge(x, y, 90, 26, sec, f.k)
-        case "choice": w := Seg(x, y, f.o, f.l, f.bw, sec, f.k)
+        case "choice": w := Seg(x, y, f.o, f.l, f.bw, sec, f.k, f.HasOwnProp("fn") ? f.fn : 0)
+        case "theme": w := ThemePick(x, y, sec, f.k)
         case "text": w := EditField(x, y + 1, f.w, sec, f.k)
         default:
             w := EditField(x, y + 1, 80, sec, f.k)
@@ -1047,6 +1122,19 @@ AddField(x, y, sec, f, list := 0) {
     if IsObject(list)
         list.Push(w)
     return w
+}
+
+; Строка формы: подпись + поле, обе с подсказкой при наведении
+Row(lx, y, lw, sec, f, cx, list := 0) {
+    ht := FieldHint(sec, f.k)
+    Hint(Lbl(lx, y, lw, 28, f.label, CLR.panel, "s10", , "+0x200"), ht)
+    wd := AddField(cx, y, sec, f, list)
+    if wd.HasOwnProp("c")
+        Hint(wd.c, ht)
+    else if (Type(wd.btns) = "Array")
+        for b in wd.btns
+            Hint(b, ht)
+    return wd
 }
 
 PageTitle(txt, sub := "") {
@@ -1074,11 +1162,13 @@ BuildUI() {
     Lbl(18, 12, 26, 28, "⚡", CLR.side, "s15", CLR.accent, "Center +0x200", "Segoe UI Symbol")
     Lbl(46, 12, 66, 28, "FLASH", CLR.side, "s15 bold", CLR.text, "+0x200")
     Lbl(112, 12, 80, 28, "MACRO", CLR.side, "s15 bold", CLR.accent, "+0x200")
-    PillBtn := Btn(220, 13, 120, 26, "MACROS ON", CLR.accent, (*) => ToggleSuspend(), "s9 bold", CLR.white, 13)
-    KeyBadge(348, 13, 64, 26, "General", "SuspendKey")
+    PillBtn := Hint(Btn(220, 13, 120, 26, "MACROS ON", CLR.accent, (*) => ToggleSuspend(), "s9 bold", CLR.white, 13)
+        , "Включает или выключает все макросы сразу. Справа — горячая клавиша для этого (работает и в игре).")
+    Hint(KeyBadge(348, 13, 64, 26, "General", "SuspendKey").c, FieldHint("General", "SuspendKey"))
     StatusLbl := Lbl(W - 300, 13, 200, 26, "", CLR.side, "s9", CLR.green, "Right +0x200")
-    Btn(W - 88, 12, 36, 28, "—", CLR.side, (*) => UI.Minimize(), "s10", CLR.muted, 6)
-    Btn(W - 48, 12, 36, 28, "×", CLR.side, (*) => (UI.Hide(), HideUI()), "s14", CLR.muted, 6)
+    Hint(Btn(W - 88, 12, 36, 28, "—", CLR.side, (*) => UI.Minimize(), "s10", CLR.muted, 8), "Свернуть окно")
+    Hint(Btn(W - 48, 12, 36, 28, "×", CLR.side, (*) => (UI.Hide(), HideUI()), "s14", CLR.muted, 8)
+        , "Свернуть в трей. Макросы продолжат работать, меню откроется кликом по иконке в трее.")
     Rect(0, TOP, W, 1, CLR.border)
 
     ; Боковое меню
@@ -1094,7 +1184,7 @@ BuildUI() {
             continue
         }
         NavBars[name] := Rect(8, y + 6, 3, 24, CLR.accent)
-        NavBtns[name] := NavItem(16, y, SIDE - 28, 36, icons[name] "    " name, CLR.side, GoPage.Bind(name), "Segoe UI Symbol")
+        NavBtns[name] := Hint(NavItem(16, y, SIDE - 28, 36, icons[name] "    " name, CLR.side, GoPage.Bind(name), "Segoe UI Symbol"), HintText["page." name])
         y += 42
     }
     Rect(16, H - 62, SIDE - 32, 1, CLR.border)
@@ -1143,10 +1233,11 @@ KbRows() {
     return [r0, r1, r2, r3, r4, r5]
 }
 
-Cap(x, y, w, h, txt, name, r := 6, font := "s8") {
+Cap(x, y, w, h, txt, name, r := 7, font := "s8") {
     ctl := Lbl(x, y, w, h, txt, CLR.key, font, CLR.text, "Center +0x200")
     Rnd(ctl, w, h, r)
     KeyCaps[Norm(name)] := ctl
+    Hints[ctl.Hwnd] := KeyCapHint.Bind(Norm(name))
 }
 
 BuildDashboard() {
@@ -1154,16 +1245,19 @@ BuildDashboard() {
     Pages["Dashboard"] := Bucket := []
     PageTitle("Dashboard")
     lx := X0 + 200, ly := TOP + 22
-    for it in [["Trigger", CLR.accent], ["Pressed by a macro", CLR.white], ["Macros toggle", CLR.blue], ["Crosshair toggle", CLR.green]] {
-        Rect(lx, ly + 5, 12, 12, it[2], 4)
+    for it in [["Trigger", CLR.accent, "Красным подсвечены клавиши, которые запускают включённые макросы."]
+        , ["Pressed by a macro", CLR.white, "Белым вспыхивают клавиши, которые макрос нажимает прямо сейчас."]
+        , ["Macros toggle", CLR.blue, "Синим — клавиша вкл/выкл всех макросов."]
+        , ["Crosshair toggle", CLR.green, "Зелёным — клавиша вкл/выкл прицела."]] {
+        Hint(Rect(lx, ly + 5, 12, 12, it[2], 6), it[3])
         w := 16 + StrLen(it[1]) * 7
-        Lbl(lx + 18, ly, w, 22, it[1], CLR.bg, "s9", CLR.muted, "+0x200")
+        Hint(Lbl(lx + 18, ly, w, 22, it[1], CLR.bg, "s9", CLR.muted, "+0x200"), it[3])
         lx += w + 34
     }
 
     ; Клавиатура
     ky := TOP + 66
-    Rect(X0, ky, 575, 216, CLR.panel, 12)
+    Rect(X0, ky, 575, 216, CLR.panel, 16)
     u := 33, g := 4, kh := 28
     yy := ky + 12
     for row in KbRows() {
@@ -1179,58 +1273,62 @@ BuildDashboard() {
 
     ; Мышь
     mx := X0 + 590
-    Rect(mx, ky, 160, 216, CLR.panel, 12)
+    Rect(mx, ky, 160, 216, CLR.panel, 16)
     Cap(mx + 40, ky + 16, 44, 72, "L", "LButton", 16, "s9 bold")
     Cap(mx + 88, ky + 30, 12, 30, "", "MButton", 6)
     Cap(mx + 104, ky + 16, 44, 72, "R", "RButton", 16, "s9 bold")
-    Rect(mx + 40, ky + 92, 108, 110, CLR.key, 40)
+    Hint(Rect(mx + 40, ky + 92, 108, 110, CLR.key, 44), "Мышь: подсвечиваются кнопки, назначенные на макросы.")
     Cap(mx + 12, ky + 96, 22, 34, "5", "XButton2", 8)
     Cap(mx + 12, ky + 136, 22, 34, "4", "XButton1", 8)
 
     ; Карточки макросов
     Rect(X0, ky + 234, 3, 16, CLR.accent)
     Lbl(X0 + 10, ky + 230, 200, 24, "MACROS", CLR.bg, "s9 bold", CLR.muted, "+0x200")
-    CountLbl := Lbl(X0 + 560, ky + 230, 300, 24, "", CLR.bg, "s9", CLR.muted, "Right +0x200")
+    CountLbl := Hint(Lbl(X0 + 560, ky + 230, 300, 24, "", CLR.bg, "s9", CLR.muted, "Right +0x200"), "Сколько макросов включено из общего числа (вместе со своими).")
     y0 := ky + 262, cw := 164, ch := 84
     for i, m in BUILTIN
         Card(X0 + Mod(i - 1, 5) * (cw + 10), y0 + ((i - 1) // 5) * (ch + 10), cw, ch, m)
     i := BUILTIN.Length
-    Btn(X0 + Mod(i, 5) * (cw + 10), y0 + (i // 5) * (ch + 10), cw, ch, "+   Add macro", CLR.card, (*) => NewCustom(), "s10", CLR.muted, 10)
+    Hint(Btn(X0 + Mod(i, 5) * (cw + 10), y0 + (i // 5) * (ch + 10), cw, ch, "+   Add macro", CLR.card, (*) => NewCustom(), "s10", CLR.muted, 14)
+        , "Создать свой макрос из любой последовательности нажатий.")
 }
 
 Card(cx, cy, cw, ch, m) {
     static icons := Map("DragEdit", "✎", "InfiniteEdit", "✎", "InstantEdit", "✎", "InstantBuild", "▦", "Pickup", "✋"
         , "AutoSprint", "»", "Competitive", "◉")
-    border := Rect(cx, cy, cw, ch, CLR.border, 10)
-    Rect(cx + 1, cy + 1, cw - 2, ch - 2, CLR.card, 9)
-    Lbl(cx + cw - 36, cy + 12, 24, 24, icons.Has(m.sec) ? icons[m.sec] : "⚔", CLR.card, "s11", CLR.muted, "Center +0x200", "Segoe UI Symbol")
+    ht := m.name " — " FORMS[m.sec].desc "`n`nКлик по клавише — сменить её, тумблер — вкл/выкл, клик по названию — подробные настройки."
+    border := Hint(Rect(cx, cy, cw, ch, CLR.border, 14), ht)
+    Hint(Rect(cx + 1, cy + 1, cw - 2, ch - 2, CLR.card, 13), ht)
+    Hint(Lbl(cx + cw - 36, cy + 12, 24, 24, icons.Has(m.sec) ? icons[m.sec] : "⚔", CLR.card, "s11", CLR.muted, "Center +0x200", "Segoe UI Symbol"), ht)
     if m.HasOwnProp("badge")
-        Btn(cx + 12, cy + 12, 52, 24, m.badge, CLR.key, GoMacro.Bind(m.sec), "s8 bold", CLR.text, 6)
+        Hint(Btn(cx + 12, cy + 12, 52, 24, m.badge, CLR.key, GoMacro.Bind(m.sec), "s8 bold", CLR.text, 8), ht)
     else
-        KeyBadge(cx + 12, cy + 12, 52, 24, m.sec, "Trigger")
-    nm := Lbl(cx + 12, cy + 42, cw - 24, 20, m.name, CLR.card, "s10 bold")
+        Hint(KeyBadge(cx + 12, cy + 12, 52, 24, m.sec, "Trigger").c, FieldHint(m.sec, "Trigger"))
+    nm := Hint(Lbl(cx + 12, cy + 42, cw - 24, 20, m.name, CLR.card, "s10 bold"), ht)
     nm.OnEvent("Click", GoMacro.Bind(m.sec))
-    CardState(cx + 12, cy + 62, m.sec, border)
-    Toggle(cx + cw - 52, cy + 54, m.sec, "Enabled")
+    Hint(CardState(cx + 12, cy + 62, m.sec, border).c, ht)
+    Hint(Toggle(cx + cw - 52, cy + 54, m.sec, "Enabled").c, "Включить или выключить «" m.name "».")
 }
 
 BuildKeybinds() {
     global Bucket
     Pages["Keybinds"] := Bucket := []
     PageTitle("Keybinds", "Клавиши из настроек управления Fortnite")
-    Btn(X0 + 660, TOP + 18, 200, 30, "Import from Fortnite", CLR.key, ImportFromFortnite, "s9 bold", CLR.text, 8)
+    Hint(Btn(X0 + 660, TOP + 18, 200, 30, "Import from Fortnite", CLR.key, ImportFromFortnite, "s9 bold", CLR.text, 10)
+        , "Пытается прочитать бинды из файлов настроек Fortnite и подставить их сюда. Перед применением покажет, что нашёл.")
     cols := [[["Edit", "Редактирование"], ["Select", "Выбор / выстрел"], ["Wall", "Стена"], ["Floor", "Пол"]
             , ["Stairs", "Лестница"], ["Cone", "Конус (крыша)"], ["Pickaxe", "Кирка"], ["Interact", "Взаимодействие"]]
         , [["Crouch", "Присесть"], ["Jump", "Прыжок"], ["Sprint", "Спринт"], ["Slot1", "Слот оружия 1"]
             , ["Slot2", "Слот оружия 2"], ["Slot3", "Слот оружия 3"], ["Slot4", "Слот оружия 4"], ["Slot5", "Слот оружия 5"]]]
     for ci, col in cols {
         px := X0 + (ci - 1) * 440
-        Rect(px, FY, 420, 20 + col.Length * 44, CLR.panel, 12)
+        Rect(px, FY, 420, 20 + col.Length * 44, CLR.panel, 16)
         for ri, b in col {
             y := FY + 14 + (ri - 1) * 44
-            Lbl(px + 20, y, 145, 28, b[2], CLR.panel, "s10", , "+0x200")
-            Lbl(px + 170, y, 110, 28, b[1], CLR.panel, "s9", CLR.muted, "+0x200")
-            KeyBadge(px + 300, y + 1, 96, 26, "Game", b[1])
+            ht := "«" b[2] "» — клавиша из настроек управления Fortnite. Макросы нажимают именно её, поэтому она должна совпадать с игрой.`nКлик по клавише — сменить."
+            Hint(Lbl(px + 20, y, 145, 28, b[2], CLR.panel, "s10", , "+0x200"), ht)
+            Hint(Lbl(px + 170, y, 110, 28, b[1], CLR.panel, "s9", CLR.muted, "+0x200"), ht)
+            Hint(KeyBadge(px + 300, y + 1, 96, 26, "Game", b[1]).c, ht)
         }
     }
     Lbl(X0, FY + 390, 860, 60, "Бинды должны совпадать с настройками управления в Fortnite — макросы нажимают именно эти клавиши.`nКлик по клавише → нажми новую клавишу или кнопку мыши. Esc — отмена, Backspace — очистить.", CLR.bg, "s9", CLR.muted)
@@ -1240,10 +1338,10 @@ BuildMacros() {
     global Bucket
     Pages["Macros"] := Bucket := []
     PageTitle("Macros", "Тонкая настройка каждого макроса")
-    Rect(X0, FY, 200, 560, CLR.panel, 12)
+    Rect(X0, FY, 200, 560, CLR.panel, 16)
     for i, m in BUILTIN
-        SubBtns[m.sec] := NavItem(X0 + 8, FY + 8 + (i - 1) * 38, 184, 34, m.name, CLR.panel, SelectMacro.Bind(m.sec))
-    Rect(FX, FY, 645, 560, CLR.panel, 12)
+        SubBtns[m.sec] := Hint(NavItem(X0 + 8, FY + 8 + (i - 1) * 38, 184, 34, m.name, CLR.panel, SelectMacro.Bind(m.sec)), FORMS[m.sec].desc)
+    Rect(FX, FY, 645, 560, CLR.panel, 16)
     for m in BUILTIN {
         Groups[m.sec] := Bucket := []
         spec := FORMS[m.sec]
@@ -1251,8 +1349,7 @@ BuildMacros() {
         Lbl(FX + 24, FY + 52, 590, 48, spec.desc, CLR.panel, "s9", CLR.muted)
         y := FY + 108
         for f in spec.fields {
-            Lbl(FX + 24, y, 250, 28, f.label, CLR.panel, "s10", , "+0x200")
-            AddField(FX + 280, y, m.sec, f)
+            Row(FX + 24, y, 250, m.sec, f, FX + 280)
             y += 44
         }
         if (SubStr(m.sec, 1, 6) = "Macro:")
@@ -1264,34 +1361,36 @@ BuildCustom() {
     global Bucket, CustomNameEd, CustomEmpty
     Pages["Custom"] := Bucket := []
     PageTitle("Custom", "Свои макросы из любых нажатий")
-    Rect(X0, FY, 200, 560, CLR.panel, 12)
-    Btn(X0 + 10, FY + 10, 180, 32, "+  New macro", CLR.accent, (*) => NewCustom(), "s10 bold", CLR.white, 8)
+    Rect(X0, FY, 200, 560, CLR.panel, 16)
+    Hint(Btn(X0 + 10, FY + 10, 180, 32, "+  New macro", CLR.accent, (*) => NewCustom(), "s10 bold", CLR.white, 10)
+        , "Создать новый свой макрос.")
     loop 12
-        CustomSlots.Push(NavItem(X0 + 8, FY + 52 + (A_Index - 1) * 38, 184, 34, "", CLR.panel, SelectCustom.Bind(A_Index)))
-    Rect(FX, FY, 645, 560, CLR.panel, 12)
+        CustomSlots.Push(Hint(NavItem(X0 + 8, FY + 52 + (A_Index - 1) * 38, 184, 34, "", CLR.panel, SelectCustom.Bind(A_Index)), "Открыть этот макрос для редактирования."))
+    Rect(FX, FY, 645, 560, CLR.panel, 16)
     CustomEmpty := Lbl(FX + 24, FY + 24, 590, 60, "Своих макросов пока нет.`nНажми «+ New macro» слева.", CLR.panel, "s11", CLR.muted)
 
     Groups["CustomForm"] := Bucket := []
-    Lbl(FX + 24, FY + 22, 250, 28, "Название", CLR.panel, "s10", , "+0x200")
+    Hint(Lbl(FX + 24, FY + 22, 250, 28, "Название", CLR.panel, "s10", , "+0x200"), "Название макроса — просто для тебя, на работу не влияет.")
     UI.SetFont("norm s11 bold c" CLR.text, "Segoe UI")
-    CustomNameEd := Track(UI.AddEdit(Format("x{} y{} w260 h28 -E0x200 Background{}", FX + 280, FY + 22, CLR.key)))
+    CustomNameEd := Hint(Track(UI.AddEdit(Format("x{} y{} w260 h28 -E0x200 Background{}", FX + 280, FY + 22, CLR.key))), "Название макроса — просто для тебя, на работу не влияет.")
+    Rnd(CustomNameEd, 260, 28, 7)
     CustomNameEd.OnEvent("Change", (*) => SetTimer(RenameCustom, -800))
     CustomNameEd.OnEvent("LoseFocus", (*) => RenameCustom())
     y := FY + 70
     for f in MacroFields() {
-        Lbl(FX + 24, y, 250, 28, f.label, CLR.panel, "s10", , "+0x200")
-        AddField(FX + 280, y, "", f, CustomWidgets)
+        Row(FX + 24, y, 250, "", f, FX + 280, CustomWidgets)
         y += 44
     }
     Lbl(FX + 24, y + 8, 600, 54, SEQ_HELP, CLR.panel, "s9", CLR.muted)
-    Btn(FX + 24, FY + 500, 170, 32, "Удалить макрос", CLR.accentDim, (*) => DeleteCustom(), "s10", CLR.accent, 8)
+    Hint(Btn(FX + 24, FY + 500, 170, 32, "Удалить макрос", CLR.accentDim, (*) => DeleteCustom(), "s10", CLR.accent, 10)
+        , "Удалить этот макрос (спросит подтверждение).")
 }
 
 BuildCrosshair() {
     global Bucket
     Pages["Crosshair"] := Bucket := []
     PageTitle("Crosshair", "Свой прицел поверх игры")
-    Rect(X0, FY, 520, 560, CLR.panel, 12)
+    Rect(X0, FY, 520, 560, CLR.panel, 16)
     rows := [Fld("toggle", "Enabled", "Прицел включён"), Fld("toggle", "ShowOnStart", "Показывать при запуске")
         , Fld("key", "ToggleKey", "Клавиша вкл/выкл")
         , Fld("choice", "Style", "Стиль", {o: ["dot", "cross", "crossdot", "t", "tdot"], l: ["•", "+", "+ •", "T", "T •"], bw: 46})
@@ -1301,16 +1400,17 @@ BuildCrosshair() {
         , Fld("num", "OffsetX", "Сдвиг по X", {u: "px"}), Fld("num", "OffsetY", "Сдвиг по Y", {u: "px"})]
     y := FY + 16
     for f in rows {
-        Lbl(X0 + 20, y, 180, 28, f.label, CLR.panel, "s10", , "+0x200")
         if (f.t = "color") {
+            ht := FieldHint("Crosshair", "Color")
+            Hint(Lbl(X0 + 20, y, 180, 28, f.label, CLR.panel, "s10", , "+0x200"), ht)
             for i, c in ["00FF00", "FF2D2D", "00E5FF", "FFE600", "FFFFFF", "FF00E6"]
-                Btn(X0 + 200 + (i - 1) * 32, y + 1, 26, 26, "", c, SetColor.Bind(c), "s8", , 13)
-            EditField(X0 + 400, y + 2, 90, "Crosshair", "Color")
+                Hint(Btn(X0 + 200 + (i - 1) * 32, y + 1, 26, 26, "", c, SetColor.Bind(c), "s8", , 13), ht)
+            Hint(EditField(X0 + 400, y + 2, 90, "Crosshair", "Color").c, ht)
         } else
-            AddField(X0 + 200, y, "Crosshair", f)
+            Row(X0 + 20, y, 180, "Crosshair", f, X0 + 200)
         y += 44
     }
-    Rect(X0 + 535, FY, 325, 300, "0B0B0E", 12)
+    Hint(Rect(X0 + 535, FY, 325, 300, "0B0B0E", 16), "Превью прицела — так он будет выглядеть поверх игры.")
     Lbl(X0 + 550, FY + 10, 200, 20, "Превью", "0B0B0E", "s9", CLR.muted)
     loop 5
         PV.Push(Track(UI.AddText("x0 y0 w1 h1 Background00FF00")))
@@ -1318,30 +1418,35 @@ BuildCrosshair() {
 }
 
 BuildSettings() {
-    global Bucket
+    global Bucket, LogEd
     Pages["Settings"] := Bucket := []
-    PageTitle("Settings", "Общие настройки FlashMacro")
-    Rect(X0, FY, 640, 380, CLR.panel, 12)
+    PageTitle("Settings", "Общие настройки и оформление")
+    Rect(X0, FY, 600, 520, CLR.panel, 16)
     rows := [Fld("key", "SuspendKey", "Вкл/выкл все макросы"), Fld("toggle", "OnlyInGame", "Работать только в окне Fortnite")
-        , Fld("text", "GameExe", "Процесс игры", {w: 280}), Fld("toggle", "Debug", "Лог нажатий на экране (для теста)")
+        , Fld("text", "GameExe", "Процесс игры", {w: 270}), Fld("toggle", "Debug", "Лог нажатий (справа)")
         , Fld("num", "KeyHoldMs", "Удержание клавиши"), Fld("num", "ClickHoldMs", "Удержание кнопки мыши")
-        , Fld("toggle", "StartHidden", "Запускать свёрнутым в трей")]
-    y := FY + 18
+        , Fld("toggle", "StartHidden", "Запускать свёрнутым в трей"), Fld("toggle", "ShowOSD", "Уведомления на экране")
+        , Fld("theme", "Theme", "Тема (цвет акцента)")
+        , Fld("choice", "Base", "Фон меню", {o: ["dark", "midnight", "amoled"], l: ["Тёмный", "Полночь", "AMOLED"], bw: 88, fn: ApplyTheme})]
+    y := FY + 14
     for f in rows {
-        Lbl(X0 + 24, y, 290, 28, f.label, CLR.panel, "s10", , "+0x200")
-        AddField(X0 + 320, y, "General", f)
-        y += 48
+        Row(X0 + 24, y, 270, "General", f, X0 + 300)
+        y += 50
     }
-    Btn(X0, FY + 400, 190, 34, "Открыть config.ini", CLR.key, (*) => Run('notepad.exe "' CFG '"'), "s10", CLR.text, 8)
-    Btn(X0 + 200, FY + 400, 190, 34, "Открыть папку", CLR.key, (*) => Run(A_ScriptDir), "s10", CLR.text, 8)
-    Btn(X0 + 400, FY + 400, 190, 34, "Выйти из FlashMacro", CLR.accentDim, (*) => ExitApp(), "s10", CLR.accent, 8)
+    Rect(X0 + 616, FY, 244, 520, CLR.panel, 16)
+    Hint(Lbl(X0 + 634, FY + 14, 200, 24, "Лог нажатий", CLR.panel, "s10 bold", , "+0x200"), FieldHint("General", "Debug"))
+    Rect(X0 + 630, FY + 46, 216, 460, CLR.key, 10)
+    LogEd := Hint(Lbl(X0 + 640, FY + 54, 198, 444, "Включи «Лог нажатий», чтобы видеть здесь, что нажимают макросы.", CLR.key, "s8", CLR.muted), FieldHint("General", "Debug"))
+    Hint(Btn(X0, FY + 532, 190, 34, "Открыть config.ini", CLR.key, (*) => Run('notepad.exe "' CFG '"'), "s10", CLR.text, 10), "Открыть файл настроек в Блокноте (обычно не нужно — всё есть в меню).")
+    Hint(Btn(X0 + 200, FY + 532, 190, 34, "Открыть папку", CLR.key, (*) => Run(A_ScriptDir), "s10", CLR.text, 10), "Открыть папку, где лежит FlashMacro.")
+    Hint(Btn(X0 + 400, FY + 532, 200, 34, "Выйти из FlashMacro", CLR.accentDim, (*) => ExitApp(), "s10", CLR.accent, 10), "Полностью закрыть программу — макросы перестанут работать.")
 }
 
 BuildSupport() {
     global Bucket
     Pages["Support"] := Bucket := []
     PageTitle("Support", "Помощь и советы")
-    Rect(X0, FY, 860, 520, CLR.panel, 12)
+    Rect(X0, FY, 860, 520, CLR.panel, 16)
     txt := "
     (
 Как начать
@@ -1392,6 +1497,7 @@ SelectMacro(sec, *) {
 ShowPage(name) {
     global CurPage
     CurPage := name
+    HideTip()
     DllCall("SendMessage", "ptr", UI.Hwnd, "uint", 0xB, "ptr", 0, "ptr", 0)
     for n, arr in Pages
         if (n != name)
@@ -1420,6 +1526,8 @@ ShowPage(name) {
     DllCall("RedrawWindow", "ptr", UI.Hwnd, "ptr", 0, "ptr", 0, "uint", 0x185)
     if (name = "Crosshair")
         UpdateCrosshair()
+    if (name = "Settings")
+        ShowLog()
 }
 
 ShowCustomState() {
@@ -1563,6 +1671,8 @@ RefreshUI() {
 }
 
 FlashTick() {
+    if (CurPage != "Dashboard")
+        return
     now := A_TickCount
     for n, ctl in KeyCaps {
         st := CapBase.Get(n, "none")
@@ -1606,6 +1716,7 @@ ShowUI(*) {
     UIShown := true
     RefreshUI()
     SetTimer(FlashTick, 40)
+    SetTimer(HoverTick, 80)
 }
 
 HideUI() {
@@ -1613,9 +1724,11 @@ HideUI() {
     static told := false
     UIShown := false
     SetTimer(FlashTick, 0)
+    SetTimer(HoverTick, 0)
+    HideTip()
     if !told {
         told := true
-        TrayTip "FlashMacro работает в трее. Клик по иконке — открыть меню.", "FlashMacro"
+        Notify("FlashMacro работает в трее. Клик по иконке — открыть меню.", 2500)
     }
 }
 
@@ -1634,20 +1747,187 @@ SetupTray() {
     t.ClickCount := 1
 }
 
-Notify(msg) {
-    ToolTip msg
-    SetTimer(() => ToolTip(), -1800)
+; Короткое уведомление: в меню — внизу окна, в игре — внизу экрана (можно выключить в Settings)
+Notify(msg, ms := 1600) {
+    global OsdG
+    inMenu := UIShown && WinActive("ahk_id " UI.Hwnd)
+    if (!inMenu && !Bool("General", "ShowOSD", true))
+        return
+    HideOSD()
+    OsdG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
+    OsdG.BackColor := CLR.key
+    OsdG.MarginX := Round(18 * DPI), OsdG.MarginY := Round(10 * DPI)
+    OsdG.SetFont("s10 c" CLR.accent, "Segoe UI")
+    OsdG.AddText("", "●")
+    OsdG.SetFont("s10 c" CLR.text, "Segoe UI")
+    OsdG.AddText("x+8 yp", msg)
+    OsdG.Show("Hide AutoSize")
+    OsdG.GetPos(, , &w, &h)
+    if inMenu {
+        UI.GetPos(&ux, &uy, &uw, &uh)
+        x := ux + (uw - w) // 2, y := uy + uh - h - Round(22 * DPI)
+    } else
+        x := (A_ScreenWidth - w) // 2, y := A_ScreenHeight - h - Round(90 * DPI)
+    RoundWin(OsdG, w, h, Round(20 * DPI))
+    OsdG.Show(Format("x{} y{} NA", x, y))
+    SetTimer(HideOSD, -ms)
 }
 
+HideOSD(*) {
+    global OsdG
+    if OsdG {
+        OsdG.Destroy()
+        OsdG := 0
+    }
+}
+
+; Лог нажатий показывается в меню (Settings), а не поверх экрана
 DebugLog(msg) {
-    static lines := []
     if !DebugOn
         return
-    lines.Push(FormatTime(, "HH:mm:ss") "." Format("{:03}", A_MSec) "  " msg)
-    if (lines.Length > 15)
-        lines.RemoveAt(1)
-    s := ""
-    for l in lines
-        s .= l "`n"
-    ToolTip s, 10, 10, 2
+    LogLines.InsertAt(1, FormatTime(, "HH:mm:ss") "." Format("{:03}", A_MSec) "  " msg)
+    if (LogLines.Length > 32)
+        LogLines.Pop()
+    ShowLog()
 }
+
+ShowLog() {
+    if !(LogEd && UIShown && CurPage = "Settings" && LogLines.Length)
+        return
+    s := ""
+    for l in LogLines
+        s .= l "`n"
+    LogEd.Text := s
+}
+
+; ───────────────────────── Подсказки при наведении ─────────────────────────
+
+Hint(ctl, txt) {
+    if (IsObject(ctl) && txt != "")
+        Hints[ctl.Hwnd] := txt
+    return ctl
+}
+
+FieldHint(sec, key) {
+    if HintText.Has(sec "." key)
+        return HintText[sec "." key]
+    return HintText.Has(key) ? HintText[key] : ""
+}
+
+KeyCapHint(nk) {
+    s := ""
+    for k, owner in Used
+        if (Norm(k) = nk)
+            s .= "Запускает: " owner "`n"
+    if C.Has("Game")
+        for name, val in C["Game"]
+            if (Norm(val) = nk)
+                s .= "Бинд Fortnite: " name "`n"
+    return s != "" ? RTrim(s, "`n") : "Клавиша не используется макросами"
+}
+
+HoverTick() {
+    static last := 0, since := 0, shown := false
+    MouseGetPos(&mx, &my, &win, &hw, 2)
+    if (!UI || win != UI.Hwnd || !hw) {
+        if shown
+            HideTip()
+        last := 0, shown := false
+        return
+    }
+    if (hw != last) {
+        if shown
+            HideTip()
+        last := hw, since := A_TickCount, shown := false
+        return
+    }
+    if (!shown && A_TickCount - since > 450) {
+        shown := true
+        v := Hints.Get(hw, "")
+        txt := IsObject(v) ? v.Call() : v
+        if (txt != "")
+            ShowTip(txt, mx, my)
+    }
+}
+
+ShowTip(txt, mx, my) {
+    global TipG
+    HideTip()
+    TipG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale +Owner" UI.Hwnd)
+    TipG.BackColor := CLR.key
+    TipG.MarginX := Round(14 * DPI), TipG.MarginY := Round(10 * DPI)
+    TipG.SetFont("s9 c" CLR.text, "Segoe UI")
+    TipG.AddText(StrLen(txt) > 45 ? "w" Round(300 * DPI) : "", txt)
+    TipG.Show("Hide AutoSize")
+    TipG.GetPos(, , &w, &h)
+    x := mx + 16, y := my + 22
+    if (x + w > A_ScreenWidth)
+        x := mx - w - 8
+    if (y + h > A_ScreenHeight)
+        y := my - h - 8
+    RoundWin(TipG, w, h, Round(16 * DPI))
+    TipG.Show(Format("x{} y{} NA", x, y))
+}
+
+HideTip() {
+    global TipG
+    if TipG {
+        TipG.Destroy()
+        TipG := 0
+    }
+}
+
+InitHints() {
+    for k, v in Map("Enabled", "Включает или выключает эту функцию. Изменения применяются сразу."
+        , "Trigger", "Клавиша запуска. Кликни и нажми нужную клавишу или кнопку мыши. Esc — отмена, Backspace — очистить."
+        , "ConfirmBy", "Как подтверждать редакт. «Отпусканием» — если в Fortnite включено «Подтверждать при отпускании». «Клавишей» — макрос сам нажмёт клавишу редактирования ещё раз."
+        , "EnterDelay", "Пауза после входа в режим редактирования, перед выбором тайла. Если редакт не срабатывает — увеличь до 15–20 мс."
+        , "ConfirmDelay", "Пауза перед подтверждением редакта."
+        , "FPS", "Твой FPS в игре. По нему считается темп спама редактов."
+        , "FramesPerStep", "Сколько кадров уходит на один редакт. Меньше — быстрее, но игра может не успевать."
+        , "StepDelay", "Фиксированный интервал между редактами в мс. 0 — считать автоматически по FPS."
+        , "WallTrigger", "Клавиша, по которой мгновенно ставится стена."
+        , "FloorTrigger", "Клавиша, по которой мгновенно ставится пол."
+        , "StairsTrigger", "Клавиша, по которой мгновенно ставится лестница."
+        , "ConeTrigger", "Клавиша, по которой мгновенно ставится конус."
+        , "PlaceDelay", "Пауза между выбором постройки и её установкой."
+        , "Continuous", "ЛКМ остаётся зажатой после постройки — строишь без остановки. Отпускается при редакте, смене оружия или спринте. Нужна «Турбо-стройка» в Fortnite."
+        , "StopKeys", "Клавиши через запятую, которые прекращают непрерывную стройку (слоты оружия, спринт)."
+        , "Pickup.Delay", "Как часто нажимать «Взаимодействие», пока держишь клавишу."
+        , "AutoSprint.Delay", "Пауза после постройки или редакта перед повторным нажатием спринта."
+        , "PeekKey", "Пока держишь эту клавишу, редакт не подтверждается — можно посмотреть сквозь открытый конус."
+        , "Mode", "«Один раз» — выполнить последовательность. «Пока держишь» — повторять, пока клавиша зажата. «Вкл/выкл» — первое нажатие запускает повтор, второе останавливает."
+        , "Sequence", SEQ_HELP
+        , "Speed", "Множитель скорости: 2 — в два раза быстрее (паузы короче), 0.5 — в два раза медленнее."
+        , "Interval", "Пауза между повторами в режимах «Пока держишь» и «Вкл/выкл»."
+        , "Crosshair.Enabled", "Включает прицел поверх экрана."
+        , "ShowOnStart", "Показывать прицел сразу при запуске FlashMacro."
+        , "ToggleKey", "Клавиша, которая прячет и показывает прицел прямо в игре."
+        , "Style", "Форма прицела: точка, крест, крест с точкой, T или T с точкой."
+        , "Color", "Цвет прицела: выбери готовый или впиши свой в формате RRGGBB."
+        , "Length", "Длина каждой линии прицела в пикселях."
+        , "Thickness", "Толщина линий прицела."
+        , "Gap", "Расстояние от центра до начала линий."
+        , "DotSize", "Размер центральной точки."
+        , "OffsetX", "Сдвиг прицела вправо (+) или влево (−) в пикселях."
+        , "OffsetY", "Сдвиг прицела вниз (+) или вверх (−) в пикселях."
+        , "SuspendKey", "Горячая клавиша, которая включает и выключает все макросы разом. Работает и в игре."
+        , "OnlyInGame", "Если включено, макросы работают только когда активно окно Fortnite. Выключи, чтобы проверить их в Блокноте."
+        , "GameExe", "Имя процесса игры. Менять не нужно, если только Fortnite его не переименует."
+        , "Debug", "Записывает все нажатия макросов в лог справа — удобно для проверки, что макрос жмёт."
+        , "KeyHoldMs", "Сколько миллисекунд макрос держит клавишу клавиатуры при одиночном нажатии."
+        , "ClickHoldMs", "Сколько миллисекунд макрос держит кнопку мыши при одиночном клике."
+        , "StartHidden", "Запускать FlashMacro свёрнутым в трей, без открытия меню."
+        , "ShowOSD", "Показывать короткие уведомления внизу экрана, например «Макросы выключены»."
+        , "Theme", "Цвет акцента меню — применяется сразу."
+        , "Base", "Оттенок фона меню — применяется сразу."
+        , "page.Dashboard", "Обзор: клавиатура с подсветкой и все макросы с быстрыми тумблерами."
+        , "page.Keybinds", "Твои бинды из Fortnite — макросы нажимают именно эти клавиши."
+        , "page.Macros", "Подробные настройки каждого макроса: задержки, режимы, FPS."
+        , "page.Custom", "Свои макросы из любых последовательностей нажатий."
+        , "page.Crosshair", "Свой прицел поверх игры с живым превью."
+        , "page.Settings", "Горячая клавиша, режим работы, лог нажатий, темы оформления."
+        , "page.Support", "Как начать, нужные настройки Fortnite и что делать, если не работает.")
+        HintText[k] := v
+}
+
