@@ -217,16 +217,12 @@ BASES := Map("dark", ["0E0E11", "121216", "17171C", "1C1C22", "26262D", "2A2A31"
     , "midnight", ["0B0F1A", "0F1424", "141A2E", "182036", "222B45", "263052"]
     , "amoled", ["000000", "08080A", "0E0E11", "131316", "1E1E23", "25252B"])
 CLR := MakePalette()
-W := 1100, H := 700, TOP := 50, SIDE := 200, X0 := 220, FY := TOP + 60, FX := X0 + 215
-UI := 0, DPI := 1, Bucket := 0, UIShown := false
-Pages := Map(), Groups := Map(), Widgets := [], KeyCaps := Map(), CapBase := Map(), Painted := Map()
-NavBtns := Map(), NavBars := Map(), SubBtns := Map(), CustomSlots := [], CustomWidgets := []
-PillBtn := 0, StatusLbl := 0, CountLbl := 0, CustomNameEd := 0, CustomEmpty := 0
-PV := [], XG := 0, XR := []
+W := 1120, H := 740
+UI := 0, WB := 0, Wnd := 0, DPI := 1, UIShown := false
+XG := 0, XR := []
 XVisible := Bool("Crosshair", "ShowOnStart", true)
-CurPage := "Dashboard", CurMacro := "DragEdit", CurCustom := ""
-FORMS := Map()
-Hints := Map(), HintText := Map(), TipG := 0, OsdG := 0, LogEd := 0, LogLines := []
+CurPage := "Dashboard"
+FORMS := Map(), HintText := Map(), OsdG := 0, LogLines := [], ImportFound := Map()
 SEQ_HELP := "Последовательность через запятую: число — пауза в мс, X — нажать, +X — зажать, -X — отпустить, {Edit} — бинд со страницы Keybinds. Пример: {Wall}, 10, LButton, 15, {Slot1}"
 
 ApplyEngine()
@@ -235,7 +231,6 @@ InitForms()
 InitHints()
 BuildUI()
 SetupTray()
-RefreshUI()
 UpdateCrosshair()
 if !Bool("General", "StartHidden")
     ShowUI()
@@ -682,7 +677,7 @@ ToggleSuspend(*) {
     }
     Suspend(-1)
     Notify(A_IsSuspended ? "Макросы выключены" : "Макросы включены")
-    UpdateTopBar()
+    PushState()
 }
 
 ; ───────────────────────── Импорт биндов из Fortnite ─────────────────────────
@@ -690,9 +685,10 @@ ToggleSuspend(*) {
 ; в облаке/бинарном файле, ничего не найдётся — тогда бинды задаются вручную.
 
 ImportFromFortnite(*) {
+    global ImportFound
     dir := EnvGet("LOCALAPPDATA") "\FortniteGame\Saved\Config\WindowsClient"
     if !DirExist(dir) {
-        MsgBox "Папка настроек Fortnite не найдена:`n" dir, "Импорт из Fortnite", "Icon! Owner" UI.Hwnd
+        try Wnd.importNone("Папка настроек Fortnite не найдена:`n" dir)
         return
     }
     rules := [["Edit", "i)edit"], ["Wall", "i)wall"], ["Floor", "i)floor"], ["Stairs", "i)stair"]
@@ -709,17 +705,12 @@ ImportFromFortnite(*) {
                     found[r[1]] := FromUEKey(m[2])
         }
     }
-    if !found.Count {
-        MsgBox "В файлах настроек Fortnite бинды не найдены — игра хранит их в своём формате.`nУкажи бинды вручную на этой странице.", "Импорт из Fortnite", "Iconi Owner" UI.Hwnd
-        return
-    }
-    s := ""
-    for k, v in found
-        s .= k " → " v "`n"
-    if MsgBox("Найдены бинды:`n`n" s "`nПрименить?", "Импорт из Fortnite", "YesNo Owner" UI.Hwnd) = "Yes" {
-        for k, v in found
-            SetVal("Game", k, v)
-        Commit()
+    ImportFound := found
+    msg := "В файлах настроек Fortnite бинды не найдены — игра хранит их в своём формате. Укажи бинды вручную на этой странице."
+    if found.Count {
+        try Wnd.importAsk(Json(found))
+    } else {
+        try Wnd.importNone(msg)
     }
 }
 
@@ -798,8 +789,6 @@ UpdateCrosshair() {
         WinSetTransColor("010101", XG)
     } else
         XG.Hide()
-    if PV.Length
-        PaintRects(PV, geo, X0 + 535 + 162 - geo.S // 2, FY + 150 - geo.S // 2, col, CurPage = "Crosshair")
 }
 
 ToggleCrosshair(*) {
@@ -808,203 +797,361 @@ ToggleCrosshair(*) {
     UpdateCrosshair()
 }
 
-; ───────────────────────── Меню: виджеты ─────────────────────────
+; ───────────────────────── Меню (HTML) ─────────────────────────
+; Меню — страница ui.html во встроенном движке Windows (WebBrowser/IE11).
+; Страница вызывает методы класса Bridge, а скрипт передаёт ей состояние через render().
 
 MakePalette() {
     th := THEMES.Has(Get("General", "Theme", "red")) ? THEMES[Get("General", "Theme", "red")] : THEMES["red"]
     bs := BASES.Has(Get("General", "Base", "dark")) ? BASES[Get("General", "Base", "dark")] : BASES["dark"]
-    return {bg: bs[1], side: bs[2], panel: bs[3], card: bs[4], key: bs[5], border: bs[6]
-        , text: "ECECF1", muted: "8B8B96", accent: th[2], accentDim: th[3], glow: th[4]
-        , blue: "3B82F6", green: "22C55E", white: "FFFFFF", off: "3A3A44"}
+    return {bg: bs[1], key: bs[5], text: "ECECF1", accent: th[2]}
 }
 
-; Смена темы: пересобираем меню на месте, не перезапуская программу
-ApplyTheme(*) {
-    global CLR, UI, UIShown, PillBtn, Pages, Groups, Widgets, KeyCaps, CapBase, Painted
-    global NavBtns, NavBars, SubBtns, CustomSlots, CustomWidgets, Hints, PV
-    page := CurPage
+BuildUI() {
+    global UI, WB, Wnd, DPI
+    DPI := A_ScreenDPI / 96
+    SplitPath(A_AhkPath, &exe)
+    ; Современный режим движка (IE11) для этой программы
+    try RegWrite(11001, "REG_DWORD", "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION", exe)
+    try RegWrite(1, "REG_DWORD", "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_GPU_RENDERING", exe)
+    UI := Gui("-Caption -Border -MaximizeBox", "FlashMacro")
+    UI.BackColor := BASES.Has(Get("General", "Base", "dark")) ? BASES[Get("General", "Base", "dark")][1] : "0E0E11"
+    UI.MarginX := 0, UI.MarginY := 0
+    try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", UI.Hwnd, "int", 20, "int*", 1, "int", 4)
+    win11 := VerCompare(A_OSVersion, "10.0.22000") >= 0
+    if win11
+        try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", UI.Hwnd, "int", 33, "int*", 2, "int", 4)
+    UI.OnEvent("Close", (*) => HideUI())
+    WB := UI.Add("ActiveX", Format("x0 y0 w{} h{}", W, H), "Shell.Explorer").Value
+    WB.Silent := true
+    page := A_ScriptDir "\ui.html"
+    if !FileExist(page) {
+        MsgBox "Не найден файл меню ui.html рядом с FlashMacro.ahk.`nМакросы работают, но меню недоступно.", "FlashMacro", "Icon!"
+        UI := 0
+        return
+    }
+    WB.Navigate(page)
+    t := A_TickCount
+    while (WB.ReadyState != 4 || WB.Busy) && A_TickCount - t < 10000
+        Sleep 20
+    Wnd := WB.document.parentWindow
+    Wnd.setBridge(Bridge())
+    Wnd.init(MetaJson())
+    ; Масштаб страницы под DPI экрана
+    try WB.ExecWB(63, 2, Round(DPI * 100), 0)
+    OnMessage(0x100, WBKeys)
+    OnMessage(0x101, WBKeys)
+}
+
+; Клавиши навигации и правки в полях ввода передаём движку страницы (иначе он их не видит)
+WBKeys(wp, lp, msg, hwnd) {
+    static keys := Map(8, 1, 9, 1, 13, 1, 33, 1, 34, 1, 35, 1, 36, 1, 37, 1, 38, 1, 39, 1, 40, 1, 46, 1)
+    if !(UI && WB && WinActive("ahk_id " UI.Hwnd))
+        return
+    if !(keys.Has(wp) || (GetKeyState("Ctrl") && InStr("ACVXZ", Chr(wp))))
+        return
+    kMsg := Buffer(48, 0)
+    NumPut("ptr", hwnd, "uint", msg, "uint", 0, "uptr", wp, "ptr", lp, kMsg)
+    try {
+        pipa := ComObjQuery(WB, "{00000117-0000-0000-C000-000000000046}")
+        if (ComCall(5, pipa, "ptr", kMsg, "int") = 0)
+            return 0
+    }
+}
+
+class Bridge {
+    setVal(sec, key, val) {
+        SetVal(sec, key, val)
+        Commit()
+        return 1
+    }
+    capture(sec, key) {
+        SetTimer(DoCapture.Bind(sec, key), -10)
+        return 1
+    }
+    toggleMacros() {
+        ToggleSuspend()
+        return 1
+    }
+    newCustom() => NewCustom()
+    deleteCustom(sec) {
+        if C.Has(sec) && !IsPreset(sec)
+            C.Delete(sec)
+        Commit()
+        return 1
+    }
+    renameCustom(old, new) => RenameCustom(old, new)
+    importBinds() {
+        SetTimer(ImportFromFortnite, -10)
+        return 1
+    }
+    applyImport() {
+        for k, v in ImportFound
+            SetVal("Game", k, v)
+        Commit()
+        Notify("Бинды импортированы")
+        return 1
+    }
+    setPage(p) {
+        global CurPage
+        CurPage := p
+        return 1
+    }
+    openConfig() {
+        Run('notepad.exe "' CFG '"')
+        return 1
+    }
+    openFolder() {
+        Run(A_ScriptDir)
+        return 1
+    }
+    quit() {
+        SetTimer(() => ExitApp(), -10)
+        return 1
+    }
+    minimize() {
+        SetTimer(() => UI.Minimize(), -10)
+        return 1
+    }
+    hide() {
+        SetTimer(() => (UI.Hide(), HideUI()), -10)
+        return 1
+    }
+    drag() {
+        DllCall("ReleaseCapture")
+        PostMessage(0xA1, 2, 0, , "ahk_id " UI.Hwnd)
+        return 1
+    }
+}
+
+DoCapture(sec, key) {
+    r := CaptureKey()
+    if r.ok
+        SetVal(sec, key, r.key)
+    Commit()
+    try Wnd.captureDone()
+}
+
+; Ждёт нажатие клавиши/кнопки мыши. Esc — отмена, Backspace — очистить.
+CaptureKey() {
+    static busy := false
+    if busy
+        return {ok: false}
+    busy := true
+    wasSusp := A_IsSuspended
+    Suspend(1)
+    res := {k: ""}
+    ih := InputHook("L0 T8")
+    ih.KeyOpt("{All}", "E")
+    btns := ["LButton", "RButton", "MButton", "XButton1", "XButton2", "WheelUp", "WheelDown"]
+    Sleep 150
+    HotIf()
+    for b in btns
+        try Hotkey("*" b, MouseCap.Bind(res, ih, b), "On S")
+    ih.Start()
+    ih.Wait()
+    for b in btns
+        try Hotkey("*" b, "Off")
+    Suspend(wasSusp ? 1 : 0)
+    busy := false
+    k := res.k != "" ? res.k : (ih.EndReason = "EndKey" ? ih.EndKey : "")
+    if (k = "" || k = "Escape")
+        return {ok: false}
+    if (k = "Backspace")
+        k := ""
+    return {ok: true, key: k}
+}
+
+MouseCap(res, ih, b, *) {
+    res.k := b
+    ih.Stop()
+}
+
+NewCustom() {
+    n := 1
+    while C.Has("Macro:Macro " n)
+        n++
+    sec := "Macro:Macro " n
+    for k, v in Map("Enabled", "0", "Trigger", "", "Mode", "once", "Sequence", "", "Speed", "1", "Interval", "10")
+        SetVal(sec, k, v)
+    Commit()
+    return sec
+}
+
+RenameCustom(old, new) {
+    new := Trim(RegExReplace(new, "[\[\]=;:]"))
+    if (!C.Has(old) || new = "" || "Macro:" new = old)
+        return old
+    target := "Macro:" new
+    if C.Has(target) {
+        Notify("Макрос с таким названием уже есть")
+        return old
+    }
+    C[target] := C[old]
+    C.Delete(old)
+    Commit()
+    return target
+}
+
+Commit(*) {
     SaveIni()
-    SetTimer(FlashTick, 0)
-    SetTimer(HoverTick, 0)
-    HideTip()
-    UI.GetPos(&ux, &uy)
-    UI.Destroy()
-    UI := 0, PillBtn := 0, UIShown := false
-    CLR := MakePalette()
-    Pages := Map(), Groups := Map(), Widgets := [], KeyCaps := Map(), CapBase := Map(), Painted := Map()
-    NavBtns := Map(), NavBars := Map(), SubBtns := Map(), CustomSlots := [], CustomWidgets := [], Hints := Map(), PV := []
-    BuildUI()
-    ShowUI()
-    UI.Move(ux, uy)
-    ShowPage(page)
+    ApplyEngine()
+    PushState()
     UpdateCrosshair()
 }
 
-Track(ctl) {
-    if IsObject(Bucket)
-        Bucket.Push(ctl)
-    return ctl
+EnabledTriggers() {
+    r := []
+    for s in ["DragEdit", "InfiniteEdit", "InstantEdit", "Pickup"]
+        if Bool(s, "Enabled")
+            r.Push(Get(s, "Trigger"))
+    if Bool("InstantBuild", "Enabled")
+        for p in ["Wall", "Floor", "Stairs", "Cone"]
+            r.Push(Get("InstantBuild", p "Trigger"))
+    if Bool("Competitive", "Enabled")
+        r.Push(Get("Competitive", "PeekKey"))
+    for s in C
+        if (s ~= "i)^Macro:") && Bool(s, "Enabled")
+            r.Push(Get(s, "Trigger"))
+    return r
 }
 
-Rnd(ctl, w, h, r) {
-    pw := Round(w * DPI), ph := Round(h * DPI), e := Min(Round(r * 2 * DPI), pw, ph)
-    rgn := DllCall("CreateRoundRectRgn", "int", 0, "int", 0, "int", pw + 1, "int", ph + 1, "int", e, "int", e, "ptr")
-    DllCall("SetWindowRgn", "ptr", ctl.Hwnd, "ptr", rgn, "int", 0)
+; Состояние для страницы: конфиг, подсветка клавиш, кто какую клавишу занимает
+PushState() {
+    if !(UI && Wnd)
+        return
+    caps := Map()
+    for t in EnabledTriggers()
+        if (t != "")
+            caps[Norm(t)] := "trig"
+    if (k := Get("General", "SuspendKey"))
+        caps[Norm(k)] := "sus"
+    if Bool("Crosshair", "Enabled") && (k := Get("Crosshair", "ToggleKey"))
+        caps[Norm(k)] := "xh"
+    usedBy := Map()
+    for k, owner in Used
+        n := Norm(k), usedBy[n] := (usedBy.Has(n) ? usedBy[n] ", " : "") owner
+    binds := Map()
+    if C.Has("Game")
+        for name, val in C["Game"]
+            if (val != "")
+                n := Norm(val), binds[n] := (binds.Has(n) ? binds[n] ", " : "") name
+    custom := CustomList()
+    active := 0
+    for m in BUILTIN
+        active += Bool(m.sec, "Enabled")
+    for s in custom
+        active += Bool(s, "Enabled")
+    st := Map("cfg", C, "suspended", A_IsSuspended ? 1 : 0, "caps", caps, "used", usedBy, "binds", binds
+        , "custom", custom, "active", active, "total", BUILTIN.Length + custom.Length)
+    try Wnd.render(Json(st))
 }
 
-RoundWin(g, w, h, r) {
-    rgn := DllCall("CreateRoundRectRgn", "int", 0, "int", 0, "int", w + 1, "int", h + 1, "int", r, "int", r, "ptr")
-    DllCall("SetWindowRgn", "ptr", g.Hwnd, "ptr", rgn, "int", 1)
-}
-
-Rect(x, y, w, h, col, r := 0) {
-    ctl := Track(UI.AddText(Format("x{} y{} w{} h{} Background{}", x, y, w, h, col)))
-    if r
-        Rnd(ctl, w, h, r)
-    return ctl
-}
-
-Lbl(x, y, w, h, txt, bg, font := "s10", col := "", opts := "", face := "Segoe UI") {
-    UI.SetFont("norm " font " c" (col != "" ? col : CLR.text), face)
-    return Track(UI.AddText(Format("x{} y{} w{} h{} +0x80 Background{} {}", x, y, w, h, bg, opts), txt))
-}
-
-Btn(x, y, w, h, txt, bg, fn, font := "s10", col := "", r := 8) {
-    ctl := Lbl(x, y, w, h, txt, bg, font, col, "Center +0x200")
-    ctl.OnEvent("Click", fn)
-    if r
-        Rnd(ctl, w, h, r)
-    return ctl
-}
-
-NavItem(x, y, w, h, txt, bg, fn, face := "Segoe UI") {
-    ctl := Lbl(x, y, w, h, "   " txt, bg, "s10", CLR.text, "+0x200", face)
-    ctl.OnEvent("Click", fn)
-    Rnd(ctl, w, h, 10)
-    return ctl
-}
-
-class Toggle {
-    __New(x, y, sec, key) {
-        this.sec := sec, this.key := key, this.state := false
-        this.c := Lbl(x, y, 40, 22, " ●", CLR.off, "s12", CLR.white, "+0x200")
-        Rnd(this.c, 40, 22, 22)
-        this.c.OnEvent("Click", (*) => this.Click())
-        Widgets.Push(this)
+; Описание макросов, полей и подсказок для страницы (передаётся один раз)
+MetaJson() {
+    kb := []
+    for row in KbRows() {
+        r := []
+        for k in row
+            r.Push([k[1], k[2] = "" ? "" : Norm(k[2]), k[3]])
+        kb.Push(r)
     }
-    Set(v) {
-        v := ToBool(v)
-        this.state := v
-        this.c.Opt("Background" (v ? CLR.accent : CLR.off) (v ? " +0x2" : " -0x2"))
-        this.c.Text := v ? "● " : " ●"
-        this.c.Redraw()
-    }
-    Click() {
-        if (this.sec = "")
-            return
-        SetVal(this.sec, this.key, this.state ? "0" : "1")
-        Commit()
-    }
+    return Json(Map("builtin", BUILTIN, "forms", FORMS, "macroFields", MacroFields(), "hints", HintText
+        , "themes", THEMES, "themeOrder", THEME_ORDER, "bases", BASES, "kb", kb, "version", "v3.0"))
 }
 
-class CardState {
-    __New(x, y, sec, border) {
-        this.sec := sec, this.key := "Enabled", this.border := border
-        this.c := Lbl(x, y, 60, 16, "OFF", CLR.card, "s8 bold", CLR.muted)
-        Widgets.Push(this)
+Json(v) {
+    if IsObject(v) {
+        if (v is Func)
+            return "null"
+        s := "", i := 0
+        if (v is Array) {
+            for x in v
+                s .= (i++ ? "," : "") Json(x)
+            return "[" s "]"
+        }
+        if (v is Map) {
+            for k, x in v
+                s .= (i++ ? "," : "") Json(String(k)) ":" Json(x)
+            return "{" s "}"
+        }
+        for k, x in v.OwnProps()
+            s .= (i++ ? "," : "") Json(k) ":" Json(x)
+        return "{" s "}"
     }
-    Set(v) {
-        on := ToBool(v)
-        this.c.Text := on ? "ON" : "OFF"
-        this.c.SetFont("c" (on ? CLR.accent : CLR.muted))
-        this.border.Opt("Background" (on ? CLR.glow : CLR.border))
-    }
+    if (Type(v) = "Integer" || Type(v) = "Float")
+        return String(v)
+    v := StrReplace(v, "\", "\\")
+    v := StrReplace(v, '"', '\"')
+    v := StrReplace(v, "`n", "\n")
+    v := StrReplace(v, "`r", "\r")
+    v := StrReplace(v, "`t", "\t")
+    v := StrReplace(v, "/", "\/")
+    v := StrReplace(v, Chr(0x2028), " ")
+    v := StrReplace(v, Chr(0x2029), " ")
+    return '"' v '"'
 }
 
-class KeyBadge {
-    __New(x, y, w, h, sec, key) {
-        this.sec := sec, this.key := key
-        this.c := Lbl(x, y, w, h, "—", CLR.key, "s9 bold", CLR.text, "Center +0x200")
-        Rnd(this.c, w, h, 8)
-        this.c.OnEvent("Click", (*) => this.Click())
-        Widgets.Push(this)
-    }
-    Set(v) {
-        this.c.Text := KeyLabel(v)
-    }
-    Click() {
-        if (this.sec = "")
-            return
-        r := CaptureKey(this.c)
-        if r.ok
-            SetVal(this.sec, this.key, r.key)
-        Commit()
-    }
-}
-
-class Seg {
-    __New(x, y, opts, labels, bw, sec, key, fn := 0) {
-        this.sec := sec, this.key := key, this.opts := opts, this.btns := [], this.fn := fn
-        for i, o in opts
-            this.btns.Push(Btn(x + (i - 1) * (bw + 4), y, bw, 26, labels[i], CLR.key, this.Pick.Bind(this, o), "s9"))
-        Widgets.Push(this)
-    }
-    Pick(o, *) {
-        if (this.sec = "")
-            return
-        SetVal(this.sec, this.key, o)
-        if this.fn
-            this.fn.Call()
+; Подсветка клавиш, которые макрос нажимает прямо сейчас (только на Dashboard)
+FlashTick() {
+    static last := ""
+    if (CurPage != "Dashboard" || !Wnd)
+        return
+    now := A_TickCount, s := ""
+    for n, p in Pressed.Clone() {
+        if (p.down || now - p.t < 150)
+            s .= n ","
         else
-            Commit()
+            Pressed.Delete(n)
     }
-    Set(v) {
-        for i, o in this.opts {
-            this.btns[i].Opt("Background" (StrLower(v) = StrLower(o) ? CLR.accent : CLR.key))
-            this.btns[i].Redraw()
-        }
+    if (s != last) {
+        last := s
+        try Wnd.flash(s)
     }
 }
 
-class ThemePick {
-    __New(x, y, sec, key) {
-        this.sec := sec, this.key := key, this.btns := Map()
-        for i, id in THEME_ORDER {
-            b := Btn(x + (i - 1) * 36, y, 28, 28, "", THEMES[id][2], this.Pick.Bind(this, id), "s9", CLR.white, 14)
-            Hint(b, "Тема «" THEMES[id][1] "»")
-            this.btns[id] := b
-        }
-        Widgets.Push(this)
-    }
-    Pick(id, *) {
-        SetVal(this.sec, this.key, id)
-        ApplyTheme()
-    }
-    Set(v) {
-        for id, b in this.btns
-            b.Text := (id = v) ? "●" : ""
+ShowUI(*) {
+    global UIShown
+    if !UI
+        return
+    UI.Show("w" W " h" H)
+    UIShown := true
+    PushState()
+    SetTimer(FlashTick, 40)
+}
+
+HideUI() {
+    global UIShown
+    static told := false
+    UIShown := false
+    SetTimer(FlashTick, 0)
+    if !told {
+        told := true
+        Notify("FlashMacro работает в трее. Клик по иконке — открыть меню.", 2500)
     }
 }
 
-class EditField {
-    __New(x, y, w, sec, key) {
-        this.sec := sec, this.key := key
-        UI.SetFont("norm s10 c" CLR.text, "Segoe UI")
-        this.c := Track(UI.AddEdit(Format("x{} y{} w{} h24 -E0x200 Background{}", x, y, w, CLR.key)))
-        Rnd(this.c, w, 24, 6)
-        this.c.OnEvent("Change", (*) => this.Changed())
-        Widgets.Push(this)
+KbRows() {
+    one(s) {
+        a := []
+        for ch in StrSplit(s)
+            a.Push([StrUpper(ch), ch, 1])
+        return a
     }
-    Set(v) {
-        if (this.c.Value != v)
-            this.c.Value := v
+    r0 := [["Esc", "Escape", 1], ["", "", 1]]
+    for grp in [[1, 4], [5, 8], [9, 12]] {
+        if (grp[1] > 1)
+            r0.Push(["", "", 0.5])
+        loop grp[2] - grp[1] + 1
+            r0.Push(["F" (grp[1] + A_Index - 1), "F" (grp[1] + A_Index - 1), 1])
     }
-    Changed() {
-        if (this.sec = "")
-            return
-        SetVal(this.sec, this.key, Trim(this.c.Value))
-        SetTimer(Commit, -500)
-    }
+    r1 := [["~", "``", 1]], r1.Push(one("1234567890")*), r1.Push(["-", "-", 1], ["=", "=", 1], ["←", "Backspace", 2])
+    r2 := [["Tab", "Tab", 1.5]], r2.Push(one("qwertyuiop")*), r2.Push(["[", "[", 1], ["]", "]", 1], ["\", "\", 1.5])
+    r3 := [["Caps", "CapsLock", 1.75]], r3.Push(one("asdfghjkl")*), r3.Push([";", ";", 1], ["'", "'", 1], ["Enter", "Enter", 2.25])
+    r4 := [["Shift", "LShift", 2.25]], r4.Push(one("zxcvbnm")*), r4.Push([",", ",", 1], [".", ".", 1], ["/", "/", 1], ["Shift", "RShift", 2.75])
+    r5 := [["Ctrl", "LCtrl", 1.25], ["Win", "LWin", 1.25], ["Alt", "LAlt", 1.25], ["Space", "Space", 6.25]
+        , ["Alt", "RAlt", 1.25], ["Win", "RWin", 1.25], ["Menu", "AppsKey", 1.25], ["Ctrl", "RCtrl", 1.25]]
+    return [r0, r1, r2, r3, r4, r5]
 }
 
 KeyLabel(k) {
@@ -1023,48 +1170,7 @@ KeyLabel(k) {
     return m.Has(k) ? m[k] : StrUpper(k)
 }
 
-; Ждёт нажатие клавиши/кнопки мыши. Esc — отмена, Backspace — очистить.
-CaptureKey(ctl) {
-    static busy := false
-    if busy
-        return {ok: false}
-    busy := true
-    wasSusp := A_IsSuspended
-    Suspend(1)
-    ctl.Text := "…"
-    ctl.Opt("Background" CLR.accent)
-    ctl.Redraw()
-    Notify("Нажми клавишу или кнопку мыши`nEsc — отмена, Backspace — очистить", 8000)
-    res := {k: ""}
-    ih := InputHook("L0 T8")
-    ih.KeyOpt("{All}", "E")
-    btns := ["LButton", "RButton", "MButton", "XButton1", "XButton2", "WheelUp", "WheelDown"]
-    Sleep 150
-    HotIf()
-    for b in btns
-        try Hotkey("*" b, MouseCap.Bind(res, ih, b), "On S")
-    ih.Start()
-    ih.Wait()
-    for b in btns
-        try Hotkey("*" b, "Off")
-    HideOSD()
-    Suspend(wasSusp ? 1 : 0)
-    ctl.Opt("Background" CLR.key)
-    busy := false
-    k := res.k != "" ? res.k : (ih.EndReason = "EndKey" ? ih.EndKey : "")
-    if (k = "" || k = "Escape")
-        return {ok: false}
-    if (k = "Backspace")
-        k := ""
-    return {ok: true, key: k}
-}
-
-MouseCap(res, ih, b, *) {
-    res.k := b
-    ih.Stop()
-}
-
-; ───────────────────────── Меню: страницы ─────────────────────────
+; ───────────────────────── Описания макросов и подсказки ─────────────────────────
 
 Fld(t, k, label, extra := 0) {
     o := {t: t, k: k, label: label}
@@ -1106,776 +1212,6 @@ MacroFields() => [Fld("toggle", "Enabled", "Включён"), Fld("key", "Trigge
     , Fld("choice", "Mode", "Режим", {o: ["once", "repeat", "toggle"], l: ["Один раз", "Пока держишь", "Вкл/выкл"], bw: 104})
     , Fld("text", "Sequence", "Последовательность", {w: 320}), Fld("num", "Speed", "Скорость", {u: "x"})
     , Fld("num", "Interval", "Пауза между повторами")]
-
-
-AddField(x, y, sec, f, list := 0) {
-    switch f.t {
-        case "toggle": w := Toggle(x, y + 2, sec, f.k)
-        case "key": w := KeyBadge(x, y, 90, 26, sec, f.k)
-        case "choice": w := Seg(x, y, f.o, f.l, f.bw, sec, f.k, f.HasOwnProp("fn") ? f.fn : 0)
-        case "theme": w := ThemePick(x, y, sec, f.k)
-        case "text": w := EditField(x, y + 1, f.w, sec, f.k)
-        default:
-            w := EditField(x, y + 1, 80, sec, f.k)
-            Lbl(x + 88, y, 60, 26, f.HasOwnProp("u") ? f.u : "мс", CLR.panel, "s9", CLR.muted, "+0x200")
-    }
-    if IsObject(list)
-        list.Push(w)
-    return w
-}
-
-; Строка формы: подпись + поле, обе с подсказкой при наведении
-Row(lx, y, lw, sec, f, cx, list := 0) {
-    ht := FieldHint(sec, f.k)
-    Hint(Lbl(lx, y, lw, 28, f.label, CLR.panel, "s10", , "+0x200"), ht)
-    wd := AddField(cx, y, sec, f, list)
-    if wd.HasOwnProp("c")
-        Hint(wd.c, ht)
-    else if (Type(wd.btns) = "Array")
-        for b in wd.btns
-            Hint(b, ht)
-    return wd
-}
-
-PageTitle(txt, sub := "") {
-    Rect(X0, TOP + 22, 4, 22, CLR.accent)
-    Lbl(X0 + 14, TOP + 16, 180, 34, txt, CLR.bg, "s17 bold", , "+0x200")
-    if (sub != "")
-        Lbl(X0 + 200, TOP + 22, 420, 24, sub, CLR.bg, "s9", CLR.muted, "+0x200")
-}
-
-BuildUI() {
-    global UI, DPI, Bucket, PillBtn, StatusLbl, CountLbl, CustomNameEd, CustomEmpty
-    DPI := A_ScreenDPI / 96
-    UI := Gui("-Caption -MaximizeBox", "FlashMacro")
-    UI.BackColor := CLR.bg
-    UI.MarginX := 0, UI.MarginY := 0
-    try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", UI.Hwnd, "int", 20, "int*", 1, "int", 4)
-    try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", UI.Hwnd, "int", 33, "int*", 2, "int", 4)
-    UI.OnEvent("Close", (*) => HideUI())
-    OnMessage(0x201, DragWindow)
-
-    ; Верхняя панель (своя, вместо стандартного заголовка окна)
-    Bucket := 0
-    Rect(0, 0, W, TOP, CLR.side)
-    Rect(0, 0, W, 2, CLR.accent)
-    Lbl(18, 12, 26, 28, "⚡", CLR.side, "s15", CLR.accent, "Center +0x200", "Segoe UI Symbol")
-    Lbl(46, 12, 66, 28, "FLASH", CLR.side, "s15 bold", CLR.text, "+0x200")
-    Lbl(112, 12, 80, 28, "MACRO", CLR.side, "s15 bold", CLR.accent, "+0x200")
-    PillBtn := Hint(Btn(220, 13, 120, 26, "MACROS ON", CLR.accent, (*) => ToggleSuspend(), "s9 bold", CLR.white, 13)
-        , "Включает или выключает все макросы сразу. Справа — горячая клавиша для этого (работает и в игре).")
-    Hint(KeyBadge(348, 13, 64, 26, "General", "SuspendKey").c, FieldHint("General", "SuspendKey"))
-    StatusLbl := Lbl(W - 300, 13, 200, 26, "", CLR.side, "s9", CLR.green, "Right +0x200")
-    Hint(Btn(W - 88, 12, 36, 28, "—", CLR.side, (*) => UI.Minimize(), "s10", CLR.muted, 8), "Свернуть окно")
-    Hint(Btn(W - 48, 12, 36, 28, "×", CLR.side, (*) => (UI.Hide(), HideUI()), "s14", CLR.muted, 8)
-        , "Свернуть в трей. Макросы продолжат работать, меню откроется кликом по иконке в трее.")
-    Rect(0, TOP, W, 1, CLR.border)
-
-    ; Боковое меню
-    Rect(0, TOP + 1, SIDE, H - TOP - 1, CLR.side)
-    Rect(SIDE, TOP + 1, 1, H - TOP - 1, CLR.border)
-    Lbl(24, TOP + 18, 150, 18, "МЕНЮ", CLR.side, "s8 bold", CLR.muted)
-    icons := Map("Dashboard", "▦", "Keybinds", "⌨", "Macros", "⚡", "Custom", "✚", "Crosshair", "◎", "Settings", "⚙", "Support", "?")
-    y := TOP + 42
-    for name in ["Dashboard", "Keybinds", "Macros", "Custom", "Crosshair", "Settings", "|", "Support"] {
-        if (name = "|") {
-            Rect(16, y + 6, SIDE - 32, 1, CLR.border)
-            y += 16
-            continue
-        }
-        NavBars[name] := Rect(8, y + 6, 3, 24, CLR.accent)
-        NavBtns[name] := Hint(NavItem(16, y, SIDE - 28, 36, icons[name] "    " name, CLR.side, GoPage.Bind(name), "Segoe UI Symbol"), HintText["page." name])
-        y += 42
-    }
-    Rect(16, H - 62, SIDE - 32, 1, CLR.border)
-    Lbl(24, H - 50, 160, 18, "● FlashMacro v2.0", CLR.side, "s8", CLR.green, , "Segoe UI Symbol")
-    Lbl(24, H - 32, 160, 18, "AutoHotkey v2 · Windows", CLR.side, "s8", CLR.muted)
-
-    BuildDashboard()
-    BuildKeybinds()
-    BuildMacros()
-    BuildCustom()
-    BuildCrosshair()
-    BuildSettings()
-    BuildSupport()
-    Bucket := 0
-    ; Тонкая рамка окна
-    Rect(0, 0, 1, H, CLR.border), Rect(W - 1, 0, 1, H, CLR.border), Rect(0, H - 1, W, 1, CLR.border)
-    ShowPage("Dashboard")
-}
-
-; Перетаскивание окна за верхнюю панель
-DragWindow(wp, lp, msg, hwnd) {
-    if (UI && hwnd = UI.Hwnd && ((lp >> 16) & 0xFFFF) < TOP * DPI)
-        PostMessage(0xA1, 2, 0, , "ahk_id " UI.Hwnd)
-}
-
-KbRows() {
-    one(s) {
-        a := []
-        for ch in StrSplit(s)
-            a.Push([StrUpper(ch), ch, 1])
-        return a
-    }
-    r0 := [["Esc", "Escape", 1], ["", "", 1]]
-    for grp in [[1, 4], [5, 8], [9, 12]] {
-        if (grp[1] > 1)
-            r0.Push(["", "", 0.5])
-        loop grp[2] - grp[1] + 1
-            r0.Push(["F" (grp[1] + A_Index - 1), "F" (grp[1] + A_Index - 1), 1])
-    }
-    r1 := [["~", "``", 1]], r1.Push(one("1234567890")*), r1.Push(["-", "-", 1], ["=", "=", 1], ["←", "Backspace", 2])
-    r2 := [["Tab", "Tab", 1.5]], r2.Push(one("qwertyuiop")*), r2.Push(["[", "[", 1], ["]", "]", 1], ["\", "\", 1.5])
-    r3 := [["Caps", "CapsLock", 1.75]], r3.Push(one("asdfghjkl")*), r3.Push([";", ";", 1], ["'", "'", 1], ["Enter", "Enter", 2.25])
-    r4 := [["Shift", "LShift", 2.25]], r4.Push(one("zxcvbnm")*), r4.Push([",", ",", 1], [".", ".", 1], ["/", "/", 1], ["Shift", "RShift", 2.75])
-    r5 := [["Ctrl", "LCtrl", 1.25], ["Win", "LWin", 1.25], ["Alt", "LAlt", 1.25], ["Space", "Space", 6.25]
-        , ["Alt", "RAlt", 1.25], ["Win", "RWin", 1.25], ["Menu", "AppsKey", 1.25], ["Ctrl", "RCtrl", 1.25]]
-    return [r0, r1, r2, r3, r4, r5]
-}
-
-Cap(x, y, w, h, txt, name, r := 7, font := "s8") {
-    ctl := Lbl(x, y, w, h, txt, CLR.key, font, CLR.text, "Center +0x200")
-    Rnd(ctl, w, h, r)
-    KeyCaps[Norm(name)] := ctl
-    Hints[ctl.Hwnd] := KeyCapHint.Bind(Norm(name))
-}
-
-BuildDashboard() {
-    global Bucket, CountLbl
-    Pages["Dashboard"] := Bucket := []
-    PageTitle("Dashboard")
-    lx := X0 + 200, ly := TOP + 22
-    for it in [["Trigger", CLR.accent, "Красным подсвечены клавиши, которые запускают включённые макросы."]
-        , ["Pressed by a macro", CLR.white, "Белым вспыхивают клавиши, которые макрос нажимает прямо сейчас."]
-        , ["Macros toggle", CLR.blue, "Синим — клавиша вкл/выкл всех макросов."]
-        , ["Crosshair toggle", CLR.green, "Зелёным — клавиша вкл/выкл прицела."]] {
-        Hint(Rect(lx, ly + 5, 12, 12, it[2], 6), it[3])
-        w := 16 + StrLen(it[1]) * 7
-        Hint(Lbl(lx + 18, ly, w, 22, it[1], CLR.bg, "s9", CLR.muted, "+0x200"), it[3])
-        lx += w + 34
-    }
-
-    ; Клавиатура
-    ky := TOP + 66
-    Rect(X0, ky, 575, 216, CLR.panel, 16)
-    u := 33, g := 4, kh := 28
-    yy := ky + 12
-    for row in KbRows() {
-        xx := X0 + 12
-        for kk in row {
-            w := Round(kk[3] * u + (kk[3] - 1) * g)
-            if (kk[2] != "")
-                Cap(xx, yy, w, kh, kk[1], kk[2])
-            xx += w + g
-        }
-        yy += kh + g
-    }
-
-    ; Мышь
-    mx := X0 + 590
-    Rect(mx, ky, 160, 216, CLR.panel, 16)
-    Cap(mx + 40, ky + 16, 44, 72, "L", "LButton", 16, "s9 bold")
-    Cap(mx + 88, ky + 30, 12, 30, "", "MButton", 6)
-    Cap(mx + 104, ky + 16, 44, 72, "R", "RButton", 16, "s9 bold")
-    Hint(Rect(mx + 40, ky + 92, 108, 110, CLR.key, 44), "Мышь: подсвечиваются кнопки, назначенные на макросы.")
-    Cap(mx + 12, ky + 96, 22, 34, "5", "XButton2", 8)
-    Cap(mx + 12, ky + 136, 22, 34, "4", "XButton1", 8)
-
-    ; Карточки макросов
-    Rect(X0, ky + 234, 3, 16, CLR.accent)
-    Lbl(X0 + 10, ky + 230, 200, 24, "MACROS", CLR.bg, "s9 bold", CLR.muted, "+0x200")
-    CountLbl := Hint(Lbl(X0 + 560, ky + 230, 300, 24, "", CLR.bg, "s9", CLR.muted, "Right +0x200"), "Сколько макросов включено из общего числа (вместе со своими).")
-    y0 := ky + 262, cw := 164, ch := 84
-    for i, m in BUILTIN
-        Card(X0 + Mod(i - 1, 5) * (cw + 10), y0 + ((i - 1) // 5) * (ch + 10), cw, ch, m)
-    i := BUILTIN.Length
-    Hint(Btn(X0 + Mod(i, 5) * (cw + 10), y0 + (i // 5) * (ch + 10), cw, ch, "+   Add macro", CLR.card, (*) => NewCustom(), "s10", CLR.muted, 14)
-        , "Создать свой макрос из любой последовательности нажатий.")
-}
-
-Card(cx, cy, cw, ch, m) {
-    static icons := Map("DragEdit", "✎", "InfiniteEdit", "✎", "InstantEdit", "✎", "InstantBuild", "▦", "Pickup", "✋"
-        , "AutoSprint", "»", "Competitive", "◉")
-    ht := m.name " — " FORMS[m.sec].desc "`n`nКлик по клавише — сменить её, тумблер — вкл/выкл, клик по названию — подробные настройки."
-    border := Hint(Rect(cx, cy, cw, ch, CLR.border, 14), ht)
-    Hint(Rect(cx + 1, cy + 1, cw - 2, ch - 2, CLR.card, 13), ht)
-    Hint(Lbl(cx + cw - 36, cy + 12, 24, 24, icons.Has(m.sec) ? icons[m.sec] : "⚔", CLR.card, "s11", CLR.muted, "Center +0x200", "Segoe UI Symbol"), ht)
-    if m.HasOwnProp("badge")
-        Hint(Btn(cx + 12, cy + 12, 52, 24, m.badge, CLR.key, GoMacro.Bind(m.sec), "s8 bold", CLR.text, 8), ht)
-    else
-        Hint(KeyBadge(cx + 12, cy + 12, 52, 24, m.sec, "Trigger").c, FieldHint(m.sec, "Trigger"))
-    nm := Hint(Lbl(cx + 12, cy + 42, cw - 24, 20, m.name, CLR.card, "s10 bold"), ht)
-    nm.OnEvent("Click", GoMacro.Bind(m.sec))
-    Hint(CardState(cx + 12, cy + 62, m.sec, border).c, ht)
-    Hint(Toggle(cx + cw - 52, cy + 54, m.sec, "Enabled").c, "Включить или выключить «" m.name "».")
-}
-
-BuildKeybinds() {
-    global Bucket
-    Pages["Keybinds"] := Bucket := []
-    PageTitle("Keybinds", "Клавиши из настроек управления Fortnite")
-    Hint(Btn(X0 + 660, TOP + 18, 200, 30, "Import from Fortnite", CLR.key, ImportFromFortnite, "s9 bold", CLR.text, 10)
-        , "Пытается прочитать бинды из файлов настроек Fortnite и подставить их сюда. Перед применением покажет, что нашёл.")
-    cols := [[["Edit", "Редактирование"], ["Select", "Выбор / выстрел"], ["Wall", "Стена"], ["Floor", "Пол"]
-            , ["Stairs", "Лестница"], ["Cone", "Конус (крыша)"], ["Pickaxe", "Кирка"], ["Interact", "Взаимодействие"]]
-        , [["Crouch", "Присесть"], ["Jump", "Прыжок"], ["Sprint", "Спринт"], ["Slot1", "Слот оружия 1"]
-            , ["Slot2", "Слот оружия 2"], ["Slot3", "Слот оружия 3"], ["Slot4", "Слот оружия 4"], ["Slot5", "Слот оружия 5"]]]
-    for ci, col in cols {
-        px := X0 + (ci - 1) * 440
-        Rect(px, FY, 420, 20 + col.Length * 44, CLR.panel, 16)
-        for ri, b in col {
-            y := FY + 14 + (ri - 1) * 44
-            ht := "«" b[2] "» — клавиша из настроек управления Fortnite. Макросы нажимают именно её, поэтому она должна совпадать с игрой.`nКлик по клавише — сменить."
-            Hint(Lbl(px + 20, y, 145, 28, b[2], CLR.panel, "s10", , "+0x200"), ht)
-            Hint(Lbl(px + 170, y, 110, 28, b[1], CLR.panel, "s9", CLR.muted, "+0x200"), ht)
-            Hint(KeyBadge(px + 300, y + 1, 96, 26, "Game", b[1]).c, ht)
-        }
-    }
-    Lbl(X0, FY + 390, 860, 60, "Бинды должны совпадать с настройками управления в Fortnite — макросы нажимают именно эти клавиши.`nКлик по клавише → нажми новую клавишу или кнопку мыши. Esc — отмена, Backspace — очистить.", CLR.bg, "s9", CLR.muted)
-}
-
-BuildMacros() {
-    global Bucket
-    Pages["Macros"] := Bucket := []
-    PageTitle("Macros", "Тонкая настройка каждого макроса")
-    Rect(X0, FY, 200, 560, CLR.panel, 16)
-    for i, m in BUILTIN
-        SubBtns[m.sec] := Hint(NavItem(X0 + 8, FY + 8 + (i - 1) * 38, 184, 34, m.name, CLR.panel, SelectMacro.Bind(m.sec)), FORMS[m.sec].desc)
-    Rect(FX, FY, 645, 560, CLR.panel, 16)
-    for m in BUILTIN {
-        Groups[m.sec] := Bucket := []
-        spec := FORMS[m.sec]
-        Lbl(FX + 24, FY + 18, 590, 30, m.name, CLR.panel, "s15 bold", , "+0x200")
-        Lbl(FX + 24, FY + 52, 590, 48, spec.desc, CLR.panel, "s9", CLR.muted)
-        y := FY + 108
-        for f in spec.fields {
-            Row(FX + 24, y, 250, m.sec, f, FX + 280)
-            y += 44
-        }
-        if (SubStr(m.sec, 1, 6) = "Macro:")
-            Lbl(FX + 24, y + 8, 600, 54, SEQ_HELP, CLR.panel, "s9", CLR.muted)
-    }
-}
-
-BuildCustom() {
-    global Bucket, CustomNameEd, CustomEmpty
-    Pages["Custom"] := Bucket := []
-    PageTitle("Custom", "Свои макросы из любых нажатий")
-    Rect(X0, FY, 200, 560, CLR.panel, 16)
-    Hint(Btn(X0 + 10, FY + 10, 180, 32, "+  New macro", CLR.accent, (*) => NewCustom(), "s10 bold", CLR.white, 10)
-        , "Создать новый свой макрос.")
-    loop 12
-        CustomSlots.Push(Hint(NavItem(X0 + 8, FY + 52 + (A_Index - 1) * 38, 184, 34, "", CLR.panel, SelectCustom.Bind(A_Index)), "Открыть этот макрос для редактирования."))
-    Rect(FX, FY, 645, 560, CLR.panel, 16)
-    CustomEmpty := Lbl(FX + 24, FY + 24, 590, 60, "Своих макросов пока нет.`nНажми «+ New macro» слева.", CLR.panel, "s11", CLR.muted)
-
-    Groups["CustomForm"] := Bucket := []
-    Hint(Lbl(FX + 24, FY + 22, 250, 28, "Название", CLR.panel, "s10", , "+0x200"), "Название макроса — просто для тебя, на работу не влияет.")
-    UI.SetFont("norm s11 bold c" CLR.text, "Segoe UI")
-    CustomNameEd := Hint(Track(UI.AddEdit(Format("x{} y{} w260 h28 -E0x200 Background{}", FX + 280, FY + 22, CLR.key))), "Название макроса — просто для тебя, на работу не влияет.")
-    Rnd(CustomNameEd, 260, 28, 7)
-    CustomNameEd.OnEvent("Change", (*) => SetTimer(RenameCustom, -800))
-    CustomNameEd.OnEvent("LoseFocus", (*) => RenameCustom())
-    y := FY + 70
-    for f in MacroFields() {
-        Row(FX + 24, y, 250, "", f, FX + 280, CustomWidgets)
-        y += 44
-    }
-    Lbl(FX + 24, y + 8, 600, 54, SEQ_HELP, CLR.panel, "s9", CLR.muted)
-    Hint(Btn(FX + 24, FY + 500, 170, 32, "Удалить макрос", CLR.accentDim, (*) => DeleteCustom(), "s10", CLR.accent, 10)
-        , "Удалить этот макрос (спросит подтверждение).")
-}
-
-BuildCrosshair() {
-    global Bucket
-    Pages["Crosshair"] := Bucket := []
-    PageTitle("Crosshair", "Свой прицел поверх игры")
-    Rect(X0, FY, 520, 560, CLR.panel, 16)
-    rows := [Fld("toggle", "Enabled", "Прицел включён"), Fld("toggle", "ShowOnStart", "Показывать при запуске")
-        , Fld("key", "ToggleKey", "Клавиша вкл/выкл")
-        , Fld("choice", "Style", "Стиль", {o: ["dot", "cross", "crossdot", "t", "tdot"], l: ["•", "+", "+ •", "T", "T •"], bw: 46})
-        , Fld("color", "Color", "Цвет")
-        , Fld("num", "Length", "Длина линий", {u: "px"}), Fld("num", "Thickness", "Толщина", {u: "px"})
-        , Fld("num", "Gap", "Отступ от центра", {u: "px"}), Fld("num", "DotSize", "Размер точки", {u: "px"})
-        , Fld("num", "OffsetX", "Сдвиг по X", {u: "px"}), Fld("num", "OffsetY", "Сдвиг по Y", {u: "px"})]
-    y := FY + 16
-    for f in rows {
-        if (f.t = "color") {
-            ht := FieldHint("Crosshair", "Color")
-            Hint(Lbl(X0 + 20, y, 180, 28, f.label, CLR.panel, "s10", , "+0x200"), ht)
-            for i, c in ["00FF00", "FF2D2D", "00E5FF", "FFE600", "FFFFFF", "FF00E6"]
-                Hint(Btn(X0 + 200 + (i - 1) * 32, y + 1, 26, 26, "", c, SetColor.Bind(c), "s8", , 13), ht)
-            Hint(EditField(X0 + 400, y + 2, 90, "Crosshair", "Color").c, ht)
-        } else
-            Row(X0 + 20, y, 180, "Crosshair", f, X0 + 200)
-        y += 44
-    }
-    Hint(Rect(X0 + 535, FY, 325, 300, "0B0B0E", 16), "Превью прицела — так он будет выглядеть поверх игры.")
-    Lbl(X0 + 550, FY + 10, 200, 20, "Превью", "0B0B0E", "s9", CLR.muted)
-    loop 5
-        PV.Push(Track(UI.AddText("x0 y0 w1 h1 Background00FF00")))
-    Lbl(X0 + 535, FY + 312, 325, 80, "Прицел рисуется поверх экрана. В Fortnite выбери режим окна «Оконный полноэкранный», иначе его не будет видно.", CLR.bg, "s9", CLR.muted)
-}
-
-BuildSettings() {
-    global Bucket, LogEd
-    Pages["Settings"] := Bucket := []
-    PageTitle("Settings", "Общие настройки и оформление")
-    Rect(X0, FY, 600, 520, CLR.panel, 16)
-    rows := [Fld("key", "SuspendKey", "Вкл/выкл все макросы"), Fld("toggle", "OnlyInGame", "Работать только в окне Fortnite")
-        , Fld("text", "GameExe", "Процесс игры", {w: 270}), Fld("toggle", "Debug", "Лог нажатий (справа)")
-        , Fld("num", "KeyHoldMs", "Удержание клавиши"), Fld("num", "ClickHoldMs", "Удержание кнопки мыши")
-        , Fld("toggle", "StartHidden", "Запускать свёрнутым в трей"), Fld("toggle", "ShowOSD", "Уведомления на экране")
-        , Fld("theme", "Theme", "Тема (цвет акцента)")
-        , Fld("choice", "Base", "Фон меню", {o: ["dark", "midnight", "amoled"], l: ["Тёмный", "Полночь", "AMOLED"], bw: 88, fn: ApplyTheme})]
-    y := FY + 14
-    for f in rows {
-        Row(X0 + 24, y, 270, "General", f, X0 + 300)
-        y += 50
-    }
-    Rect(X0 + 616, FY, 244, 520, CLR.panel, 16)
-    Hint(Lbl(X0 + 634, FY + 14, 200, 24, "Лог нажатий", CLR.panel, "s10 bold", , "+0x200"), FieldHint("General", "Debug"))
-    Rect(X0 + 630, FY + 46, 216, 460, CLR.key, 10)
-    LogEd := Hint(Lbl(X0 + 640, FY + 54, 198, 444, "Включи «Лог нажатий», чтобы видеть здесь, что нажимают макросы.", CLR.key, "s8", CLR.muted), FieldHint("General", "Debug"))
-    Hint(Btn(X0, FY + 532, 190, 34, "Открыть config.ini", CLR.key, (*) => Run('notepad.exe "' CFG '"'), "s10", CLR.text, 10), "Открыть файл настроек в Блокноте (обычно не нужно — всё есть в меню).")
-    Hint(Btn(X0 + 200, FY + 532, 190, 34, "Открыть папку", CLR.key, (*) => Run(A_ScriptDir), "s10", CLR.text, 10), "Открыть папку, где лежит FlashMacro.")
-    Hint(Btn(X0 + 400, FY + 532, 200, 34, "Выйти из FlashMacro", CLR.accentDim, (*) => ExitApp(), "s10", CLR.accent, 10), "Полностью закрыть программу — макросы перестанут работать.")
-}
-
-BuildSupport() {
-    global Bucket
-    Pages["Support"] := Bucket := []
-    PageTitle("Support", "Помощь и советы")
-    Rect(X0, FY, 860, 520, CLR.panel, 16)
-    txt := "
-    (
-Как начать
-1. Keybinds — укажи те же клавиши, что в настройках управления Fortnite.
-2. Dashboard — включи нужные макросы тумблерами. Клик по клавише на карточке меняет клавишу запуска.
-3. Macros — тонкая настройка каждого макроса: задержки, режим подтверждения, FPS.
-4. Custom — свои макросы из любых нажатий (один раз / пока держишь / вкл-выкл).
-5. Crosshair — свой прицел поверх игры.
-
-Настройки Fortnite
-• «Подтверждать редактирование при отпускании» — ВКЛ (или включи Competitive Mode).
-• «Турбо-строительство» — ВКЛ (для непрерывной стройки).
-• Режим окна — «Оконный полноэкранный» (для прицела).
-
-Если макрос не срабатывает
-• Увеличь задержки до 15–20 мс — при низком FPS игра не успевает за слишком быстрыми нажатиями.
-• Запусти FlashMacro от имени администратора.
-• Проверь в Settings, что «Процесс игры» совпадает с процессом в Диспетчере задач.
-• Для проверки без игры: Settings → выключи «Работать только в окне Fortnite» и включи «Лог нажатий».
-
-Закрытие окна сворачивает FlashMacro в трей — макросы продолжают работать. Выход — через трей или Settings.
-⚠ Epic запрещает макросы в турнирах и соревновательных режимах.
-    )"
-    Lbl(X0 + 24, FY + 20, 812, 480, txt, CLR.panel, "s10")
-}
-
-; ───────────────────────── Меню: логика ─────────────────────────
-
-GoPage(name, *) => ShowPage(name)
-
-GoMacro(sec, *) {
-    global CurMacro, CurCustom
-    if (sec ~= "i)^Macro:") && !IsPreset(sec) {
-        CurCustom := sec
-        ShowPage("Custom")
-    } else {
-        CurMacro := sec
-        ShowPage("Macros")
-    }
-}
-
-SelectMacro(sec, *) {
-    global CurMacro
-    CurMacro := sec
-    ShowPage("Macros")
-}
-
-ShowPage(name) {
-    global CurPage
-    CurPage := name
-    HideTip()
-    DllCall("SendMessage", "ptr", UI.Hwnd, "uint", 0xB, "ptr", 0, "ptr", 0)
-    for n, arr in Pages
-        if (n != name)
-            for ctl in arr
-                ctl.Visible := false
-    for n, arr in Groups
-        for ctl in arr
-            ctl.Visible := false
-    for ctl in Pages[name]
-        ctl.Visible := true
-    if (name = "Macros") {
-        for ctl in Groups[CurMacro]
-            ctl.Visible := true
-        for s, b in SubBtns {
-            b.Opt("Background" (s = CurMacro ? CLR.accentDim : CLR.panel))
-            b.Redraw()
-        }
-    }
-    if (name = "Custom")
-        ShowCustomState()
-    for n, b in NavBtns {
-        b.Opt("Background" (n = name ? CLR.accentDim : CLR.side))
-        NavBars[n].Visible := (n = name)
-    }
-    DllCall("SendMessage", "ptr", UI.Hwnd, "uint", 0xB, "ptr", 1, "ptr", 0)
-    DllCall("RedrawWindow", "ptr", UI.Hwnd, "ptr", 0, "ptr", 0, "uint", 0x185)
-    if (name = "Crosshair")
-        UpdateCrosshair()
-    if (name = "Settings")
-        ShowLog()
-}
-
-ShowCustomState() {
-    global CurCustom
-    list := CustomList()
-    if (CurCustom = "" || !C.Has(CurCustom))
-        CurCustom := list.Length ? list[1] : ""
-    onPage := (CurPage = "Custom")
-    for i, s in CustomSlots {
-        if (i <= list.Length) {
-            s.Text := "   " SubStr(list[i], 7)
-            s.Opt("Background" (list[i] = CurCustom ? CLR.accentDim : CLR.panel))
-            s.Visible := onPage
-            s.Redraw()
-        } else
-            s.Visible := false
-    }
-    for w in CustomWidgets {
-        w.sec := CurCustom
-        w.Set(Get(CurCustom, w.key))
-    }
-    if (Trim(CustomNameEd.Value) != SubStr(CurCustom, 7))
-        CustomNameEd.Value := SubStr(CurCustom, 7)
-    for ctl in Groups["CustomForm"]
-        ctl.Visible := onPage && CurCustom != ""
-    CustomEmpty.Visible := onPage && CurCustom = ""
-}
-
-SelectCustom(i, *) {
-    global CurCustom
-    list := CustomList()
-    if (i <= list.Length)
-        CurCustom := list[i]
-    ShowCustomState()
-}
-
-NewCustom(*) {
-    global CurCustom
-    if (CustomList().Length >= CustomSlots.Length) {
-        Notify("Максимум " CustomSlots.Length " своих макросов")
-        return
-    }
-    n := 1
-    while C.Has("Macro:Macro " n)
-        n++
-    sec := "Macro:Macro " n
-    for k, v in Map("Enabled", "0", "Trigger", "", "Mode", "once", "Sequence", "", "Speed", "1", "Interval", "10")
-        SetVal(sec, k, v)
-    CurCustom := sec
-    Commit()
-    ShowPage("Custom")
-}
-
-RenameCustom(*) {
-    global CurCustom
-    if (CurCustom = "")
-        return
-    new := Trim(RegExReplace(CustomNameEd.Value, "[\[\]=;:]"))
-    old := SubStr(CurCustom, 7)
-    if (new = old || new = "")
-        return
-    target := "Macro:" new
-    if C.Has(target) {
-        Notify("Макрос с таким названием уже есть")
-        return
-    }
-    C[target] := C[CurCustom]
-    C.Delete(CurCustom)
-    CurCustom := target
-    Commit()
-}
-
-DeleteCustom() {
-    global CurCustom
-    if (CurCustom = "")
-        return
-    if MsgBox("Удалить макрос «" SubStr(CurCustom, 7) "»?", "FlashMacro", "YesNo Owner" UI.Hwnd) != "Yes"
-        return
-    C.Delete(CurCustom)
-    CurCustom := ""
-    Commit()
-}
-
-SetColor(c, *) {
-    SetVal("Crosshair", "Color", c)
-    Commit()
-}
-
-Commit(*) {
-    SaveIni()
-    ApplyEngine()
-    RefreshUI()
-    UpdateCrosshair()
-}
-
-EnabledTriggers() {
-    r := []
-    for s in ["DragEdit", "InfiniteEdit", "InstantEdit", "Pickup"]
-        if Bool(s, "Enabled")
-            r.Push(Get(s, "Trigger"))
-    if Bool("InstantBuild", "Enabled")
-        for p in ["Wall", "Floor", "Stairs", "Cone"]
-            r.Push(Get("InstantBuild", p "Trigger"))
-    if Bool("Competitive", "Enabled")
-        r.Push(Get("Competitive", "PeekKey"))
-    for s in C
-        if (s ~= "i)^Macro:") && Bool(s, "Enabled")
-            r.Push(Get(s, "Trigger"))
-    return r
-}
-
-RefreshUI() {
-    global CapBase, Painted
-    if !UI
-        return
-    for w in Widgets
-        if (w.sec != "")
-            w.Set(Get(w.sec, w.key))
-    CapBase := Map()
-    for t in EnabledTriggers()
-        if (t != "")
-            CapBase[Norm(t)] := "trig"
-    if (k := Get("General", "SuspendKey"))
-        CapBase[Norm(k)] := "sus"
-    if Bool("Crosshair", "Enabled") && (k := Get("Crosshair", "ToggleKey"))
-        CapBase[Norm(k)] := "xh"
-    Painted := Map()
-    FlashTick()
-    active := 0, total := BUILTIN.Length + CustomList().Length
-    for m in BUILTIN
-        active += Bool(m.sec, "Enabled")
-    for s in CustomList()
-        active += Bool(s, "Enabled")
-    CountLbl.Text := active " active · " total " total"
-    UpdateTopBar()
-    if (CurPage = "Custom")
-        ShowCustomState()
-    ; Перерисовать окно целиком, чтобы наложенные элементы карточек легли в правильном порядке
-    if UIShown
-        DllCall("RedrawWindow", "ptr", UI.Hwnd, "ptr", 0, "ptr", 0, "uint", 0x185)
-}
-
-FlashTick() {
-    if (CurPage != "Dashboard")
-        return
-    now := A_TickCount
-    for n, ctl in KeyCaps {
-        st := CapBase.Get(n, "none")
-        if Pressed.Has(n) {
-            p := Pressed[n]
-            if (p.down || now - p.t < 150)
-                st := "press"
-            else
-                Pressed.Delete(n)
-        }
-        if (Painted.Get(n, "") != st) {
-            switch st {
-                case "press": bg := CLR.white, fg := "111111"
-                case "trig": bg := CLR.accent, fg := CLR.white
-                case "sus": bg := CLR.blue, fg := CLR.white
-                case "xh": bg := CLR.green, fg := "111111"
-                default: bg := CLR.key, fg := CLR.text
-            }
-            ctl.Opt("Background" bg)
-            ctl.SetFont("c" fg)
-            ctl.Redraw()
-            Painted[n] := st
-        }
-    }
-}
-
-UpdateTopBar() {
-    if !PillBtn
-        return
-    on := !A_IsSuspended
-    PillBtn.Text := on ? "MACROS ON" : "MACROS OFF"
-    PillBtn.Opt("Background" (on ? CLR.accent : CLR.off))
-    PillBtn.Redraw()
-    StatusLbl.Text := on ? "● Макросы активны" : "● На паузе"
-    StatusLbl.SetFont("c" (on ? CLR.green : CLR.muted))
-}
-
-ShowUI(*) {
-    global UIShown
-    UI.Show("w" W " h" H)
-    UIShown := true
-    RefreshUI()
-    SetTimer(FlashTick, 40)
-    SetTimer(HoverTick, 80)
-}
-
-HideUI() {
-    global UIShown
-    static told := false
-    UIShown := false
-    SetTimer(FlashTick, 0)
-    SetTimer(HoverTick, 0)
-    HideTip()
-    if !told {
-        told := true
-        Notify("FlashMacro работает в трее. Клик по иконке — открыть меню.", 2500)
-    }
-}
-
-; ───────────────────────── Трей и отладка ─────────────────────────
-
-SetupTray() {
-    A_IconTip := "FlashMacro"
-    t := A_TrayMenu
-    t.Delete()
-    t.Add("Открыть меню", ShowUI)
-    t.Add("Макросы вкл/выкл", ToggleSuspend)
-    t.Add("Прицел вкл/выкл", ToggleCrosshair)
-    t.Add()
-    t.Add("Выход", (*) => ExitApp())
-    t.Default := "Открыть меню"
-    t.ClickCount := 1
-}
-
-; Короткое уведомление: в меню — внизу окна, в игре — внизу экрана (можно выключить в Settings)
-Notify(msg, ms := 1600) {
-    global OsdG
-    inMenu := UIShown && WinActive("ahk_id " UI.Hwnd)
-    if (!inMenu && !Bool("General", "ShowOSD", true))
-        return
-    HideOSD()
-    OsdG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
-    OsdG.BackColor := CLR.key
-    OsdG.MarginX := Round(18 * DPI), OsdG.MarginY := Round(10 * DPI)
-    OsdG.SetFont("s10 c" CLR.accent, "Segoe UI")
-    OsdG.AddText("", "●")
-    OsdG.SetFont("s10 c" CLR.text, "Segoe UI")
-    OsdG.AddText("x+8 yp", msg)
-    OsdG.Show("Hide AutoSize")
-    OsdG.GetPos(, , &w, &h)
-    if inMenu {
-        UI.GetPos(&ux, &uy, &uw, &uh)
-        x := ux + (uw - w) // 2, y := uy + uh - h - Round(22 * DPI)
-    } else
-        x := (A_ScreenWidth - w) // 2, y := A_ScreenHeight - h - Round(90 * DPI)
-    RoundWin(OsdG, w, h, Round(20 * DPI))
-    OsdG.Show(Format("x{} y{} NA", x, y))
-    SetTimer(HideOSD, -ms)
-}
-
-HideOSD(*) {
-    global OsdG
-    if OsdG {
-        OsdG.Destroy()
-        OsdG := 0
-    }
-}
-
-; Лог нажатий показывается в меню (Settings), а не поверх экрана
-DebugLog(msg) {
-    if !DebugOn
-        return
-    LogLines.InsertAt(1, FormatTime(, "HH:mm:ss") "." Format("{:03}", A_MSec) "  " msg)
-    if (LogLines.Length > 32)
-        LogLines.Pop()
-    ShowLog()
-}
-
-ShowLog() {
-    if !(LogEd && UIShown && CurPage = "Settings" && LogLines.Length)
-        return
-    s := ""
-    for l in LogLines
-        s .= l "`n"
-    LogEd.Text := s
-}
-
-; ───────────────────────── Подсказки при наведении ─────────────────────────
-
-Hint(ctl, txt) {
-    if (IsObject(ctl) && txt != "")
-        Hints[ctl.Hwnd] := txt
-    return ctl
-}
-
-FieldHint(sec, key) {
-    if HintText.Has(sec "." key)
-        return HintText[sec "." key]
-    return HintText.Has(key) ? HintText[key] : ""
-}
-
-KeyCapHint(nk) {
-    s := ""
-    for k, owner in Used
-        if (Norm(k) = nk)
-            s .= "Запускает: " owner "`n"
-    if C.Has("Game")
-        for name, val in C["Game"]
-            if (Norm(val) = nk)
-                s .= "Бинд Fortnite: " name "`n"
-    return s != "" ? RTrim(s, "`n") : "Клавиша не используется макросами"
-}
-
-HoverTick() {
-    static last := 0, since := 0, shown := false
-    MouseGetPos(&mx, &my, &win, &hw, 2)
-    if (!UI || win != UI.Hwnd || !hw) {
-        if shown
-            HideTip()
-        last := 0, shown := false
-        return
-    }
-    if (hw != last) {
-        if shown
-            HideTip()
-        last := hw, since := A_TickCount, shown := false
-        return
-    }
-    if (!shown && A_TickCount - since > 450) {
-        shown := true
-        v := Hints.Get(hw, "")
-        txt := IsObject(v) ? v.Call() : v
-        if (txt != "")
-            ShowTip(txt, mx, my)
-    }
-}
-
-ShowTip(txt, mx, my) {
-    global TipG
-    HideTip()
-    TipG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale +Owner" UI.Hwnd)
-    TipG.BackColor := CLR.key
-    TipG.MarginX := Round(14 * DPI), TipG.MarginY := Round(10 * DPI)
-    TipG.SetFont("s9 c" CLR.text, "Segoe UI")
-    TipG.AddText(StrLen(txt) > 45 ? "w" Round(300 * DPI) : "", txt)
-    TipG.Show("Hide AutoSize")
-    TipG.GetPos(, , &w, &h)
-    x := mx + 16, y := my + 22
-    if (x + w > A_ScreenWidth)
-        x := mx - w - 8
-    if (y + h > A_ScreenHeight)
-        y := my - h - 8
-    RoundWin(TipG, w, h, Round(16 * DPI))
-    TipG.Show(Format("x{} y{} NA", x, y))
-}
-
-HideTip() {
-    global TipG
-    if TipG {
-        TipG.Destroy()
-        TipG := 0
-    }
-}
 
 InitHints() {
     for k, v in Map("Enabled", "Включает или выключает эту функцию. Изменения применяются сразу."
@@ -1931,3 +1267,70 @@ InitHints() {
         HintText[k] := v
 }
 
+; ───────────────────────── Уведомления, трей, лог ─────────────────────────
+
+RoundWin(g, w, h, r) {
+    rgn := DllCall("CreateRoundRectRgn", "int", 0, "int", 0, "int", w + 1, "int", h + 1, "int", r, "int", r, "ptr")
+    DllCall("SetWindowRgn", "ptr", g.Hwnd, "ptr", rgn, "int", 1)
+}
+
+Notify(msg, ms := 1600) {
+    global OsdG
+    inMenu := UIShown && UI && WinActive("ahk_id " UI.Hwnd)
+    if (inMenu && Wnd) {
+        try Wnd.toast(msg)
+        return
+    }
+    if !Bool("General", "ShowOSD", true)
+        return
+    HideOSD()
+    OsdG := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
+    OsdG.BackColor := CLR.key
+    OsdG.MarginX := Round(18 * DPI), OsdG.MarginY := Round(10 * DPI)
+    OsdG.SetFont("s10 c" CLR.accent, "Segoe UI")
+    OsdG.AddText("", "●")
+    OsdG.SetFont("s10 c" CLR.text, "Segoe UI")
+    OsdG.AddText("x+8 yp", msg)
+    OsdG.Show("Hide AutoSize")
+    OsdG.GetPos(, , &w, &h)
+    x := (A_ScreenWidth - w) // 2, y := A_ScreenHeight - h - Round(90 * DPI)
+    RoundWin(OsdG, w, h, Round(20 * DPI))
+    OsdG.Show(Format("x{} y{} NA", x, y))
+    SetTimer(HideOSD, -ms)
+}
+
+HideOSD(*) {
+    global OsdG
+    if OsdG {
+        OsdG.Destroy()
+        OsdG := 0
+    }
+}
+
+SetupTray() {
+    A_IconTip := "FlashMacro"
+    t := A_TrayMenu
+    t.Delete()
+    t.Add("Открыть меню", ShowUI)
+    t.Add("Макросы вкл/выкл", ToggleSuspend)
+    t.Add("Прицел вкл/выкл", ToggleCrosshair)
+    t.Add()
+    t.Add("Выход", (*) => ExitApp())
+    t.Default := "Открыть меню"
+    t.ClickCount := 1
+}
+
+; Лог нажатий показывается в меню (Settings)
+DebugLog(msg) {
+    if !DebugOn
+        return
+    LogLines.InsertAt(1, FormatTime(, "HH:mm:ss") "." Format("{:03}", A_MSec) "  " msg)
+    if (LogLines.Length > 26)
+        LogLines.Pop()
+    if (UIShown && CurPage = "Settings" && Wnd) {
+        s := ""
+        for l in LogLines
+            s .= l "`n"
+        try Wnd.setLog(s)
+    }
+}

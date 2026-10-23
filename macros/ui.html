@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>FlashMacro</title>
+<!-- Меню FlashMacro. Работает во встроенном движке Windows (IE11), поэтому только ES5 и CSS без переменных:
+     цвета подставляются из темы в шаблон стилей ниже (@токены@). -->
+<script type="text/x-css" id="css-tpl">
+html,body{margin:0;padding:0;height:100%;overflow:hidden;border:0}
+body{background:@bg@;color:@text@;font-family:"Segoe UI",Tahoma,Arial,sans-serif;font-size:13px;cursor:default;-ms-user-select:none;user-select:none;
+  scrollbar-face-color:@key@;scrollbar-track-color:@bg@;scrollbar-arrow-color:@muted@;scrollbar-shadow-color:@bg@;scrollbar-highlight-color:@bg@;scrollbar-3dlight-color:@bg@;scrollbar-darkshadow-color:@bg@}
+input{-ms-user-select:text;user-select:text}
+input::-ms-clear{display:none}
+svg{overflow:hidden}
+#app{position:absolute;left:0;top:0;right:0;bottom:0;background:@bg@;background-image:radial-gradient(circle at 0% 0%,@a12@ 0%,@a0@ 38%),radial-gradient(circle at 100% 100%,@a8@ 0%,@a0@ 40%)}
+
+/* ── верхняя панель ── */
+#top{position:absolute;left:0;right:0;top:0;height:58px;display:flex;align-items:center;padding:0 12px 0 18px;box-sizing:border-box;border-bottom:1px solid @line@}
+.logo{display:flex;align-items:center;width:196px}
+.mark{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,@accent@ 0%,@accentDeep@ 100%);box-shadow:0 6px 18px @a40@;display:flex;align-items:center;justify-content:center;margin-right:11px}
+.mark svg{width:17px;height:17px}
+.wm{font-size:16px;font-weight:700;letter-spacing:.06em}
+.wm b{color:@accent@;font-weight:700}
+.pill{height:30px;line-height:30px;padding:0 16px;border-radius:15px;font-size:11px;font-weight:700;letter-spacing:.09em;cursor:pointer;background:@accent@;color:#fff;box-shadow:0 5px 18px @a40@;transition:background .2s,box-shadow .2s,color .2s}
+.pill.off{background:@key@;color:@muted@;box-shadow:none}
+.pill:hover{box-shadow:0 6px 22px @a50@}
+.pill i{display:inline-block;width:7px;height:7px;border-radius:4px;background:#fff;margin-right:8px;vertical-align:1px}
+.pill.off i{background:@muted@}
+#top .kc{margin-left:8px}
+.grow{flex:1}
+.status{font-size:12px;color:@muted@;margin-right:14px;padding:6px 12px;border-radius:10px;background:@a0@}
+.status i{display:inline-block;width:8px;height:8px;border-radius:4px;background:#22C55E;margin-right:7px;box-shadow:0 0 8px rgba(34,197,94,.7);vertical-align:0}
+.status.off i{background:@muted@;box-shadow:none}
+.wb{width:36px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:@muted@;cursor:pointer;margin-left:4px;transition:background .15s,color .15s}
+.wb:hover{background:@key@;color:@text@}
+.wb.x:hover{background:#E5484D;color:#fff}
+.wb svg{width:15px;height:15px}
+
+/* ── боковое меню ── */
+#side{position:absolute;left:0;top:58px;bottom:0;width:214px;box-sizing:border-box;padding:18px 12px 14px;border-right:1px solid @line@;display:flex;flex-direction:column}
+.navh{font-size:10px;font-weight:700;letter-spacing:.16em;color:@muted@;margin:0 12px 10px}
+.nav{position:relative;display:flex;align-items:center;height:40px;padding:0 12px;border-radius:12px;color:@muted@;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:3px;transition:background .15s,color .15s}
+.nav svg{width:18px;height:18px;margin-right:12px}
+.nav:hover{background:@key@;color:@text@}
+.nav.sel{background:@a14@;color:@text@}
+.nav.sel svg{color:@accent@}
+.nav.sel:before{content:"";position:absolute;left:-12px;top:11px;width:4px;height:18px;border-radius:0 4px 4px 0;background:@accent@}
+.sep{height:1px;background:@line@;margin:10px 10px}
+.sfoot{margin-top:auto;padding:12px 14px;border-radius:14px;background:@panel@;border:1px solid @line@;font-size:11px;color:@muted@;line-height:1.55}
+.sfoot b{color:@text@;font-weight:600}
+
+/* ── контент ── */
+#content{position:absolute;left:214px;right:0;top:58px;bottom:0;overflow-y:auto;overflow-x:hidden;padding:20px 24px 24px;box-sizing:border-box}
+.page{display:none}
+.page.show{display:block;animation:pin .22s ease-out}
+@keyframes pin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.ph{display:flex;align-items:center;margin-bottom:16px;min-height:34px}
+.ph h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+.ph .sub{color:@muted@;font-size:12px;margin-left:16px;padding-left:16px;border-left:1px solid @line@}
+.panel{background:@panel@;border:1px solid @line@;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.22)}
+.h3{font-size:10px;font-weight:700;letter-spacing:.16em;color:@muted@;display:flex;align-items:center;margin:16px 2px 10px}
+.h3 .grow{flex:1}
+.h3 .cnt{letter-spacing:0;font-weight:600;font-size:12px}
+.h3 .cnt b{color:@text@}
+
+/* ── легенда и клавиатура ── */
+.legend{display:flex;margin-left:auto}
+.lg{font-size:12px;color:@muted@;margin-left:18px;display:flex;align-items:center}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px}
+.dash{display:flex}
+.kbd{padding:14px;margin-right:14px}
+.kr{display:flex;margin-bottom:5px}
+.kr:last-child{margin-bottom:0}
+.k{height:29px;line-height:29px;border-radius:8px;background:@key@;color:@text@;font-size:11px;font-weight:600;text-align:center;margin-right:5px;box-shadow:inset 0 -2px 0 rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);transition:background .12s,color .12s,box-shadow .12s}
+.k:last-child{margin-right:0}
+.k.sp{background:none;box-shadow:none}
+.k.trig{background:@accent@;color:#fff;box-shadow:0 0 14px @a40@,inset 0 -2px 0 rgba(0,0,0,.25)}
+.k.sus{background:#3B82F6;color:#fff;box-shadow:0 0 14px rgba(59,130,246,.45)}
+.k.xh{background:#22C55E;color:#0B0B0B;box-shadow:0 0 14px rgba(34,197,94,.45)}
+.k.press{background:#fff;color:#111;box-shadow:0 0 18px rgba(255,255,255,.55)}
+.mouse{width:178px;padding:14px 10px;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+.mouse svg{width:132px;height:200px}
+.mk{fill:@key@;transition:fill .12s}
+.mk.trig{fill:@accent@}
+.mk.sus{fill:#3B82F6}
+.mk.xh{fill:#22C55E}
+.mk.press{fill:#fff}
+.mbody{fill:@keyDark@}
+.mtx{fill:@muted@;font-size:11px;font-weight:700;font-family:"Segoe UI",Arial,sans-serif}
+
+/* ── карточки макросов ── */
+.grid{display:flex;flex-wrap:wrap;margin-right:-12px}
+.card{position:relative;width:calc(20% - 12px);height:98px;box-sizing:border-box;margin:0 12px 12px 0;padding:11px 13px;border-radius:16px;background:@card@;border:1px solid @line@;transition:transform .16s,box-shadow .16s,border-color .16s}
+.card:hover{transform:translateY(-2px);border-color:@line2@;box-shadow:0 12px 26px rgba(0,0,0,.32)}
+.card.on{border-color:@a50@;box-shadow:0 0 0 1px @a24@,0 10px 30px @a16@}
+.ctop{display:flex;align-items:center;justify-content:space-between}
+.cico{width:17px;height:17px;color:@muted@}
+.card.on .cico{color:@accent@}
+.nm{font-size:13px;font-weight:700;margin-top:8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nm:hover{color:@accent@}
+.st{font-size:10px;font-weight:700;letter-spacing:.1em;color:@muted@}
+.cbot{display:flex;align-items:center;justify-content:space-between;margin-top:4px}
+.st.on{color:@accent@}
+.add{border:1.5px dashed @line2@;background:@a0@;display:flex;align-items:center;justify-content:center;color:@muted@;font-weight:600;cursor:pointer}
+.add:hover{border-color:@accent@;color:@text@;background:@a8@}
+.add svg{width:16px;height:16px;margin-right:8px}
+
+/* ── элементы управления ── */
+.sw{display:inline-block;position:relative;width:40px;height:22px;border-radius:11px;background:@off@;cursor:pointer;vertical-align:middle;transition:background .18s,box-shadow .18s}
+.sw i{position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:8px;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4);transition:left .18s}
+.sw.on{background:@accent@;box-shadow:0 0 12px @a40@}
+.sw.on i{left:21px}
+.kc{display:inline-block;min-width:24px;height:26px;line-height:26px;padding:0 10px;border-radius:8px;background:@key@;border:1px solid @line2@;font-size:11px;font-weight:700;text-align:center;cursor:pointer;transition:border-color .15s,background .15s,color .15s;white-space:nowrap}
+.kc:hover{border-color:@accent@}
+.kc.ro{cursor:pointer;color:@muted@;letter-spacing:.06em}
+.kc.cap{background:@accent@;border-color:@accent@;color:#fff;animation:pulse 1s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 @a50@}100%{box-shadow:0 0 0 9px @a0@}}
+.seg{display:inline-flex;background:@key@;border-radius:11px;padding:3px;vertical-align:middle}
+.seg b{display:inline-block;white-space:nowrap;height:26px;line-height:26px;padding:0 13px;border-radius:8px;color:@muted@;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+.seg b:hover{color:@text@}
+.seg b.sel{background:@accent@;color:#fff;box-shadow:0 3px 12px @a35@}
+.in{height:32px;box-sizing:border-box;padding:0 11px;border-radius:10px;border:1px solid @line2@;background:@key@;color:@text@;font-family:"Segoe UI",Tahoma,sans-serif;font-size:13px;outline:none;transition:border-color .15s,box-shadow .15s;vertical-align:middle}
+.in:focus{border-color:@accent@;box-shadow:0 0 0 3px @a16@}
+.unit{color:@muted@;font-size:12px;margin-left:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;border-radius:11px;background:@key@;border:1px solid @line2@;color:@text@;font-weight:600;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s}
+.btn:hover{border-color:@accent@}
+.btn svg{width:15px;height:15px;margin-right:8px}
+.btn.pri{background:linear-gradient(135deg,@accent@ 0%,@accentDeep@ 100%);border-color:@accent@;color:#fff;box-shadow:0 6px 18px @a35@}
+.btn.pri:hover{box-shadow:0 8px 24px @a50@}
+.btn.danger{background:rgba(229,72,77,.1);border-color:rgba(229,72,77,.35);color:#F2777B}
+.btn.danger:hover{background:rgba(229,72,77,.2);border-color:#E5484D}
+.sws{display:inline-flex;align-items:center;vertical-align:middle}
+.swt{display:inline-block;width:24px;height:24px;border-radius:12px;margin-right:9px;cursor:pointer;transition:box-shadow .15s,transform .15s}
+.swt:hover{transform:scale(1.1)}
+.swt.sel{box-shadow:0 0 0 2px @panel@,0 0 0 4px @text@}
+
+/* ── формы ── */
+.row{display:flex;align-items:center;min-height:50px;border-bottom:1px solid @line@}
+.row:last-child{border-bottom:0}
+.lb{width:250px;flex:none;font-size:13px;padding-right:16px;line-height:1.35}
+.lb small{display:block;color:@muted@;font-size:11px;margin-top:2px}
+.ct{flex:1;display:flex;align-items:center;flex-wrap:wrap}
+.two{display:flex;align-items:flex-start}
+.two>.panel{min-width:0}
+.narrow .lb{width:170px}
+.list{width:214px;flex:none;padding:8px;margin-right:16px;box-sizing:border-box}
+.li{display:flex;align-items:center;height:38px;padding:0 12px;border-radius:11px;color:@muted@;font-weight:600;cursor:pointer;transition:background .15s,color .15s}
+.li:hover{background:@key@;color:@text@}
+.li.sel{background:@a14@;color:@text@}
+.li span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:7px;height:7px;border-radius:4px;background:@off@;flex:none}
+.dot.on{background:@accent@;box-shadow:0 0 8px @a60@}
+.form{flex:1;padding:20px 24px 12px;min-width:0}
+.fh{display:flex;align-items:center}
+.fh h2{margin:0;font-size:19px;font-weight:700}
+.fh .st{margin:0 0 0 12px;padding:3px 9px;border-radius:7px;background:@key@}
+.desc{color:@muted@;font-size:12.5px;line-height:1.55;margin:8px 0 10px;max-width:560px}
+.help{margin:14px 0 8px;padding:12px 14px;border-radius:13px;background:@key@;color:@muted@;font-size:12px;line-height:1.6}
+.help code{font-family:Consolas,monospace;color:@text@;background:@panel@;padding:1px 6px;border-radius:5px}
+.empty{padding:40px 20px;text-align:center;color:@muted@;line-height:1.6}
+.empty b{display:block;color:@text@;font-size:15px;margin-bottom:6px}
+
+/* ── прицел ── */
+.xprev{width:270px;flex:none;margin-left:16px;overflow:hidden}
+.scene{position:relative;height:250px;border-radius:17px 17px 0 0;background:linear-gradient(180deg,#3E5A78 0%,#6D8FAF 46%,#5A6B4A 47%,#3B4A30 100%)}
+.scene .xh{position:absolute;left:0;top:0}
+.xcap{padding:12px 16px 14px;color:@muted@;font-size:12px;line-height:1.5}
+
+/* ── настройки и лог ── */
+.logp{width:270px;flex:none;margin-left:16px;padding:16px;box-sizing:border-box}
+.logp h4{margin:0 0 10px;font-size:13px}
+.log{height:380px;overflow:hidden;border-radius:12px;background:@key@;padding:10px 12px;box-sizing:border-box;font-family:Consolas,monospace;font-size:11px;line-height:1.6;color:@muted@;white-space:pre-wrap;word-wrap:break-word}
+.foot{display:flex;margin-top:14px}
+.foot .btn{margin-right:10px}
+
+/* ── помощь ── */
+.cards2{display:flex;flex-wrap:wrap;margin-right:-14px}
+.hc{width:calc(50% - 14px);box-sizing:border-box;margin:0 14px 14px 0;padding:18px 20px}
+.hc h3{margin:0 0 10px;font-size:14px;display:flex;align-items:center}
+.hc h3 svg{width:17px;height:17px;color:@accent@;margin-right:9px}
+.hc ol,.hc ul{margin:0;padding-left:20px;color:@muted@;line-height:1.7;font-size:12.5px}
+.hc li b{color:@text@;font-weight:600}
+.warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.07)}
+.warn h3 svg{color:#F59E0B}
+
+/* ── подсказка, уведомление, окно ── */
+.tip{position:fixed;left:0;top:0;max-width:290px;padding:10px 13px;border-radius:12px;background:@tip@;border:1px solid @line2@;color:@text@;font-size:12px;line-height:1.5;box-shadow:0 14px 34px rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:opacity .14s;pointer-events:none;z-index:50}
+.tip.show{opacity:1;visibility:visible}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);padding:11px 18px;border-radius:14px;background:@tip@;border:1px solid @line2@;font-weight:600;box-shadow:0 14px 34px rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:opacity .2s,transform .2s;z-index:60;white-space:nowrap}
+.toast.show{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+.toast i{display:inline-block;width:8px;height:8px;border-radius:4px;background:@accent@;margin-right:10px;box-shadow:0 0 8px @a60@}
+.ov{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:70}
+.ov.show{display:flex}
+.dlg{width:400px;padding:22px 24px 18px;border-radius:20px;background:@panel@;border:1px solid @line2@;box-shadow:0 24px 60px rgba(0,0,0,.6);animation:pin .2s ease-out}
+.dlg h3{margin:0 0 8px;font-size:16px}
+.dlg p{margin:0 0 18px;color:@muted@;line-height:1.55;white-space:pre-line}
+.dlg .acts{display:flex;justify-content:flex-end}
+.dlg .acts .btn{margin-left:10px}
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="top" data-drag="1">
+    <div class="logo" data-drag="1"><div class="mark"><svg viewBox="0 0 24 24"><path d="M13.5 2L4.5 13.5h6.2L9.8 22l9.2-12h-6.4z" fill="#fff"/></svg></div><div class="wm">FLASH<b>MACRO</b></div></div>
+    <span class="pill" id="pill" data-act="susp" data-tip=""><i></i><span id="pillt">MACROS ON</span></span>
+    <span class="kc" data-t="key" data-sec="General" data-key="SuspendKey" data-act="key" id="suskey">—</span>
+    <div class="grow" data-drag="1"></div>
+    <div class="status" id="status" data-drag="1"><i></i><span id="statust">Макросы активны</span></div>
+    <div class="wb" data-act="min" data-tip="Свернуть окно"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></div>
+    <div class="wb x" data-act="hide" data-tip="Свернуть в трей. Макросы продолжат работать, меню откроется кликом по иконке в трее."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+  </div>
+  <div id="side"></div>
+  <div id="content">
+    <div class="page" id="pg-Dashboard"></div>
+    <div class="page" id="pg-Keybinds"></div>
+    <div class="page" id="pg-Macros"></div>
+    <div class="page" id="pg-Custom"></div>
+    <div class="page" id="pg-Crosshair"></div>
+    <div class="page" id="pg-Settings"></div>
+    <div class="page" id="pg-Support"></div>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+<div class="ov" id="ov"><div class="dlg" id="dlg"></div></div>
+<script>window.onerror = function (m, u, l) { document.title = "JSERR " + m + " @" + l; };</script>
+<script>
+// ───────────── состояние ─────────────
+var ahk = window.__stub || null;     // мост в AutoHotkey (передаётся через setBridge)
+var M = null;                        // статичные описания: макросы, поля, подсказки, темы
+var S = null;                        // текущее состояние: конфиг, клавиши, пауза
+var page = 'Dashboard', curMacro = 'DragEdit', curCustom = '', capEl = null;
+var pressed = {}, themeKey = '', customKey = null, timers = {};
+
+function setBridge(b) { ahk = b; }
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function lc(s) { return String(s).toLowerCase(); }
+function isOn(v) { v = lc(v); return v === '1' || v === 'true' || v === 'on' || v === 'yes'; }
+function cv(sec, key, def) {
+  var c = S && S.cfg[sec];
+  if (c) for (var k in c) if (lc(k) === lc(key) && c[k] !== '') return c[k];
+  return def === undefined ? '' : def;
+}
+function setLocal(sec, key, v) { if (!S.cfg[sec]) S.cfg[sec] = {}; S.cfg[sec][key] = v; }
+function hint(sec, key) { return M.hints[sec + '.' + key] || M.hints[key] || ''; }
+function sid(sec) { return String(sec).replace(/[^A-Za-z0-9]/g, '_'); }
+function hasCls(el, c) { return (' ' + (el.getAttribute('class') || '') + ' ').indexOf(' ' + c + ' ') >= 0; }
+function setCls(el, c, on) {
+  var cur = ' ' + (el.getAttribute('class') || '') + ' ', has = cur.indexOf(' ' + c + ' ') >= 0;
+  if (on && !has) el.setAttribute('class', (cur + c).replace(/^\s+|\s+$/g, ''));
+  if (!on && has) el.setAttribute('class', cur.replace(' ' + c + ' ', ' ').replace(/^\s+|\s+$/g, ''));
+}
+function up(el, attr) {
+  while (el && el.getAttribute) { if (el.getAttribute(attr) !== null) return el; el = el.parentNode; }
+  return null;
+}
+
+// Вызов AutoHotkey. Через COM нельзя применить apply(), поэтому по именам.
+function call(name, a, b, c) {
+  if (!ahk) return '';
+  try {
+    switch (name) {
+      case 'setVal': return ahk.setVal(a, b, c);
+      case 'capture': return ahk.capture(a, b);
+      case 'toggleMacros': return ahk.toggleMacros();
+      case 'newCustom': return ahk.newCustom();
+      case 'deleteCustom': return ahk.deleteCustom(a);
+      case 'renameCustom': return ahk.renameCustom(a, b);
+      case 'importBinds': return ahk.importBinds();
+      case 'applyImport': return ahk.applyImport();
+      case 'setPage': return ahk.setPage(a);
+      case 'openConfig': return ahk.openConfig();
+      case 'openFolder': return ahk.openFolder();
+      case 'quit': return ahk.quit();
+      case 'minimize': return ahk.minimize();
+      case 'hide': return ahk.hide();
+      case 'drag': return ahk.drag();
+    }
+  } catch (e) { toast('Ошибка: ' + (e.message || e)); }
+  return '';
+}
+
+// ───────────── тема ─────────────
+function hex(h) { h = String(h).replace('#', ''); return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)]; }
+function rgba(h, a) { var c = hex(h); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
+function mix(h1, h2, t) {
+  var a = hex(h1), b = hex(h2), r = '#';
+  for (var i = 0; i < 3; i++) { var v = Math.round(a[i] + (b[i] - a[i]) * t).toString(16); r += v.length < 2 ? '0' + v : v; }
+  return r;
+}
+function applyTheme() {
+  var tid = cv('General', 'Theme', 'red'), bid = cv('General', 'Base', 'dark');
+  if (!M.themes[tid]) tid = 'red';
+  if (!M.bases[bid]) bid = 'dark';
+  if (themeKey === tid + bid) return;
+  themeKey = tid + bid;
+  var t = M.themes[tid], b = M.bases[bid], acc = '#' + t[1];
+  var p = {
+    bg: '#' + b[0], side: '#' + b[1], panel: '#' + b[2], card: '#' + b[3], key: '#' + b[4], line: '#' + b[5],
+    line2: mix('#' + b[5], '#ffffff', 0.08), keyDark: mix('#' + b[4], '#000000', 0.25), tip: mix('#' + b[4], '#ffffff', 0.03),
+    off: mix('#' + b[4], '#ffffff', 0.12), text: '#ECECF1', muted: '#8E8E9A',
+    accent: acc, accentDeep: mix(acc, '#000000', 0.32)
+  };
+  var al = { a0: 0, a8: .08, a12: .12, a14: .14, a16: .16, a24: .24, a35: .35, a40: .4, a50: .5, a60: .6 };
+  for (var k in al) p[k] = rgba(acc, al[k]);
+  var css = $('css-tpl').text.replace(/@(\w+)@/g, function (m, n) { return p[n] !== undefined ? p[n] : m; });
+  var old = $('thm'); if (old) old.parentNode.removeChild(old);
+  var st = document.createElement('style'); st.id = 'thm'; st.type = 'text/css';
+  if (st.styleSheet) st.styleSheet.cssText = css; else st.appendChild(document.createTextNode(css));
+  document.getElementsByTagName('head')[0].appendChild(st);
+}
+
+// ───────────── иконки ─────────────
+var ICON = {
+  Dashboard: '<rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/>',
+  Keybinds: '<rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7.5 14h9"/>',
+  Macros: '<path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/>',
+  Custom: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  Crosshair: '<circle cx="12" cy="12" r="8"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>',
+  Settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  Support: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  build: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18M12 4v8M8 12v8M16 12v8"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+  pickup: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+  sprint: '<path d="M13 19l9-7-9-7zM2 19l9-7-9-7z"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+  download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  power: '<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.8 0"/>',
+  alert: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+  game: '<rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 11v3M5.5 12.5h3M15 12h.01M18 13h.01"/>'
+};
+function ico(n, cls) {
+  return '<svg class="' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICON[n] || '') + '</svg>';
+}
+var CARDICON = { DragEdit: 'edit', InfiniteEdit: 'edit', InstantEdit: 'edit', InstantBuild: 'build', Pickup: 'pickup', AutoSprint: 'sprint', Competitive: 'eye' };
+
+// ───────────── подписи клавиш ─────────────
+var KEYLBL = { lbutton: 'LMB', rbutton: 'RMB', mbutton: 'MMB', xbutton1: 'MB4', xbutton2: 'MB5', wheelup: 'WhUp', wheeldown: 'WhDn',
+  lshift: 'Shift', rshift: 'RShift', lcontrol: 'Ctrl', lctrl: 'Ctrl', rcontrol: 'RCtrl', rctrl: 'RCtrl', escape: 'Esc', capslock: 'Caps',
+  backspace: 'Bksp', space: 'Space', enter: 'Enter', tab: 'Tab', pgdn: 'PgDn', pgup: 'PgUp', lalt: 'Alt', ralt: 'RAlt', home: 'Home',
+  end: 'End', insert: 'Ins', 'delete': 'Del' };
+function keyLabel(k) { if (k === '' || k === undefined) return '—'; return KEYLBL[lc(k)] || String(k).toUpperCase(); }
+
+// ───────────── построение страниц ─────────────
+function field(sec, f, extraCls) {
+  var a = ' data-sec="' + esc(sec) + '" data-key="' + f.k + '"' + (extraCls ? ' class="' + extraCls + '"' : '');
+  var cls = extraCls ? ' ' + extraCls : '';
+  switch (f.t) {
+    case 'toggle': return '<span class="sw' + cls + '" data-t="toggle" data-act="toggle" data-sec="' + esc(sec) + '" data-key="' + f.k + '"><i></i></span>';
+    case 'key': return '<span class="kc' + cls + '" data-t="key" data-act="key" data-sec="' + esc(sec) + '" data-key="' + f.k + '" style="min-width:64px">—</span>';
+    case 'choice':
+      var h = '<span class="seg' + cls + '" data-t="seg" data-sec="' + esc(sec) + '" data-key="' + f.k + '">';
+      for (var i = 0; i < f.o.length; i++) h += '<b data-act="seg" data-val="' + f.o[i] + '">' + esc(f.l[i]) + '</b>';
+      return h + '</span>';
+    case 'theme':
+      var t = '<span class="sws" data-t="swatch" data-sec="' + esc(sec) + '" data-key="' + f.k + '">';
+      for (var j = 0; j < M.themeOrder.length; j++) {
+        var id = M.themeOrder[j];
+        t += '<i class="swt" data-act="seg" data-val="' + id + '" data-tip="Тема «' + esc(M.themes[id][0]) + '»" style="background:#' + M.themes[id][1] + '"></i>';
+      }
+      return t + '</span>';
+    case 'color':
+      var c = '<span class="sws" data-t="swatch" data-sec="' + esc(sec) + '" data-key="' + f.k + '">';
+      var cols = ['00FF00', 'FF2D2D', '00E5FF', 'FFE600', 'FFFFFF', 'FF00E6'];
+      for (var n = 0; n < cols.length; n++) c += '<i class="swt" data-act="seg" data-val="' + cols[n] + '" style="background:#' + cols[n] + '"></i>';
+      return c + '</span><input class="in" data-t="input" data-sec="' + esc(sec) + '" data-key="' + f.k + '" style="width:84px;text-transform:uppercase">';
+    case 'text': return '<input class="in' + cls + '" data-t="input" data-sec="' + esc(sec) + '" data-key="' + f.k + '" style="width:' + (f.w || 280) + 'px">';
+    default: return '<input class="in' + cls + '" data-t="input" data-sec="' + esc(sec) + '" data-key="' + f.k + '" style="width:84px"><span class="unit">' + esc(f.u || 'мс') + '</span>';
+  }
+}
+function row(sec, f, extraCls) {
+  return '<div class="row" data-tip="' + esc(hint(sec || '*', f.k)) + '"><div class="lb">' + esc(f.label) + '</div><div class="ct">' + field(sec, f, extraCls) + '</div></div>';
+}
+function head(title, sub, right) {
+  return '<div class="ph"><h1>' + title + '</h1>' + (sub ? '<span class="sub">' + sub + '</span>' : '') + (right || '') + '</div>';
+}
+
+function buildSide() {
+  var h = '<div class="navh">МЕНЮ</div>', pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Crosshair', 'Settings'];
+  for (var i = 0; i < pages.length; i++) h += navItem(pages[i]);
+  h += '<div class="sep"></div>' + navItem('Support');
+  h += '<div class="sfoot"><b>FlashMacro ' + esc(M.version) + '</b><br>Наведи курсор на любой элемент, чтобы увидеть подсказку.</div>';
+  $('side').innerHTML = h;
+}
+function navItem(p) { return '<div class="nav" id="nav-' + p + '" data-act="nav" data-page="' + p + '" data-tip="' + esc(M.hints['page.' + p] || '') + '">' + ico(p) + p + '</div>'; }
+
+function buildDashboard() {
+  var lg = [['Trigger', M.accentHint, 'Клавиши, которые запускают включённые макросы.'], ['Pressed by a macro', '#ffffff', 'Вспыхивает, когда макрос нажимает клавишу прямо сейчас.'],
+    ['Macros toggle', '#3B82F6', 'Клавиша вкл/выкл всех макросов.'], ['Crosshair toggle', '#22C55E', 'Клавиша вкл/выкл прицела.']];
+  var leg = '<div class="legend">';
+  for (var i = 0; i < lg.length; i++) leg += '<span class="lg" data-tip="' + lg[i][2] + '"><i style="background:' + (i === 0 ? '' : lg[i][1]) + '"' + (i === 0 ? ' class="acc"' : '') + '></i>' + lg[i][0] + '</span>';
+  leg += '</div>';
+  var kb = '<div class="panel kbd">';
+  for (var r = 0; r < M.kb.length; r++) {
+    kb += '<div class="kr">';
+    for (var j = 0; j < M.kb[r].length; j++) {
+      var k = M.kb[r][j], w = Math.round(k[2] * 34 + (k[2] - 1) * 5);
+      if (k[1] === '') kb += '<div class="k sp" style="width:' + w + 'px"></div>';
+      else kb += '<div class="k" data-norm="' + esc(k[1]) + '" data-cap="1" style="width:' + w + 'px">' + esc(k[0]) + '</div>';
+    }
+    kb += '</div>';
+  }
+  kb += '</div>';
+  var mouse = '<div class="panel mouse"><svg viewBox="0 0 132 200">' +
+    '<path class="mbody" d="M24 78h84v62c0 32-19 54-42 54s-42-22-42-54z"/>' +
+    '<path class="mk" data-norm="lbutton" data-cap="1" d="M62 8C39 9 24 28 24 52v22h38z"/>' +
+    '<path class="mk" data-norm="rbutton" data-cap="1" d="M70 8c23 1 38 20 38 44v22H70z"/>' +
+    '<rect class="mk" data-norm="mbutton" data-cap="1" x="60" y="24" width="12" height="28" rx="6"/>' +
+    '<rect class="mk" data-norm="xbutton2" data-cap="1" x="6" y="92" width="13" height="30" rx="6"/>' +
+    '<rect class="mk" data-norm="xbutton1" data-cap="1" x="6" y="128" width="13" height="30" rx="6"/>' +
+    '<text class="mtx" x="40" y="50">L</text><text class="mtx" x="85" y="50">R</text>' +
+    '<text class="mtx" x="8" y="111" style="font-size:9px">5</text><text class="mtx" x="8" y="147" style="font-size:9px">4</text></svg></div>';
+  var g = '<div class="grid">';
+  for (var n = 0; n < M.builtin.length; n++) {
+    var m = M.builtin[n], sec = m.sec, tip = m.name + ' — ' + M.forms[sec].desc + '\n\nКлик по клавише — сменить её, тумблер — вкл/выкл, клик по названию — подробные настройки.';
+    g += '<div class="card" data-t="card" data-sec="' + esc(sec) + '" data-key="Enabled" data-tip="' + esc(tip) + '"><div class="ctop">' +
+      (m.badge ? '<span class="kc ro" data-act="macro" data-sec="' + esc(sec) + '">' + m.badge + '</span>'
+               : '<span class="kc" data-t="key" data-act="key" data-sec="' + esc(sec) + '" data-key="Trigger" data-tip="' + esc(hint(sec, 'Trigger')) + '">—</span>') +
+      ico(CARDICON[sec] || 'target', 'cico') + '</div>' +
+      '<div class="nm" data-act="macro" data-sec="' + esc(sec) + '">' + esc(m.name) + '</div>' +
+      '<div class="cbot"><span class="st" data-t="state" data-sec="' + esc(sec) + '" data-key="Enabled">OFF</span>' +
+      '<span class="sw" data-t="toggle" data-act="toggle" data-sec="' + esc(sec) + '" data-key="Enabled" data-tip="Включить или выключить «' + esc(m.name) + '»"><i></i></span></div></div>';
+  }
+  g += '<div class="card add" data-act="newCustom" data-tip="Создать свой макрос из любой последовательности нажатий.">' + ico('plus') + 'Add macro</div></div>';
+  $('pg-Dashboard').innerHTML = head('Dashboard', '', leg) + '<div class="dash">' + kb + mouse + '</div>' +
+    '<div class="h3">MACROS<span class="grow"></span><span class="cnt" id="cnt" data-tip="Сколько макросов включено из общего числа (вместе со своими)."></span></div>' + g;
+}
+
+function buildKeybinds() {
+  var cols = [[['Edit', 'Редактирование'], ['Select', 'Выбор / выстрел'], ['Wall', 'Стена'], ['Floor', 'Пол'], ['Stairs', 'Лестница'], ['Cone', 'Конус (крыша)'], ['Pickaxe', 'Кирка'], ['Interact', 'Взаимодействие']],
+    [['Crouch', 'Присесть'], ['Jump', 'Прыжок'], ['Sprint', 'Спринт'], ['Slot1', 'Слот оружия 1'], ['Slot2', 'Слот оружия 2'], ['Slot3', 'Слот оружия 3'], ['Slot4', 'Слот оружия 4'], ['Slot5', 'Слот оружия 5']]];
+  var h = '<div class="two">';
+  for (var c = 0; c < 2; c++) {
+    h += '<div class="panel" style="flex:1;padding:4px 20px;' + (c === 0 ? 'margin-right:16px' : '') + '">';
+    for (var i = 0; i < cols[c].length; i++) {
+      var b = cols[c][i], tip = '«' + b[1] + '» — клавиша из настроек управления Fortnite. Макросы нажимают именно её, поэтому она должна совпадать с игрой.';
+      h += '<div class="row" data-tip="' + esc(tip) + '"><div class="lb" style="width:auto;flex:1">' + b[1] + '<small>' + b[0] + '</small></div><div>' + field('Game', { t: 'key', k: b[0] }) + '</div></div>';
+    }
+    h += '</div>';
+  }
+  h += '</div><div class="help">Бинды должны совпадать с настройками управления в Fortnite. Клик по клавише → нажми новую клавишу или кнопку мыши. <b>Esc</b> — отмена, <b>Backspace</b> — очистить.</div>';
+  var btn = '<span class="grow"></span><span class="btn" data-act="import" data-tip="Пытается прочитать бинды из файлов настроек Fortnite. Перед применением покажет, что нашёл.">' + ico('download') + 'Import from Fortnite</span>';
+  $('pg-Keybinds').innerHTML = head('Keybinds', 'Клавиши из настроек управления Fortnite', btn) + h;
+}
+
+function formHtml(sec, name, desc, fields, cf) {
+  var h = '<div class="fh"><h2>' + esc(name) + '</h2>' + (cf ? '' : '<span class="st" data-t="state" data-sec="' + esc(sec) + '" data-key="Enabled">OFF</span>') + '</div>';
+  if (desc) h += '<div class="desc">' + esc(desc) + '</div>';
+  for (var i = 0; i < fields.length; i++) h += row(sec, fields[i], cf);
+  return h;
+}
+function buildMacros() {
+  var list = '<div class="panel list">', forms = '';
+  for (var i = 0; i < M.builtin.length; i++) {
+    var m = M.builtin[i], spec = M.forms[m.sec];
+    list += '<div class="li" id="li-' + sid(m.sec) + '" data-act="sub" data-sec="' + esc(m.sec) + '" data-tip="' + esc(spec.desc) + '"><span>' + esc(m.name) + '</span><i class="dot" data-t="dot" data-sec="' + esc(m.sec) + '" data-key="Enabled"></i></div>';
+    forms += '<div class="mform" id="mf-' + sid(m.sec) + '" style="display:none">' + formHtml(m.sec, m.name, spec.desc, spec.fields) +
+      (m.sec.indexOf('Macro:') === 0 ? '<div class="help">' + seqHelp() + '</div>' : '') + '</div>';
+  }
+  $('pg-Macros').innerHTML = head('Macros', 'Тонкая настройка каждого макроса') + '<div class="two">' + list + '</div><div class="panel form">' + forms + '</div></div>';
+}
+function seqHelp() {
+  return 'Последовательность через запятую: число — пауза в мс, <code>X</code> — нажать, <code>+X</code> — зажать, <code>-X</code> — отпустить, <code>{Edit}</code> — бинд со страницы Keybinds.<br>Пример: <code>{Wall}, 10, LButton, 15, {Slot1}</code>';
+}
+function buildCustom() {
+  var form = '<div class="row" data-tip="Название макроса — только для тебя, на работу не влияет."><div class="lb">Название</div><div class="ct"><input class="in" id="cname" data-t="name" style="width:280px;font-weight:600"></div></div>';
+  for (var i = 0; i < M.macroFields.length; i++) form += row('', M.macroFields[i], 'cf');
+  form += '<div class="help">' + seqHelp() + '</div><div class="foot"><span class="btn danger" data-act="delCustom" data-tip="Удалить этот макрос (спросит подтверждение).">' + ico('trash') + 'Удалить макрос</span></div>';
+  $('pg-Custom').innerHTML = head('Custom', 'Свои макросы из любых нажатий') +
+    '<div class="two"><div class="panel list"><div class="btn pri" style="display:flex;margin:4px 2px 10px" data-act="newCustom" data-tip="Создать новый свой макрос.">' + ico('plus') + 'New macro</div><div id="clist"></div></div>' +
+    '<div class="panel form"><div id="cform">' + form + '</div><div class="empty" id="cempty"><b>Своих макросов пока нет</b>Нажми «New macro», чтобы собрать макрос из любых нажатий.</div></div></div>';
+}
+function buildCrosshair() {
+  var F = [{ t: 'toggle', k: 'Enabled', label: 'Прицел включён' }, { t: 'toggle', k: 'ShowOnStart', label: 'Показывать при запуске' },
+    { t: 'key', k: 'ToggleKey', label: 'Клавиша вкл/выкл' },
+    { t: 'choice', k: 'Style', label: 'Стиль', o: ['dot', 'cross', 'crossdot', 't', 'tdot'], l: ['•', '+', '+ •', 'T', 'T •'] },
+    { t: 'color', k: 'Color', label: 'Цвет' },
+    { t: 'num', k: 'Length', label: 'Длина линий', u: 'px' }, { t: 'num', k: 'Thickness', label: 'Толщина', u: 'px' },
+    { t: 'num', k: 'Gap', label: 'Отступ от центра', u: 'px' }, { t: 'num', k: 'DotSize', label: 'Размер точки', u: 'px' },
+    { t: 'num', k: 'OffsetX', label: 'Сдвиг по X', u: 'px' }, { t: 'num', k: 'OffsetY', label: 'Сдвиг по Y', u: 'px' }];
+  var h = '<div class="panel narrow" style="flex:1;padding:4px 22px">';
+  for (var i = 0; i < F.length; i++) h += row('Crosshair', F[i]);
+  h += '</div>';
+  var prev = '<div class="panel xprev" data-tip="Превью: так прицел будет выглядеть поверх игры."><div class="scene" id="scene"></div>' +
+    '<div class="xcap">Прицел рисуется поверх экрана. В Fortnite выбери режим окна <b>«Оконный полноэкранный»</b>, иначе его не будет видно.</div></div>';
+  $('pg-Crosshair').innerHTML = head('Crosshair', 'Свой прицел поверх игры') + '<div class="two">' + h + prev + '</div>';
+}
+function buildSettings() {
+  var F = [{ t: 'key', k: 'SuspendKey', label: 'Вкл/выкл все макросы' }, { t: 'toggle', k: 'OnlyInGame', label: 'Работать только в окне Fortnite' },
+    { t: 'text', k: 'GameExe', label: 'Процесс игры', w: 270 }, { t: 'toggle', k: 'Debug', label: 'Лог нажатий' },
+    { t: 'num', k: 'KeyHoldMs', label: 'Удержание клавиши' }, { t: 'num', k: 'ClickHoldMs', label: 'Удержание кнопки мыши' },
+    { t: 'toggle', k: 'StartHidden', label: 'Запускать свёрнутым в трей' }, { t: 'toggle', k: 'ShowOSD', label: 'Уведомления на экране' },
+    { t: 'theme', k: 'Theme', label: 'Цвет акцента' },
+    { t: 'choice', k: 'Base', label: 'Фон меню', o: ['dark', 'midnight', 'amoled'], l: ['Тёмный', 'Полночь', 'AMOLED'] }];
+  var h = '<div class="panel" style="flex:1;padding:4px 22px">';
+  for (var i = 0; i < F.length; i++) h += row('General', F[i]);
+  h += '</div>';
+  var log = '<div class="panel logp" data-tip="' + esc(hint('General', 'Debug')) + '"><h4>Лог нажатий</h4><div class="log" id="log">Включи «Лог нажатий», чтобы видеть здесь, что нажимают макросы.</div></div>';
+  var foot = '<div class="foot"><span class="btn" data-act="openCfg" data-tip="Открыть файл настроек в Блокноте. Обычно не нужно — всё есть в меню.">' + ico('file') + 'Открыть config.ini</span>' +
+    '<span class="btn" data-act="openDir" data-tip="Открыть папку, где лежит FlashMacro.">' + ico('folder') + 'Открыть папку</span>' +
+    '<span class="btn danger" data-act="quit" data-tip="Полностью закрыть программу — макросы перестанут работать.">' + ico('power') + 'Выйти из FlashMacro</span></div>';
+  $('pg-Settings').innerHTML = head('Settings', 'Общие настройки и оформление') + '<div class="two">' + h + log + '</div>' + foot;
+}
+function buildSupport() {
+  function card(icon, title, items, cls, tag) {
+    var h = '<div class="panel hc ' + (cls || '') + '"><h3>' + ico(icon) + title + '</h3><' + (tag || 'ul') + '>';
+    for (var i = 0; i < items.length; i++) h += '<li>' + items[i] + '</li>';
+    return h + '</' + (tag || 'ul') + '></div>';
+  }
+  $('pg-Support').innerHTML = head('Support', 'Помощь и советы') + '<div class="cards2">' +
+    card('Dashboard', 'Как начать', ['<b>Keybinds</b> — укажи те же клавиши, что в настройках Fortnite.', '<b>Dashboard</b> — включи нужные макросы тумблерами.',
+      '<b>Macros</b> — задержки, режим подтверждения, FPS.', '<b>Custom</b> — свои макросы из любых нажатий.', '<b>Crosshair</b> — свой прицел поверх игры.'], '', 'ol') +
+    card('game', 'Настройки Fortnite', ['«Подтверждать редактирование при отпускании» — <b>ВКЛ</b> (или включи Competitive).', '«Турбо-строительство» — <b>ВКЛ</b> для непрерывной стройки.',
+      'Режим окна — <b>«Оконный полноэкранный»</b>, чтобы был виден прицел.']) +
+    card('Support', 'Если макрос не срабатывает', ['Увеличь задержки до 15–20 мс — при низком FPS игра не успевает за быстрыми нажатиями.', 'Запусти FlashMacro от имени администратора.',
+      'Проверь в Settings, что «Процесс игры» совпадает с процессом в Диспетчере задач.', 'Для проверки без игры выключи «Работать только в окне Fortnite» и включи «Лог нажатий».']) +
+    card('alert', 'Важно', ['Крестик сворачивает FlashMacro в трей — макросы продолжают работать.', 'Полный выход — через трей или Settings.',
+      'Epic запрещает макросы в турнирах и соревновательных режимах.'], 'warn') + '</div>';
+}
+
+function build() {
+  applyTheme();
+  buildSide(); buildDashboard(); buildKeybinds(); buildMacros(); buildCustom(); buildCrosshair(); buildSettings(); buildSupport();
+  $('pill').setAttribute('data-tip', 'Включает или выключает все макросы сразу. Справа — горячая клавиша для этого (работает и в игре).');
+  $('suskey').setAttribute('data-tip', hint('General', 'SuspendKey'));
+  wireInputs();
+  showPage(page);
+}
+
+// ───────────── обновление из состояния ─────────────
+function update() {
+  if (!S) return;
+  var sus = S.suspended;
+  setCls($('pill'), 'off', sus); $('pillt').innerHTML = sus ? 'MACROS OFF' : 'MACROS ON';
+  setCls($('status'), 'off', sus); $('statust').innerHTML = sus ? 'На паузе' : 'Макросы активны';
+  var els = document.querySelectorAll('[data-t]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i], t = el.getAttribute('data-t'), sec = el.getAttribute('data-sec'), key = el.getAttribute('data-key');
+    if (sec === '' || sec === null || t === 'name') continue;
+    var v = cv(sec, key);
+    switch (t) {
+      case 'toggle': case 'card': case 'dot': setCls(el, 'on', isOn(v)); break;
+      case 'state': el.innerHTML = isOn(v) ? 'ON' : 'OFF'; setCls(el, 'on', isOn(v)); break;
+      case 'key': if (el !== capEl) el.innerHTML = esc(keyLabel(v)); break;
+      case 'input': if (document.activeElement !== el && el.value !== v) el.value = v; break;
+      case 'seg': case 'swatch':
+        var bs = el.getElementsByTagName(t === 'seg' ? 'b' : 'i');
+        for (var j = 0; j < bs.length; j++) setCls(bs[j], 'sel', lc(bs[j].getAttribute('data-val')) === lc(v));
+        break;
+    }
+  }
+  var acc = document.querySelectorAll('.lg i.acc');
+  for (var a = 0; a < acc.length; a++) acc[a].style.background = M.themes[cv('General', 'Theme', 'red')] ? '#' + M.themes[cv('General', 'Theme', 'red')][1] : '';
+  $('cnt').innerHTML = '<b>' + S.active + '</b> active · ' + S.total + ' total';
+  caps();
+  drawPreview();
+}
+function caps() {
+  var els = document.querySelectorAll('[data-norm]');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i], n = el.getAttribute('data-norm'), st = pressed[n] ? 'press' : ((S && S.caps[n]) || '');
+    var base = el.tagName.toLowerCase() === 'div' ? 'k' : 'mk';
+    var want = base + (st ? ' ' + st : '');
+    if (el.getAttribute('class') !== want) el.setAttribute('class', want);
+  }
+}
+function capTip(n) {
+  var s = '';
+  if (S) {
+    for (var k in S.used) if (k === n) s += 'Запускает: ' + S.used[k] + '\n';
+    for (var b in S.binds) if (b === n) s += 'Бинд Fortnite: ' + S.binds[b] + '\n';
+  }
+  return s ? s.replace(/\n$/, '') : 'Клавиша не используется макросами';
+}
+
+// Свои макросы: список и форма, привязанная к выбранному
+function syncCustom() {
+  var list = S.custom, key = list.join('|');
+  var ok = false;
+  for (var i = 0; i < list.length; i++) if (list[i] === curCustom) ok = true;
+  if (!ok) curCustom = list.length ? list[0] : '';
+  if (key !== customKey) {
+    customKey = key;
+    var h = '';
+    for (var j = 0; j < list.length; j++)
+      h += '<div class="li" data-act="cust" data-sec="' + esc(list[j]) + '"><span>' + esc(list[j].substr(6)) + '</span><i class="dot" data-t="dot" data-sec="' + esc(list[j]) + '" data-key="Enabled"></i></div>';
+    $('clist').innerHTML = h;
+  }
+  var items = $('clist').getElementsByTagName('div');
+  for (var n = 0; n < items.length; n++) setCls(items[n], 'sel', items[n].getAttribute('data-sec') === curCustom);
+  var cf = document.querySelectorAll('#cform [data-sec]');
+  for (var m = 0; m < cf.length; m++) cf[m].setAttribute('data-sec', curCustom);
+  $('cform').style.display = curCustom ? 'block' : 'none';
+  $('cempty').style.display = curCustom ? 'none' : 'block';
+  var nm = $('cname');
+  if (document.activeElement !== nm) nm.value = curCustom.substr(6);
+}
+
+// Превью прицела (та же геометрия, что у оверлея)
+function drawPreview() {
+  var sc = $('scene'); if (!sc || page !== 'Crosshair') return;
+  var style = lc(cv('Crosshair', 'Style', 'crossdot')), len = Math.max(1, +cv('Crosshair', 'Length', 8) || 1), th = Math.max(1, +cv('Crosshair', 'Thickness', 2) || 1);
+  var gap = Math.max(0, +cv('Crosshair', 'Gap', 4) || 0), dot = Math.max(1, +cv('Crosshair', 'DotSize', 2) || 1), col = cv('Crosshair', 'Color', '00FF00');
+  if (!/^[0-9A-Fa-f]{6}$/.test(col)) col = '00FF00';
+  var lines = /^(cross|crossdot|t|tdot)$/.test(style), top = /^cross/.test(style), hasDot = /dot$/.test(style);
+  var S2 = Math.max(lines ? 2 * (gap + len) + th : 0, hasDot ? dot : 0, 1), c = Math.round((S2 - th) / 2), r = [];
+  if (lines) { r.push([0, c, len, th], [S2 - len, c, len, th], [c, S2 - len, th, len]); if (top) r.push([c, 0, th, len]); }
+  if (hasDot) r.push([Math.round((S2 - dot) / 2), Math.round((S2 - dot) / 2), dot, dot]);
+  var ox = Math.round((sc.offsetWidth - S2) / 2), oy = Math.round((sc.offsetHeight - S2) / 2), h = '';
+  for (var i = 0; i < r.length; i++)
+    h += '<div class="xh" style="left:' + (ox + r[i][0]) + 'px;top:' + (oy + r[i][1]) + 'px;width:' + r[i][2] + 'px;height:' + r[i][3] + 'px;background:#' + col + '"></div>';
+  sc.innerHTML = h;
+}
+
+// ───────────── вызовы из AutoHotkey ─────────────
+function init(meta) { M = JSON.parse(meta); build(); }
+function render(state) {
+  S = JSON.parse(state);
+  applyTheme(); syncCustom(); update();
+  if (S.log !== undefined) setLog(S.log);
+}
+function flash(list) {
+  pressed = {};
+  var a = list ? String(list).split(',') : [];
+  for (var i = 0; i < a.length; i++) if (a[i]) pressed[a[i]] = 1;
+  caps();
+}
+function setLog(t) { var l = $('log'); if (l && t) l.innerText = t; }
+function captureDone() { if (capEl) setCls(capEl, 'cap', false); capEl = null; update(); }
+var toastT = 0;
+function toast(msg) {
+  var t = $('toast');
+  t.innerHTML = '<i></i>' + esc(msg).replace(/\n/g, ' · ');
+  setCls(t, 'show', true);
+  clearTimeout(toastT);
+  toastT = setTimeout(function () { setCls(t, 'show', false); }, 1900);
+}
+function importAsk(json) {
+  var f = JSON.parse(json), s = '';
+  for (var k in f) s += k + '  →  ' + keyLabel(f[k]) + '\n';
+  modal('Найдены бинды', s + '\nПрименить их?', [['Отмена', ''], ['Применить', 'pri', function () { call('applyImport'); }]]);
+}
+function importNone(msg) { modal('Импорт из Fortnite', msg, [['Понятно', 'pri']]); }
+
+// ───────────── окно подтверждения ─────────────
+function modal(title, text, btns) {
+  var h = '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p><div class="acts">';
+  for (var i = 0; i < btns.length; i++) h += '<span class="btn ' + btns[i][1] + '" data-mb="' + i + '">' + esc(btns[i][0]) + '</span>';
+  $('dlg').innerHTML = h + '</div>';
+  setCls($('ov'), 'show', true);
+  $('dlg').onclick = function (e) {
+    e = e || window.event;
+    var b = up(e.target || e.srcElement, 'data-mb');
+    if (!b) return;
+    setCls($('ov'), 'show', false);
+    var fn = btns[+b.getAttribute('data-mb')][2];
+    if (fn) fn();
+  };
+}
+
+// ───────────── навигация и действия ─────────────
+function showPage(p) {
+  page = p;
+  var pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Crosshair', 'Settings', 'Support'];
+  for (var i = 0; i < pages.length; i++) {
+    $('pg-' + pages[i]).className = 'page' + (pages[i] === p ? ' show' : '');
+    $('nav-' + pages[i]).className = 'nav' + (pages[i] === p ? ' sel' : '');
+  }
+  if (p === 'Macros') {
+    var forms = document.querySelectorAll('.mform');
+    for (var j = 0; j < forms.length; j++) forms[j].style.display = forms[j].id === 'mf-' + sid(curMacro) ? 'block' : 'none';
+    var lis = document.querySelectorAll('#pg-Macros .li');
+    for (var n = 0; n < lis.length; n++) setCls(lis[n], 'sel', lis[n].getAttribute('data-sec') === curMacro);
+  }
+  $('content').scrollTop = 0;
+  hideTip();
+  call('setPage', p);
+  if (S) { if (p === 'Custom') syncCustom(); update(); }
+}
+function isPresetOrBuiltin(sec) {
+  for (var i = 0; i < M.builtin.length; i++) if (M.builtin[i].sec === sec) return true;
+  return false;
+}
+function act(a, el) {
+  var sec = el.getAttribute('data-sec');
+  switch (a) {
+    case 'nav': showPage(el.getAttribute('data-page')); break;
+    case 'macro': case 'sub':
+      if (isPresetOrBuiltin(sec)) { curMacro = sec; showPage('Macros'); } else { curCustom = sec; showPage('Custom'); }
+      break;
+    case 'cust': curCustom = sec; syncCustom(); update(); break;
+    case 'toggle':
+      var v = isOn(cv(sec, el.getAttribute('data-key'))) ? '0' : '1';
+      setLocal(sec, el.getAttribute('data-key'), v); update();
+      call('setVal', sec, el.getAttribute('data-key'), v);
+      break;
+    case 'seg':
+      var holder = up(el, 'data-t'), hs = holder.getAttribute('data-sec'), hk = holder.getAttribute('data-key'), val = el.getAttribute('data-val');
+      if (!hs) return;
+      setLocal(hs, hk, val); update(); applyTheme();
+      call('setVal', hs, hk, val);
+      break;
+    case 'key':
+      if (!sec || capEl) return;
+      capEl = el; setCls(el, 'cap', true); el.innerHTML = 'Нажми…';
+      hideTip();
+      call('capture', sec, el.getAttribute('data-key'));
+      break;
+    case 'newCustom':
+      var r = call('newCustom');
+      if (r) { curCustom = r; showPage('Custom'); }
+      break;
+    case 'delCustom':
+      var cs = curCustom;
+      if (!cs) return;
+      modal('Удалить макрос?', '«' + cs.substr(6) + '» будет удалён без возможности восстановления.', [['Отмена', ''], ['Удалить', 'danger', function () { call('deleteCustom', cs); }]]);
+      break;
+    case 'susp': call('toggleMacros'); break;
+    case 'import': call('importBinds'); break;
+    case 'openCfg': call('openConfig'); break;
+    case 'openDir': call('openFolder'); break;
+    case 'quit': modal('Выйти из FlashMacro?', 'Макросы перестанут работать до следующего запуска.', [['Отмена', ''], ['Выйти', 'danger', function () { call('quit'); }]]); break;
+    case 'min': call('minimize'); break;
+    case 'hide': call('hide'); break;
+  }
+}
+document.onclick = function (e) {
+  e = e || window.event;
+  var el = up(e.target || e.srcElement, 'data-act');
+  if (el) act(el.getAttribute('data-act'), el);
+};
+document.onmousedown = function (e) {
+  e = e || window.event;
+  hideTip();
+  var t = e.target || e.srcElement;
+  if ((e.button === 0 || e.button === 1) && up(t, 'data-drag') && !up(t, 'data-act')) call('drag');
+};
+document.oncontextmenu = function () { return false; };
+document.onselectstart = function (e) { e = e || window.event; var t = e.target || e.srcElement; return t.tagName === 'INPUT'; };
+
+// Поля ввода: применяем с небольшой задержкой, пока человек печатает
+function wireInputs() {
+  var ins = document.getElementsByTagName('input');
+  for (var i = 0; i < ins.length; i++) ins[i].oninput = onInput;
+}
+function onInput(e) {
+  e = e || window.event;
+  var el = e.target || e.srcElement;
+  if (el.getAttribute('data-t') === 'name') {
+    clearTimeout(timers.rename);
+    timers.rename = setTimeout(function () {
+      var r = call('renameCustom', curCustom, el.value);
+      if (r) curCustom = r;
+    }, 700);
+    return;
+  }
+  var sec = el.getAttribute('data-sec'), key = el.getAttribute('data-key');
+  if (!sec) return;
+  setLocal(sec, key, el.value);
+  if (sec === 'Crosshair') drawPreview();
+  var id = sec + '|' + key;
+  clearTimeout(timers[id]);
+  timers[id] = setTimeout(function () { call('setVal', sec, key, el.value); }, 450);
+}
+
+// ───────────── подсказки при наведении ─────────────
+var tipEl = null, tipT = 0, mx = 0, my = 0;
+document.onmousemove = function (e) { e = e || window.event; mx = e.clientX; my = e.clientY; };
+document.onmouseover = function (e) {
+  e = e || window.event;
+  var t = e.target || e.srcElement, el = up(t, 'data-cap') || up(t, 'data-tip');
+  if (el && !el.getAttribute('data-cap') && !el.getAttribute('data-tip')) el = null;
+  if (el === tipEl) return;
+  hideTip();
+  tipEl = el;
+  if (!el) return;
+  tipT = setTimeout(showTip, 380);
+};
+function showTip() {
+  if (!tipEl || capEl) return;
+  var txt = tipEl.getAttribute('data-cap') ? capTip(tipEl.getAttribute('data-norm')) : tipEl.getAttribute('data-tip');
+  if (!txt) return;
+  var tip = $('tip');
+  tip.innerHTML = esc(txt).replace(/\n/g, '<br>');
+  var w = tip.offsetWidth, h = tip.offsetHeight, W = document.documentElement.clientWidth, H = document.documentElement.clientHeight;
+  var x = mx + 14, y = my + 18;
+  if (x + w > W - 8) x = Math.max(8, mx - w - 10);
+  if (y + h > H - 8) y = Math.max(8, my - h - 12);
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  setCls(tip, 'show', true);
+}
+function hideTip() { clearTimeout(tipT); setCls($('tip'), 'show', false); }
+</script>
+</body>
+</html>
