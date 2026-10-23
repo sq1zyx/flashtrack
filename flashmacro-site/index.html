@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FlashMacro</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Бесплатные макросы для Fortnite на клавиатуре и мыши: drag edit, instant build, свои макросы, прицел поверх игры и оптимизация Windows.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Onest:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: тёмная «консоль» — герой с живым макетом программы, дальше секции-плиты на одной сетке 1200px.
+   Сайт сознательно только в тёмной теме, как сама программа. */
+:root {
+  --bg: #0A0A0D;
+  --surface: #121217;
+  --card: #17171D;
+  --key: #22222A;
+  --line: #24242C;
+  --line-2: #33333D;
+  --text: #EDEDF2;
+  --muted: #92929F;
+  --accent: #E5242F;
+  --accent-deep: #9E1219;
+  --accent-soft: rgba(229, 36, 47, .14);
+  --accent-glow: rgba(229, 36, 47, .42);
+  --ok: #22C55E;
+  --blue: #3B82F6;
+  --amber: #F59E0B;
+  --display: "Unbounded", "Arial Black", Arial, sans-serif;
+  --body: "Onest", "Segoe UI", Arial, sans-serif;
+  --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+  --r-lg: 22px;
+  --r-md: 14px;
+  --r-sm: 9px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  overflow-x: hidden;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.wrap { max-width: 1200px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--display); letter-spacing: -.01em; text-wrap: balance; margin: 0; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.muted { color: var(--muted); }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 22px;
+  border-radius: 14px; border: 1px solid var(--line-2); background: var(--card); color: var(--text);
+  font: 600 15px var(--body); text-decoration: none; cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s;
+}
+.btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+.btn svg { width: 18px; height: 18px; }
+.btn.pri { background: linear-gradient(135deg, var(--accent), var(--accent-deep)); border-color: var(--accent); color: #fff; box-shadow: 0 10px 30px var(--accent-glow); }
+.btn.pri:hover { box-shadow: 0 14px 40px var(--accent-glow); }
+
+/* ── шапка ── */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: rgba(10, 10, 13, .82); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); margin: 0 calc(-1 * max(16px, env(safe-area-inset-left, 0px))); padding: 0 max(16px, env(safe-area-inset-left, 0px)); }
+.top .wrap { display: flex; align-items: center; height: 66px; gap: 28px; }
+.logo { display: flex; align-items: center; gap: 11px; text-decoration: none; font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: .04em; }
+.logo b { color: var(--accent); font-weight: 700; }
+.mark { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); display: grid; place-items: center; box-shadow: 0 6px 20px var(--accent-glow); flex: none; }
+.mark svg { width: 18px; height: 18px; }
+.nav { display: flex; gap: 22px; margin-left: auto; }
+.nav a { text-decoration: none; color: var(--muted); font-weight: 500; font-size: 15px; transition: color .15s; }
+.nav a:hover { color: var(--text); }
+.top .btn { height: 40px; padding: 0 16px; font-size: 14px; }
+
+/* ── герой ── */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); gap: 56px; align-items: center; padding-block: 72px 56px; }
+.hero h1 { font-size: clamp(34px, 4.6vw, 58px); line-height: 1.04; font-weight: 800; }
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero p.lead { font-size: 18px; color: var(--muted); max-width: 520px; margin: 22px 0 30px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.facts { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 30px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+.facts span { display: inline-flex; align-items: center; gap: 8px; }
+.facts i { width: 7px; height: 7px; border-radius: 4px; background: var(--ok); box-shadow: 0 0 8px rgba(34, 197, 94, .7); }
+
+/* живой макет программы */
+.app { border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line-2); box-shadow: 0 40px 90px rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .02) inset; overflow: hidden; position: relative; }
+.app::before { content: ""; position: absolute; inset: -40% 40% 40% -30%; background: radial-gradient(circle, var(--accent-soft), transparent 60%); pointer-events: none; }
+.bar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); position: relative; }
+.bar .logo { font-size: 12px; }
+.bar .mark { width: 24px; height: 24px; border-radius: 8px; }
+.bar .mark svg { width: 13px; height: 13px; }
+.pill { font: 700 10px var(--body); letter-spacing: .1em; padding: 7px 12px; border-radius: 20px; background: var(--accent); color: #fff; box-shadow: 0 4px 14px var(--accent-glow); border: 0; cursor: pointer; }
+.pill.off { background: var(--key); color: var(--muted); box-shadow: none; }
+.kchip { font: 700 10px var(--mono); padding: 6px 9px; border-radius: 8px; background: var(--key); border: 1px solid var(--line-2); }
+.bar .st { margin-left: auto; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.bar .st i { width: 7px; height: 7px; border-radius: 4px; background: var(--ok); }
+.app-body { padding: 14px; display: grid; gap: 12px; position: relative; }
+.kb { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 10px; display: grid; gap: 5px; }
+.kr { display: flex; gap: 5px; }
+.k {
+  flex: 1 1 0; min-width: 0; height: 30px; border-radius: 8px; background: var(--key); display: grid; place-items: center;
+  font: 700 10.5px var(--mono); color: var(--text); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .3); cursor: pointer; user-select: none;
+  transition: background .1s, color .1s, box-shadow .1s, transform .1s;
+}
+.k.w15 { flex-grow: 1.5; } .k.w175 { flex-grow: 1.75; } .k.w2 { flex-grow: 2.2; } .k.w6 { flex-grow: 6; }
+.k.trig { background: var(--accent); color: #fff; box-shadow: 0 0 14px var(--accent-glow); }
+.k.menu { background: var(--amber); color: #111; }
+.k.press { background: #fff; color: #111; box-shadow: 0 0 18px rgba(255, 255, 255, .6); transform: translateY(1px); }
+.row2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mc { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 11px; transition: border-color .2s, box-shadow .2s; }
+.mc.on { border-color: rgba(229, 36, 47, .55); box-shadow: 0 0 0 1px rgba(229, 36, 47, .2); }
+.mc.fire { animation: fire .5s ease-out; }
+@keyframes fire { from { box-shadow: 0 0 0 0 var(--accent-glow); } to { box-shadow: 0 0 0 12px transparent; } }
+.mc .kchip { font-size: 9.5px; padding: 4px 7px; }
+.mc b { display: block; font-size: 12.5px; margin: 7px 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc .ln { display: flex; align-items: center; justify-content: space-between; font: 700 9.5px var(--mono); color: var(--muted); letter-spacing: .08em; }
+.mc.on .ln span { color: var(--accent); }
+.sw { width: 34px; height: 19px; border-radius: 10px; background: #3A3A44; position: relative; border: 0; padding: 0; cursor: pointer; transition: background .18s; flex: none; }
+.sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 15px; height: 15px; border-radius: 8px; background: #fff; transition: left .18s; }
+.sw.on { background: var(--accent); }
+.sw.on::after { left: 17px; }
+.log { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; font: 500 11px/1.65 var(--mono); color: var(--muted); min-height: 150px; overflow: hidden; }
+.log h4 { margin: 0 0 6px; font: 700 10px var(--mono); letter-spacing: .12em; color: var(--text); }
+.log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log .t { color: var(--accent); }
+.try { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 2; }
+.try kbd { font: 700 11px var(--mono); padding: 3px 8px; margin: 0 2px; white-space: nowrap; border-radius: 6px; background: var(--key); border: 1px solid var(--line-2); color: var(--text); }
+
+/* ── секции ── */
+section.block { padding-block: 64px; border-top: 1px solid var(--line); }
+.sh { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: end; margin-bottom: 36px; }
+.sh h2 { font-size: clamp(26px, 3.2vw, 40px); line-height: 1.1; font-weight: 700; margin-top: 12px; }
+.sh p { color: var(--muted); margin: 0; max-width: 520px; }
+
+.feat { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.f { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 22px; transition: border-color .2s, transform .2s; }
+.f:hover { border-color: var(--line-2); transform: translateY(-2px); }
+.f .ic { width: 42px; height: 42px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin-bottom: 16px; }
+.f .ic svg { width: 21px; height: 21px; }
+.f h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.f p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.f ul { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.f li { font: 600 11px var(--mono); padding: 4px 9px; border-radius: 7px; background: var(--key); color: var(--text); }
+.f.big { grid-column: span 2; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 22px; align-items: center; }
+
+/* прицел */
+.xh-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 22px; }
+.ctrl { display: grid; gap: 18px; }
+.ctrl label { display: block; font: 700 11px var(--mono); letter-spacing: .12em; color: var(--muted); margin-bottom: 9px; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { width: 46px; height: 40px; border-radius: 11px; background: var(--key); border: 1px solid var(--line); display: grid; place-items: center; cursor: pointer; color: var(--text); padding: 0; transition: border-color .15s, background .15s; }
+.chip svg { width: 22px; height: 22px; }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.dots { display: flex; gap: 10px; flex-wrap: wrap; }
+.dot { width: 28px; height: 28px; border-radius: 14px; border: 0; cursor: pointer; padding: 0; transition: transform .15s, box-shadow .15s; }
+.dot:hover { transform: scale(1.1); }
+.dot[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.rng { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 12px; align-items: center; font: 600 13px var(--mono); }
+.tgl { display: flex; align-items: center; gap: 12px; font-size: 14px; cursor: pointer; }
+.scene { position: relative; min-height: 360px; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line);
+  background: linear-gradient(180deg, #3D5A7A 0%, #7EA0C0 47%, #6B7B4E 47.3%, #3E4C2B 100%); }
+.scene::after { content: "Превью поверх игры"; position: absolute; left: 14px; top: 12px; font: 700 10px var(--mono); letter-spacing: .14em; color: rgba(255, 255, 255, .75); }
+.scene svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* оптимизация */
+.opt { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.o { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; padding: 18px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); }
+.o .n { font: 700 12px var(--mono); color: var(--accent); padding-top: 3px; }
+.o h3 { font-family: var(--body); font-size: 15.5px; font-weight: 700; margin-bottom: 5px; }
+.o p { margin: 0; color: var(--muted); font-size: 14px; }
+.o .tg { display: inline-block; margin-top: 8px; font: 600 10.5px var(--mono); padding: 3px 8px; border-radius: 6px; background: rgba(245, 158, 11, .12); color: #FBBF24; }
+.note { margin-top: 18px; padding: 16px 18px; border-radius: var(--r-md); background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
+.note b { color: var(--text); }
+
+/* установка */
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; counter-reset: s; }
+.step { padding: 24px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); position: relative; }
+.step::before { counter-increment: s; content: counter(s); font: 800 44px var(--display); color: var(--accent); opacity: .9; display: block; line-height: 1; margin-bottom: 14px; }
+.step h3 { font-family: var(--body); font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+.step p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.step code { font: 600 12.5px var(--mono); background: var(--key); padding: 2px 7px; border-radius: 6px; color: var(--text); }
+
+/* сравнение */
+.cmp { overflow-x: auto; border-radius: var(--r-md); border: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; min-width: 560px; font-size: 15px; }
+th, td { text-align: left; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+th { font: 700 11px var(--mono); letter-spacing: .12em; color: var(--muted); background: var(--surface); }
+th.us { color: var(--accent); }
+tr:last-child td { border-bottom: 0; }
+td.us { background: rgba(229, 36, 47, .05); font-weight: 600; }
+.y { color: var(--ok); } .n { color: var(--muted); }
+
+/* FAQ */
+.faq { display: grid; gap: 10px; max-width: 860px; }
+details { border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); padding: 0 20px; transition: border-color .15s; }
+details[open] { border-color: var(--line-2); }
+summary { list-style: none; cursor: pointer; padding: 18px 0; font-weight: 600; font-size: 16px; display: flex; justify-content: space-between; gap: 16px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; font: 700 20px var(--mono); color: var(--accent); line-height: 1; transition: transform .2s; }
+details[open] summary::after { transform: rotate(45deg); }
+details p { margin: 0 0 18px; color: var(--muted); max-width: 720px; }
+
+/* финал и подвал */
+.final { margin-block: 64px 0; padding: 44px; border-radius: 28px; text-align: left; position: relative; overflow: hidden;
+  background: linear-gradient(120deg, var(--accent-deep) 0%, #3A0A0E 55%, var(--surface) 100%); border: 1px solid rgba(229, 36, 47, .35);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; }
+.final h2 { font-size: clamp(24px, 3vw, 36px); line-height: 1.12; }
+.final p { margin: 10px 0 0; color: rgba(255, 255, 255, .78); }
+.final .btn.pri { background: #fff; color: #111; border-color: #fff; box-shadow: 0 12px 30px rgba(0, 0, 0, .35); }
+footer { padding-block: 40px calc(40px + env(safe-area-inset-bottom, 0px)); color: var(--muted); font-size: 13.5px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 14px; }
+
+@media (max-width: 980px) {
+  .hero { grid-template-columns: minmax(0, 1fr); padding-block: 44px 40px; gap: 40px; }
+  .sh { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .feat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .f.big { grid-column: span 2; }
+  .xh-wrap { grid-template-columns: minmax(0, 1fr); }
+  .nav { display: none; }
+  .top .btn { margin-left: auto; }
+}
+@media (max-width: 640px) {
+  .feat, .opt, .steps { grid-template-columns: minmax(0, 1fr); }
+  .f.big { grid-column: auto; grid-template-columns: minmax(0, 1fr); }
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+  .k { height: 26px; font-size: 9px; border-radius: 6px; }
+  .kr, .kb { gap: 3px; }
+  .kb { padding: 7px; }
+  .final { grid-template-columns: minmax(0, 1fr); padding: 28px; }
+  section.block { padding-block: 48px; }
+  .bar .st { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="FlashMacro — наверх">
+      <span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2L4.5 13.5h6.2L9.8 22l9.2-12h-6.4z" fill="#fff"/></svg></span>
+      <span>FLASH<b>MACRO</b></span>
+    </a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="#features">Возможности</a>
+      <a href="#crosshair">Прицел</a>
+      <a href="#optimize">Оптимизация</a>
+      <a href="#install">Установка</a>
+      <a href="#faq">Вопросы</a>
+    </nav>
+    <a class="btn pri dl" href="#install">Скачать</a>
+  </div>
+</header>
+
+<main class="wrap" id="top">
+  <section class="hero">
+    <div>
+      <div class="eyebrow">Fortnite · клавиатура и мышь · Windows</div>
+      <h1 style="margin-top:18px">Редакт и стройка <em>на одной клавише</em></h1>
+      <p class="lead">FlashMacro — бесплатные макросы для Fortnite с удобным меню поверх игры: drag edit, instant build, свои комбинации, прицел и оптимизация Windows. Открытый код, без подписки и ключей.</p>
+      <div class="cta">
+        <a class="btn pri dl" href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Скачать бесплатно</a>
+        <a class="btn" href="#features">Что умеет</a>
+      </div>
+      <div class="facts">
+        <span><i></i>Windows 10 / 11</span>
+        <span><i></i>Установка в один клик</span>
+        <span><i></i>Код можно прочитать</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="app" id="demo" aria-label="Живой макет программы">
+        <div class="bar">
+          <span class="logo"><span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2L4.5 13.5h6.2L9.8 22l9.2-12h-6.4z" fill="#fff"/></svg></span><span>FLASH<b>MACRO</b></span></span>
+          <button class="pill" id="pill" type="button">● MACROS ON</button>
+          <span class="kchip">PgDn</span>
+          <span class="st"><i></i><span id="stt">Макросы активны</span></span>
+        </div>
+        <div class="app-body">
+          <div class="kb" id="kb"></div>
+          <div class="row2">
+            <div class="cards" id="cards"></div>
+            <div class="log" aria-live="polite"><h4>ЛОГ НАЖАТИЙ</h4><div id="log"><div>Нажми G или Z на клавиатуре…</div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="try">Попробуй: нажми <kbd>G</kbd> — drag edit, <kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> <kbd>V</kbd> — instant build. Можно и мышкой по клавишам.</div>
+    </div>
+  </section>
+
+  <section class="block" id="features">
+    <div class="sh">
+      <div><div class="eyebrow">Возможности</div><h2>Всё, что нужно для edit-плея и стройки</h2></div>
+      <p>Каждый макрос включается тумблером, клавишу меняешь кликом. Подсказки на русском появляются при наведении на любой элемент меню.</p>
+    </div>
+    <div class="feat">
+      <div class="f big">
+        <div>
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
+          <h3>Edit-макросы</h3>
+          <p>Drag edit: держишь клавишу и выделяешь тайлы, отпустил — подтверждено. Infinite edit спамит редакты в темпе твоего FPS, Instant edit делает один редакт за нажатие.</p>
+          <ul><li>Drag edit</li><li>Infinite edit</li><li>Instant edit</li><li>Competitive</li></ul>
+        </div>
+        <div>
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18M12 4v8M8 12v8M16 12v8"/></svg></div>
+          <h3>Мгновенная стройка</h3>
+          <p>Нажал клавишу стены, пола, лестницы или конуса — постройка сразу стоит. Непрерывный режим держит ЛКМ, пока не сменишь оружие или не начнёшь редакт.</p>
+          <ul><li>Instant build</li><li>Turbo</li><li>Auto sprint</li></ul>
+        </div>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></div>
+        <h3>Боевые пресеты</h3>
+        <p>Готовые комбинации в одну клавишу, каждую можно отредактировать.</p>
+        <ul><li>Prefire</li><li>Wall retake</li><li>Sprint reset</li><li>Mantle</li><li>Crouch peek</li></ul>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></div>
+        <h3>Свои макросы</h3>
+        <p>Любая последовательность нажатий и пауз: один раз, пока держишь или вкл/выкл. Скорость и интервал настраиваются.</p>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></div>
+        <h3>Переназначение клавиш</h3>
+        <p>Боковая кнопка мыши становится Shift, Caps Lock — Ctrl. Работает только в игре и выключается вместе с макросами.</p>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7.5 14h9"/></svg></div>
+        <h3>Клавиатура в меню</h3>
+        <p>Кликни по клавише на схеме — увидишь, что на ней висит, и сразу назначишь её на макрос или бинд Fortnite.</p>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l10 5-10 5L2 7z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+        <h3>Профили</h3>
+        <p>Отдельные настройки для арены, креатива и тренировки. Переключение из шапки меню, экспорт в файл, чтобы поделиться с другом.</p>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14l6-6M10 18l10-10M4 20l2-2"/></svg></div>
+        <h3>Rapid fire и Anti-AFK</h3>
+        <p>Быстрые клики, пока держишь клавишу, и защита от вылета за бездействие в креативе. Счётчик на каждой карточке показывает, сколько раз сработал макрос.</p>
+      </div>
+      <div class="f">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>Меню поверх игры</h3>
+        <p>Insert открывает меню прямо поверх Fortnite и возвращает обратно. Шесть цветов темы или свой, три варианта фона.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="crosshair">
+    <div class="sh">
+      <div><div class="eyebrow">Прицел</div><h2>Собери свой прицел прямо здесь</h2></div>
+      <p>В программе прицел рисуется поверх экрана со сглаживанием и включается горячей клавишей. Ниже — те же настройки, что и в меню.</p>
+    </div>
+    <div class="xh-wrap">
+      <div class="panel ctrl">
+        <div><label>СТИЛЬ</label><div class="chips" id="xstyle"></div></div>
+        <div><label>ЦВЕТ</label><div class="dots" id="xcolor"></div></div>
+        <div><label for="xlen">ДЛИНА ЛИНИЙ</label><div class="rng"><input type="range" id="xlen" min="2" max="20" value="8"><span id="xlenv">8</span></div></div>
+        <div><label for="xgap">ОТСТУП ОТ ЦЕНТРА</label><div class="rng"><input type="range" id="xgap" min="0" max="14" value="4"><span id="xgapv">4</span></div></div>
+        <div><label for="xth">ТОЛЩИНА</label><div class="rng"><input type="range" id="xth" min="1" max="5" value="2"><span id="xthv">2</span></div></div>
+        <label class="tgl" for="xout"><button class="sw on" id="xout" type="button" aria-pressed="true" aria-label="Обводка"></button><span>Тёмная обводка</span></label>
+      </div>
+      <div class="scene" id="scene"><svg id="xsvg" aria-label="Превью прицела"></svg></div>
+    </div>
+  </section>
+
+  <section class="block" id="optimize">
+    <div class="sh">
+      <div><div class="eyebrow">Оптимизация</div><h2>Больше FPS без сомнительных твиков</h2></div>
+      <p>Только настройки Windows, которые реально влияют на игру. Перед изменением старые значения сохраняются, кнопка «Вернуть как было» откатывает всё обратно.</p>
+    </div>
+    <div class="opt">
+      <div class="o"><span class="n">01</span><div><h3>Высокий приоритет Fortnite</h3><p>Процессор достаётся игре раньше браузера, Discord и обновлений.</p><span class="tg">права администратора</span></div></div>
+      <div class="o"><span class="n">02</span><div><h3>Максимальная производительность</h3><p>Процессор не сбрасывает частоту между кадрами, FPS ровнее.</p></div></div>
+      <div class="o"><span class="n">03</span><div><h3>Без фоновой записи Xbox</h3><p>Game DVR перестаёт писать видео в фоне и отнимать кадры.</p></div></div>
+      <div class="o"><span class="n">04</span><div><h3>Мышь без ускорения</h3><p>Курсор двигается ровно на столько, на сколько двигаешь мышь.</p></div></div>
+      <div class="o"><span class="n">05</span><div><h3>Точный таймер и планирование GPU</h3><p>Меньше микрофризов и задержки кадра. Вступает в силу после перезагрузки.</p><span class="tg">права администратора</span></div></div>
+      <div class="o"><span class="n">06</span><div><h3>Игровой режим FlashMacro</h3><p>Запустил Fortnite — всё включилось. Вышел — вернулось как было.</p></div></div>
+    </div>
+    <div class="note">Ещё во вкладке: <b>очистка кэша шейдеров</b> DirectX, NVIDIA и AMD, <b>список тяжёлых фоновых программ</b> с закрытием по подтверждению и <b>лёгкий режим</b>, в котором меню выгружается из памяти, пока закрыто. «Ускорителей пинга» и правок ядра нет: они почти ничего не дают и могут сломать систему.</div>
+  </section>
+
+  <section class="block" id="install">
+    <div class="sh">
+      <div><div class="eyebrow">Установка</div><h2>Три шага до первой катки</h2></div>
+      <p>Установщик сам ставит AutoHotkey v2, создаёт папку и ярлык на рабочем столе. Настройки при обновлении сохраняются.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><h3>Скачай установщик</h3><p>Файл <code>install-FlashMacro.bat</code> лежит в папке <code>macros</code> репозитория.</p></div>
+      <div class="step"><h3>Запусти двойным кликом</h3><p>Если Windows покажет синее окно — «Подробнее» → «Выполнить в любом случае».</p></div>
+      <div class="step"><h3>Укажи свои бинды</h3><p>Во вкладке Keybinds поставь те же клавиши, что в Fortnite, и включи нужные макросы.</p></div>
+    </div>
+    <div class="cta" style="margin-top:22px">
+      <a class="btn pri" id="dlbtn" href="../macros/install-FlashMacro.bat" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Скачать install-FlashMacro.bat</a>
+    </div>
+  </section>
+
+  <section class="block" id="compare">
+    <div class="sh">
+      <div><div class="eyebrow">Сравнение</div><h2>Чем FlashMacro отличается от платных макросов</h2></div>
+      <p>Сравнение с типичным набором функций платных KBM-макросов для Fortnite.</p>
+    </div>
+    <div class="cmp">
+      <table>
+        <thead><tr><th>ФУНКЦИЯ</th><th class="us">FLASHMACRO</th><th>ПЛАТНЫЕ МАКРОСЫ</th></tr></thead>
+        <tbody>
+          <tr><td>Цена</td><td class="us">Бесплатно</td><td>Подписка или разовый платёж</td></tr>
+          <tr><td>Исходный код</td><td class="us"><span class="y">Открыт, можно прочитать</span></td><td class="n">Закрыт</td></tr>
+          <tr><td>Edit, build, пресеты, свои макросы</td><td class="us"><span class="y">Есть</span></td><td><span class="y">Есть</span></td></tr>
+          <tr><td>Профили с экспортом в файл</td><td class="us"><span class="y">Есть</span></td><td class="n">Зависит от программы</td></tr>
+          <tr><td>Переназначение клавиш</td><td class="us"><span class="y">Есть</span></td><td class="n">Зависит от программы</td></tr>
+          <tr><td>Оптимизация Windows с откатом</td><td class="us"><span class="y">Встроена</span></td><td class="n">Часто продаётся отдельно</td></tr>
+          <tr><td>Подсказки на русском</td><td class="us"><span class="y">На каждом элементе</span></td><td class="n">Зависит от программы</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="block" id="faq">
+    <div class="sh">
+      <div><div class="eyebrow">Вопросы</div><h2>Коротко о важном</h2></div>
+      <p>Если ответа нет — во вкладке Support внутри программы есть подсказки по настройке.</p>
+    </div>
+    <div class="faq">
+      <details><summary>Могут ли забанить?</summary><p>Epic запрещает макросы в турнирах и соревновательных режимах. FlashMacro не читает память игры и ничего в неё не внедряет: он нажимает клавиши так же, как ты. Но решение о том, где и как его использовать, остаётся за тобой, и риск тоже.</p></details>
+      <details><summary>Нужно ли что-то ставить отдельно?</summary><p>Нет. Установщик сам скачает AutoHotkey v2, если его нет, и создаст ярлык на рабочем столе.</p></details>
+      <details><summary>Почему не видно прицел в игре?</summary><p>Прицел рисуется поверх экрана, поэтому Fortnite должен быть в режиме окна «Оконный полноэкранный». В обычном полноэкранном режиме оверлей не виден. Это же нужно, чтобы меню открывалось поверх игры по Insert.</p></details>
+      <details><summary>Макрос не срабатывает. Что делать?</summary><p>Проверь, что бинды во вкладке Keybinds совпадают с настройками Fortnite. Увеличь задержки до 15–20 мс — при низком FPS игра не успевает за слишком быстрыми нажатиями. Для проверки без игры выключи «Работать только в окне Fortnite» и включи лог нажатий.</p></details>
+      <details><summary>Ругается антивирус или SmartScreen</summary><p>Установщик — обычный .bat, а сама программа — текстовый скрипт AutoHotkey, который можно открыть Блокнотом и прочитать. SmartScreen предупреждает о любых файлах без цифровой подписи.</p></details>
+      <details><summary>Как удалить?</summary><p>Выйди из программы через трей или Settings и удали папку FlashMacro с рабочего стола. Если включал оптимизацию — сначала нажми «Вернуть как было» во вкладке Optimize.</p></details>
+    </div>
+  </section>
+
+  <section class="final">
+    <div>
+      <h2>Готов попробовать?</h2>
+      <p>Установка занимает минуту, настройки сохраняются при каждом обновлении.</p>
+    </div>
+    <a class="btn pri" href="#install">Скачать FlashMacro</a>
+  </section>
+
+  <footer>
+    <span>FlashMacro — проект с открытым кодом на AutoHotkey v2.</span>
+    <span>Не связан с Epic Games. Fortnite — товарный знак Epic Games, Inc.</span>
+  </footer>
+</main>
+
+<script>
+(function () {
+  // ───── живой макет программы ─────
+  var ROWS = [
+    ['Q','W','E','R','T','Y','U','I','O','P'],
+    ['A','S','D','F','G','H','J','K','L'],
+    ['Z','X','C','V','B','N','M'],
+    [['Shift','w2'],['Space','w6'],['Ins','w15']]
+  ];
+  var kb = document.getElementById('kb'), keys = {};
+  ROWS.forEach(function (r) {
+    var row = document.createElement('div'); row.className = 'kr';
+    r.forEach(function (k) {
+      var label = Array.isArray(k) ? k[0] : k, el = document.createElement('div');
+      el.className = 'k' + (Array.isArray(k) ? ' ' + k[1] : '');
+      el.textContent = label; el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0');
+      el.dataset.key = label.toLowerCase();
+      row.appendChild(el); keys[label.toLowerCase()] = el;
+    });
+    kb.appendChild(row);
+  });
+
+  var MACROS = [
+    { id: 'drag', name: 'Drag edit', key: 'g', on: true },
+    { id: 'build', name: 'Instant build', key: 'zxcv', label: 'BUILD', on: true },
+    { id: 'pick', name: 'Pick-up', key: 'e', on: false },
+    { id: 'retake', name: 'Wall retake', key: 'f', on: false }
+  ];
+  var cards = document.getElementById('cards'), paused = false;
+  MACROS.forEach(function (m) {
+    var c = document.createElement('div'); c.className = 'mc'; c.id = 'mc-' + m.id;
+    c.innerHTML = '<span class="kchip">' + (m.label || m.key.toUpperCase()) + '</span><b>' + m.name + '</b>' +
+      '<div class="ln"><span>' + (m.on ? 'ON' : 'OFF') + '</span><button class="sw" type="button" aria-label="Включить ' + m.name + '"></button></div>';
+    c.querySelector('.sw').addEventListener('click', function () { m.on = !m.on; paint(); });
+    cards.appendChild(c);
+  });
+
+  function paint() {
+    Object.keys(keys).forEach(function (k) { keys[k].classList.remove('trig'); });
+    keys['ins'].classList.add('menu');
+    MACROS.forEach(function (m) {
+      var c = document.getElementById('mc-' + m.id);
+      c.classList.toggle('on', m.on);
+      c.querySelector('.sw').classList.toggle('on', m.on);
+      c.querySelector('.ln span').textContent = m.on ? 'ON' : 'OFF';
+      if (m.on && !paused) m.key.split('').forEach(function (ch) { if (keys[ch]) keys[ch].classList.add('trig'); });
+    });
+  }
+  paint();
+
+  var pill = document.getElementById('pill');
+  pill.addEventListener('click', function () {
+    paused = !paused;
+    pill.classList.toggle('off', paused);
+    pill.textContent = paused ? '● MACROS OFF' : '● MACROS ON';
+    document.getElementById('stt').textContent = paused ? 'На паузе' : 'Макросы активны';
+    paint();
+  });
+
+  var logEl = document.getElementById('log'), first = true;
+  function log(msg, trig) {
+    if (first) { logEl.innerHTML = ''; first = false; }
+    var d = document.createElement('div');
+    d.innerHTML = trig ? '<span class="t">' + msg + '</span>' : msg;
+    logEl.insertBefore(d, logEl.firstChild);
+    while (logEl.children.length > 7) logEl.removeChild(logEl.lastChild);
+  }
+  function flash(k, ms) {
+    var el = keys[k]; if (!el) return;
+    el.classList.add('press');
+    setTimeout(function () { el.classList.remove('press'); }, ms || 140);
+  }
+  function fire(id) {
+    var c = document.getElementById('mc-' + id);
+    c.classList.remove('fire'); void c.offsetWidth; c.classList.add('fire');
+  }
+  var BUILD = { z: 'стена', x: 'пол', c: 'лестница', v: 'конус' };
+  function run(k) {
+    flash(k, 120);
+    if (paused) { log(k.toUpperCase() + ' — макросы на паузе'); return; }
+    var drag = MACROS[0], build = MACROS[1], pick = MACROS[2], retake = MACROS[3];
+    if (k === 'g' && drag.on) {
+      fire('drag'); log('Drag edit', true);
+      setTimeout(function () { log('G ↓↑ редактирование'); }, 60);
+      setTimeout(function () { log('ЛКМ ↓ выделение тайлов'); }, 160);
+      setTimeout(function () { log('ЛКМ ↑ подтверждено'); }, 420);
+    } else if (BUILD[k] && build.on) {
+      fire('build'); log('Instant build: ' + BUILD[k], true);
+      setTimeout(function () { log(k.toUpperCase() + ' → ЛКМ клик'); }, 80);
+    } else if (k === 'e' && pick.on) {
+      fire('pick'); log('Pick-up', true); log('E × 5 за 100 мс');
+    } else if (k === 'f' && retake.on) {
+      fire('retake'); log('Wall retake', true);
+      setTimeout(function () { flash('z'); }, 80);
+      setTimeout(function () { log('Z стена → ЛКМ → слот 1'); }, 120);
+    } else if (k === 'ins') {
+      log('Insert — меню поверх игры', true);
+    } else {
+      log(k.toUpperCase() + ' — клавиша свободна');
+    }
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+    var t = e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA') return;
+    var k = e.key === 'Insert' ? 'ins' : (e.code && e.code.indexOf('Key') === 0 ? e.code.slice(3).toLowerCase() : '');
+    if (k && keys[k]) { run(k); if (k !== 'ins') e.preventDefault(); }
+  });
+  kb.addEventListener('click', function (e) {
+    var el = e.target.closest('.k'); if (el) run(el.dataset.key);
+  });
+  kb.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList.contains('k')) { e.preventDefault(); e.stopPropagation(); run(e.target.dataset.key); }
+  });
+
+  // ───── конструктор прицела (та же геометрия, что в программе) ─────
+  var STYLES = ['dot', 'cross', 'crossdot', 't', 'circle', 'crosscircle'];
+  var NAMES = { dot: 'Точка', cross: 'Крест', crossdot: 'Крест с точкой', t: 'T', circle: 'Круг', crosscircle: 'Крест в круге' };
+  var COLORS = ['00FF00', 'FF2D2D', '00E5FF', 'FFE600', 'FFFFFF', 'FF00E6'];
+  var X = { style: 'crossdot', color: '00FF00', len: 8, gap: 4, th: 2, out: true };
+  function icon(st) {
+    var h = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">';
+    if (/^(cross|crossdot|t|crosscircle)$/.test(st)) h += '<path d="M3 12h6M15 12h6M12 15v6' + (st === 't' ? '' : 'M12 3v6') + '"/>';
+    if (/circle/.test(st)) h += '<circle cx="12" cy="12" r="' + (st === 'crosscircle' ? 7 : 6) + '"/>';
+    if (/dot$/.test(st)) h += '<circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/>';
+    return h + '</svg>';
+  }
+  var xs = document.getElementById('xstyle');
+  STYLES.forEach(function (s) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.innerHTML = icon(s);
+    b.setAttribute('aria-label', NAMES[s]); b.title = NAMES[s];
+    b.addEventListener('click', function () { X.style = s; draw(); });
+    b.dataset.v = s; xs.appendChild(b);
+  });
+  var xc = document.getElementById('xcolor');
+  COLORS.forEach(function (c) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'dot'; b.style.background = '#' + c;
+    b.setAttribute('aria-label', 'Цвет #' + c);
+    b.addEventListener('click', function () { X.color = c; draw(); });
+    b.dataset.v = c; xc.appendChild(b);
+  });
+  ['len', 'gap', 'th'].forEach(function (k) {
+    var r = document.getElementById('x' + k);
+    r.addEventListener('input', function () { X[k] = +r.value; document.getElementById('x' + k + 'v').textContent = r.value; draw(); });
+  });
+  var xout = document.getElementById('xout');
+  xout.addEventListener('click', function () { X.out = !X.out; xout.classList.toggle('on', X.out); xout.setAttribute('aria-pressed', X.out); draw(); });
+
+  function draw() {
+    Array.prototype.forEach.call(xs.children, function (b) { b.setAttribute('aria-pressed', b.dataset.v === X.style); });
+    Array.prototype.forEach.call(xc.children, function (b) { b.setAttribute('aria-pressed', b.dataset.v === X.color); });
+    var svg = document.getElementById('xsvg'), w = svg.clientWidth, h = svg.clientHeight;
+    var scale = 2, cx = Math.round(w / 2), cy = Math.round(h / 2);
+    var len = X.len * scale, gap = X.gap * scale, th = X.th * scale, o = th / 2, rects = [];
+    if (/^(cross|crossdot|t|crosscircle)$/.test(X.style)) {
+      rects.push([-gap - len, -o, len, th], [gap, -o, len, th], [-o, gap, th, len]);
+      if (X.style !== 't') rects.push([-o, -gap - len, th, len]);
+    }
+    var dot = /dot$/.test(X.style) || X.style === 'dot', ring = /circle/.test(X.style), rad = (gap + len * .6) + 4;
+    function pass(col, e) {
+      var g = '';
+      rects.forEach(function (r) { g += '<rect x="' + (cx + r[0] - e) + '" y="' + (cy + r[1] - e) + '" width="' + (r[2] + 2 * e) + '" height="' + (r[3] + 2 * e) + '" fill="' + col + '"/>'; });
+      if (dot) g += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (th * .9 + 1 + e) + '" fill="' + col + '"/>';
+      if (ring) g += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rad + '" fill="none" stroke="' + col + '" stroke-width="' + (th + 2 * e) + '"/>';
+      return g;
+    }
+    svg.innerHTML = (X.out ? pass('#000', 2) : '') + pass('#' + X.color, 0);
+  }
+  draw();
+  window.addEventListener('resize', draw);
+})();
+</script>
+
+</body>
+</html>
