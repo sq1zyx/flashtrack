@@ -2,7 +2,7 @@
 const assert = require('assert');
 const os = require('os');
 const path = require('path');
-process.env.DB_FILE = path.join(os.tmpdir(), 'fm-test-' + Date.now() + '.sqlite');
+process.env.DB_FILE = path.join(os.tmpdir(), 'tm-test-' + Date.now() + '.sqlite');
 process.env.DEV_FAKE_PAY = '1';
 process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
@@ -25,7 +25,7 @@ const Stripe = require('stripe');
     r = await fetch(base + '/dev-pay?ref=' + ref, { method: 'POST', redirect: 'manual' });
     assert.equal(r.status, 302);
     j = await (await fetch(base + '/api/order/' + ref)).json();
-    assert.equal(j.status, 'paid'); assert.match(j.key, /^FM-[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/); assert.equal(j.plan, 'm3');
+    assert.equal(j.status, 'paid'); assert.match(j.key, /^TM-[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/); assert.equal(j.plan, 'm3');
     const days = (new Date(j.expires) - Date.now()) / 86400000;
     assert.ok(days > 91 && days < 93, '3 months ≈ 92 days');
     const key = j.key;
@@ -38,7 +38,7 @@ const Stripe = require('stripe');
     j = await (await post('/api/license/activate', { key, hwid: 'PC-B' })).json(); assert.equal(j.error, 'other_device');
     j = await (await post('/api/admin/reset-device', { key }, { Authorization: 'Bearer admin-test-token-123' })).json(); assert.equal(j.removed, 1);
     j = await (await post('/api/license/activate', { key, hwid: 'PC-B' })).json(); assert.equal(j.valid, true);
-    j = await (await post('/api/license/activate', { key: 'FM-AAAA-BBBB-CCCC-DDDD', hwid: 'PC-A' })).json(); assert.equal(j.error, 'invalid_key');
+    j = await (await post('/api/license/activate', { key: 'TM-AAAA-BBBB-CCCC-DDDD', hwid: 'PC-A' })).json(); assert.equal(j.error, 'invalid_key');
     console.log('✓ активация, привязка к ПК, сброс');
 
     // 3. истечение срока
@@ -76,6 +76,45 @@ const Stripe = require('stripe');
     r = await fetch(base + '/webhooks/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'stripe-signature': 't=1,v1=bad' }, body: '{}' });
     assert.equal(r.status, 400);
     console.log('✓ вебхук Stripe: подпись, оплата, продление, защита от повторов');
+
+    // 6. покупка из лаунчера: ключ сразу привязан к ПК, допуск к смене одной детали
+    const P = { mg: 'a'.repeat(64), vol: 'b'.repeat(64), cpu: 'c'.repeat(64), board: 'd'.repeat(64) };
+    j = await (await post('/api/checkout', { plan: 'm1', currency: 'usd', email: 'app@x.io', hwid: 'HW-1', parts: P })).json();
+    assert.ok(j.ref && j.url, 'checkout returns ref');
+    await fetch(base + '/dev-pay?ref=' + j.ref, { method: 'POST', redirect: 'manual' });
+    const ak = (await (await fetch(base + '/api/order/' + j.ref)).json()).key;
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-OTHER', parts: { mg: 'e'.repeat(64) } })).json();
+    assert.equal(j.error, 'other_device', 'bound to buyer PC at payment');
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-1b', parts: { ...P, vol: 'f'.repeat(64), board: '1'.repeat(64) } })).json();
+    assert.equal(j.valid, true, 'same PC after 2 parts changed');
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-1c', parts: { ...P, vol: 'f'.repeat(64), board: '1'.repeat(64), cpu: '2'.repeat(64) } })).json();
+    assert.equal(j.valid, true, 'parts updated after previous match');
+    console.log('✓ автовыдача в лаунчер, привязка при оплате, смена железа');
+
+    // 7. перенос на новый ПК по почте
+    j = await (await post('/api/license/transfer', { key: ak, email: 'wrong@x.io', hwid: 'HW-NEW' })).json(); assert.equal(j.error, 'email_mismatch');
+    j = await (await post('/api/license/transfer', { key: ak, email: 'APP@x.io', hwid: 'HW-NEW' })).json(); assert.equal(j.valid, true);
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-NEW' })).json(); assert.equal(j.valid, true);
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-1' })).json(); assert.equal(j.error, 'other_device');
+    j = await (await post('/api/license/transfer', { key: ak, email: 'app@x.io', hwid: 'HW-1' })).json(); assert.equal(j.error, 'cooldown');
+    console.log('✓ перенос ключа по почте с ограничением раз в 7 дней');
+
+    // 7b. продление из лаунчера сохраняет ключ и добавляет срок
+    const before = db.prepare('SELECT expires_at FROM licenses WHERE key = ?').get(ak).expires_at;
+    j = await (await post('/api/checkout', { plan: 'm3', currency: 'rub', email: 'app@x.io', hwid: 'HW-NEW', renew_key: ak })).json();
+    await fetch(base + '/dev-pay?ref=' + j.ref, { method: 'POST', redirect: 'manual' });
+    j = await (await fetch(base + '/api/order/' + j.ref)).json();
+    assert.equal(j.key, ak, 'same key after renewal');
+    const after = db.prepare('SELECT expires_at, plan FROM licenses WHERE key = ?').get(ak);
+    assert.equal(Math.round((after.expires_at - before) / 86400000), 92); assert.equal(after.plan, 'm3');
+    console.log('✓ продление того же ключа');
+
+    // 8. обновления
+    j = await (await fetch(base + '/api/app/manifest')).json();
+    assert.match(j.version, /^\d+\.\d+/); assert.ok(j.files.some(f => f.name === 'TweakMacro.ahk' && f.sha256.length === 64));
+    assert.equal((await fetch(base + '/app/server.js')).status, 404);
+    assert.equal((await fetch(base + '/app/ui.html')).status, 200);
+    console.log('✓ манифест обновлений', j.version);
     console.log('\nВСЕ ПРОВЕРКИ ПРОШЛИ');
   } finally {
     srv.close();

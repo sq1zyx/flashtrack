@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FlashMacro — оплата</title>
+<title>TweakMacro — оплата</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Onest:wght@400;600&family=JetBrains+Mono:wght@700&display=swap">
 <style>
 :root { --bg: #0A0A0D; --card: #17171D; --line: #24242C; --text: #EDEDF2; --muted: #92929F; --accent: #E5242F; --ok: #22C55E; }
@@ -35,28 +35,28 @@ ol { padding-left: 20px; color: var(--muted); } ol b { color: var(--text); }
     <dl><dt data-t="plan">Тариф</dt><dd id="plan"></dd><dt data-t="exp">Действует до</dt><dd id="exp"></dd></dl>
     <ol>
       <li data-t="s1"><b>Скачай установщик</b> и запусти его.</li>
-      <li data-t="s2">Открой вкладку <b>License</b> в программе.</li>
+      <li data-t="s2">Запусти <b>TweakMacro</b> — откроется лаунчер.</li>
       <li data-t="s3">Вставь ключ и нажми <b>«Активировать»</b>.</li>
     </ol>
-    <div class="row"><a class="btn" href="/download" data-t="dl">Скачать FlashMacro</a><a class="btn ghost" href="/" data-t="home">На главную</a></div>
+    <div class="row"><a class="btn" href="/download" data-t="dl">Скачать TweakMacro</a><a class="btn ghost" href="/" data-t="home">На главную</a></div>
   </div>
   <div id="err" hidden><h1 data-t="nf">Заказ не найден</h1><p data-t="nfp">Проверь ссылку или напиши в поддержку — ключ также приходит на почту.</p><a class="btn ghost" href="/" data-t="home">На главную</a></div>
 </main>
 <script>
 (function () {
   var lang = 'ru';
-  try { lang = localStorage.getItem('fm-lang') || (navigator.language || '').slice(0, 2); } catch (e) {}
+  try { lang = localStorage.getItem('tm-lang') || (navigator.language || '').slice(0, 2); } catch (e) {}
   if (lang !== 'en') lang = 'ru';
   var EN = {
     wait: 'Waiting for payment confirmation…', waitp: 'This usually takes a few seconds. No need to refresh.',
     ok: 'Payment received', okp: 'Your key has been emailed to you. Keep it: you will need it if you reinstall.',
-    copy: 'Copy', plan: 'Plan', exp: 'Valid until', dl: 'Download FlashMacro', home: 'Home',
-    s1: '<b>Download the installer</b> and run it.', s2: 'Open the <b>License</b> tab in the app.', s3: 'Paste the key and press <b>“Activate”</b>.',
+    copy: 'Copy', plan: 'Plan', exp: 'Valid until', dl: 'Download TweakMacro', home: 'Home',
+    s1: '<b>Download the installer</b> and run it.', s2: 'Start <b>TweakMacro</b>, the launcher opens.', s3: 'Paste the key and press <b>“Activate”</b>.',
     nf: 'Order not found', nfp: 'Check the link or contact support. Your key is also sent by email.'
   };
   var PLANS = { ru: { m1: '1 месяц', m3: '3 месяца', life: 'Навсегда' }, en: { m1: '1 month', m3: '3 months', life: 'Lifetime' } };
   if (lang === 'en') {
-    document.documentElement.lang = 'en'; document.title = 'FlashMacro — payment';
+    document.documentElement.lang = 'en'; document.title = 'TweakMacro — payment';
     [].forEach.call(document.querySelectorAll('[data-t]'), function (el) { if (EN[el.dataset.t]) el.innerHTML = EN[el.dataset.t]; });
   }
   var ref = new URLSearchParams(location.search).get('ref');

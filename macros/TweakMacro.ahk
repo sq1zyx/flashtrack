@@ -1,4 +1,4 @@
-; FlashMacro — макросы для клавиатуры и мыши (Fortnite) на AutoHotkey v2.
+; TweakMacro — макросы для клавиатуры и мыши (Fortnite) на AutoHotkey v2.
 ; Меню открывается при запуске и по клику на иконку в трее. Настройки сохраняются в config.ini.
 
 #Requires AutoHotkey v2.0
@@ -16,15 +16,21 @@ A_MaxHotkeysPerInterval := 5000
 CoordMode "Mouse", "Screen"
 ProcessSetPriority "High"
 
+; Своя иконка и отдельная группа на панели задач
+ICON := A_ScriptDir "\icon.ico"
+if FileExist(ICON)
+    TraySetIcon(ICON)
+try DllCall("shell32\SetCurrentProcessExplicitAppUserModelID", "wstr", "TweakMacro.App")
+
 ; Точность Sleep до ~1 мс вместо ~15 мс
 DllCall("winmm\timeBeginPeriod", "UInt", 1)
 OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 
 ; ───── Подписка ─────
-; Адрес сервера оплаты и проверки ключей (папка flashmacro-server), например "https://flashmacro.ru".
+; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "3.1"
+APP_VERSION := "3.2"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 
 ; ───────────────────────── Настройки по умолчанию ─────────────────────────
@@ -63,7 +69,16 @@ Key=
 Plan=
 ExpiresTs=
 LastOk=
-; Свой адрес сервера (необязательно, иначе LICENSE_API из FlashMacro.ahk)
+Sig=
+; Почта покупки (для переноса ключа на новый ПК)
+Email=
+; Незавершённая покупка из лаунчера: ключ придёт сам, когда оплата пройдёт
+PendingRef=
+PendingUrl=
+PendingAt=
+; 1 = не показывать лаунчер, сразу запускать, если ключ в порядке
+AutoLaunch=0
+; Свой адрес сервера (необязательно, иначе LICENSE_API из TweakMacro.ahk)
 Api=
 BuyUrl=
 
@@ -283,24 +298,28 @@ if (Get("General", "Language") = "") {
 }
 Lic := LicFromCache()
 LastLang := Lang()
+Launched := false
+LG := 0, LWB := 0, LWnd := 0, LGShown := false, LStep := "update"
+Upd := {state: "", version: "", progress: 0, error: "", files: []}
+Pay := {state: ""}
+TrS := {state: ""}
+Prices := Map("m1", Map("usd", 8.99, "rub", 849), "m3", Map("usd", 19.99, "rub", 1890), "life", Map("usd", 49.99, "rub", 4790))
+PayMethods := Map("usd", 1, "rub", 1)
 CurPage := "Dashboard"
 FORMS := Map(), HintText := Map(), OsdG := 0, LogLines := [], ImportFound := Map()
 SEQ_HELP := "Последовательность через запятую: число — пауза в мс, X — нажать, +X — зажать, -X — отпустить, {Edit} — бинд со страницы Keybinds. Пример: {Wall}, 10, LButton, 15, {Slot1}"
 
-ApplyEngine()
+OnMessage(0x100, WBKeys)
+OnMessage(0x101, WBKeys)
 BuildOverlay()
 InitForms()
 InitHints()
-BuildUI()
 SetupTray()
-UpdateCrosshair()
 if Bool("Optimize", "AutoGame")
     SetTimer(GameWatch, 3000)
-SetTimer(LicenseCheck, -300)
 SetTimer(LicPeriodic, 6 * 3600 * 1000)
-if !Bool("General", "StartHidden")
-    ShowUI()
-Notify("FlashMacro запущен")
+; Сначала лаунчер: обновления, ключ, потом запуск макросов и меню
+StartLauncher()
 
 ; ───────────────────────── Конфиг ─────────────────────────
 
@@ -466,7 +485,7 @@ Wait(ms) {
 
 ; ───────────────────────── Регистрация горячих клавиш ─────────────────────────
 
-; ctx: "" — везде, "*" — везде, кроме окна FlashMacro, иначе — имя процесса игры
+; ctx: "" — везде, "*" — везде, кроме окна TweakMacro, иначе — имя процесса игры
 SetCtx(ctx) {
     if (ctx = "")
         HotIf()
@@ -523,6 +542,10 @@ ApplyEngine() {
     ClickHold := Num("General", "ClickHoldMs", 5)
     if !DebugOn
         ToolTip(, , , 2)
+
+    ; До запуска из лаунчера ничего не перехватываем
+    if !Launched
+        return
 
     ; Глобальные клавиши
     Reg("", Get("General", "SuspendKey"), ToggleSuspend, "Macros toggle", "S")
@@ -936,7 +959,7 @@ DrawCrosshair(x, y) {
 }
 
 UpdateCrosshair() {
-    if (Bool("Crosshair", "Enabled") && XVisible && Lic.ok) {
+    if (Bool("Crosshair", "Enabled") && XVisible && Lic.ok && Launched) {
         XG.Show("NA")
         DrawCrosshair(A_ScreenWidth // 2 + Round(Num("Crosshair", "OffsetX", 0)), A_ScreenHeight // 2 + Round(Num("Crosshair", "OffsetY", 0)))
     } else
@@ -963,11 +986,9 @@ MakePalette() {
 BuildUI() {
     global UI, WB, Wnd, DPI
     DPI := A_ScreenDPI / 96
-    SplitPath(A_AhkPath, &exe)
-    ; Современный режим движка (IE11) для этой программы
-    try RegWrite(11001, "REG_DWORD", "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION", exe)
-    try RegWrite(1, "REG_DWORD", "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_GPU_RENDERING", exe)
-    UI := Gui("-Caption -Border -MaximizeBox", "FlashMacro")
+    WebMode()
+    UI := Gui("-Caption -Border -MaximizeBox", "TweakMacro")
+    SetWinIcon(UI.Hwnd)
     UI.BackColor := BASES.Has(Get("General", "Base", "dark")) ? BASES[Get("General", "Base", "dark")][1] : "0E0E11"
     UI.MarginX := 0, UI.MarginY := 0
     try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", UI.Hwnd, "int", 20, "int*", 1, "int", 4)
@@ -979,7 +1000,7 @@ BuildUI() {
     WB.Silent := true
     page := A_ScriptDir "\ui.html"
     if !FileExist(page) {
-        MsgBox "Не найден файл меню ui.html рядом с FlashMacro.ahk.`nМакросы работают, но меню недоступно.", "FlashMacro", "Icon!"
+        MsgBox "Не найден файл меню ui.html рядом с TweakMacro.ahk.`nМакросы работают, но меню недоступно.", "TweakMacro", "Icon!"
         UI := 0
         return
     }
@@ -992,21 +1013,23 @@ BuildUI() {
     Wnd.init(MetaJson())
     ; Масштаб страницы под DPI экрана
     try WB.ExecWB(63, 2, Round(DPI * 100), 0)
-    OnMessage(0x100, WBKeys)
-    OnMessage(0x101, WBKeys)
 }
 
 ; Клавиши навигации и правки в полях ввода передаём движку страницы (иначе он их не видит)
 WBKeys(wp, lp, msg, hwnd) {
     static keys := Map(8, 1, 9, 1, 13, 1, 33, 1, 34, 1, 35, 1, 36, 1, 37, 1, 38, 1, 39, 1, 40, 1, 46, 1)
-    if !(UI && WB && WinActive("ahk_id " UI.Hwnd))
+    if (UI && WB && WinActive("ahk_id " UI.Hwnd))
+        b := WB
+    else if (LG && LWB && WinActive("ahk_id " LG.Hwnd))
+        b := LWB
+    else
         return
     if !(keys.Has(wp) || (GetKeyState("Ctrl") && InStr("ACVXZ", Chr(wp))))
         return
     kMsg := Buffer(48, 0)
     NumPut("ptr", hwnd, "uint", msg, "uint", 0, "uptr", wp, "ptr", lp, kMsg)
     try {
-        pipa := ComObjQuery(WB, "{00000117-0000-0000-C000-000000000046}")
+        pipa := ComObjQuery(b, "{00000117-0000-0000-C000-000000000046}")
         if (ComCall(5, pipa, "ptr", kMsg, "int") = 0)
             return 0
     }
@@ -1119,7 +1142,7 @@ class Bridge {
         return 1
     }
     licRemove() {
-        for k in ["Key", "Plan", "ExpiresTs", "LastOk"]
+        for k in ["Key", "Plan", "ExpiresTs", "LastOk", "Sig"]
             SetVal("License", k, "")
         SaveIni()
         SetTimer(LicenseCheck, -10)
@@ -1129,11 +1152,11 @@ class Bridge {
         SetTimer(LicenseCheck, -10)
         return 1
     }
-    openBuy() {
-        u := BuyUrl()
-        if (u != "")
-            Run(u)
-        return u != "" ? 1 : 0
+    openBuy(view := "buy") {
+        if (LicApi() = "")
+            return 0
+        SetTimer(ShowLauncher.Bind(view = "transfer" ? "transfer" : "buy"), -10)
+        return 1
     }
     optToggle(id, on) => Json(OptApply(id, on ? true : false))
     optRefresh() {
@@ -1344,7 +1367,7 @@ DeleteProfile(name) {
 
 ExportProfile(name) {
     UI.Opt("+OwnDialogs")
-    path := FileSelect("S16", A_Desktop "\FlashMacro - " name ".ini", "Экспорт профиля", "Профиль FlashMacro (*.ini)")
+    path := FileSelect("S16", A_Desktop "\TweakMacro - " name ".ini", "Экспорт профиля", "Профиль TweakMacro (*.ini)")
     if (path = "")
         return
     if !(path ~= "i)\.ini$")
@@ -1358,12 +1381,12 @@ ExportProfile(name) {
 
 ImportProfile() {
     UI.Opt("+OwnDialogs")
-    path := FileSelect(1, A_Desktop, "Импорт профиля", "Профиль FlashMacro (*.ini)")
+    path := FileSelect(1, A_Desktop, "Импорт профиля", "Профиль TweakMacro (*.ini)")
     if (path = "")
         return
     SplitPath(path, , , , &base)
     SaveCurrentProfile()
-    n := UniqueProfile(CleanName(RegExReplace(base, "^FlashMacro - ")))
+    n := UniqueProfile(CleanName(RegExReplace(base, "^TweakMacro - ")))
     FileCopy(path, ProfPath(n))
     PushState()
     Notify("Импортирован профиль «" n "»")
@@ -1605,7 +1628,7 @@ HideUI(quiet := false) {
         SetTimer(UnloadUI, -20000)
     if (!told && !quiet) {
         told := true
-        Notify("FlashMacro работает в трее. Клик по иконке — открыть меню.", 2500)
+        Notify("TweakMacro работает в трее. Клик по иконке — открыть меню.", 2500)
     }
 }
 
@@ -1717,7 +1740,7 @@ InitHints() {
         , "Speed", "Множитель скорости: 2 — в два раза быстрее (паузы короче), 0.5 — в два раза медленнее."
         , "Interval", "Пауза между повторами в режимах «Пока держишь» и «Вкл/выкл»."
         , "Crosshair.Enabled", "Включает прицел поверх экрана."
-        , "ShowOnStart", "Показывать прицел сразу при запуске FlashMacro."
+        , "ShowOnStart", "Показывать прицел сразу при запуске TweakMacro."
         , "ToggleKey", "Клавиша, которая прячет и показывает прицел прямо в игре."
         , "Style", "Форма прицела: точка, крест, крест с точкой, T или T с точкой."
         , "Color", "Цвет прицела: выбери готовый или впиши свой в формате RRGGBB."
@@ -1733,7 +1756,7 @@ InitHints() {
         , "Debug", "Записывает все нажатия макросов в лог справа — удобно для проверки, что макрос жмёт."
         , "KeyHoldMs", "Сколько миллисекунд макрос держит клавишу клавиатуры при одиночном нажатии."
         , "ClickHoldMs", "Сколько миллисекунд макрос держит кнопку мыши при одиночном клике."
-        , "StartHidden", "Запускать FlashMacro свёрнутым в трей, без открытия меню."
+        , "StartHidden", "Запускать TweakMacro свёрнутым в трей, без открытия меню."
         , "ShowOSD", "Показывать короткие уведомления внизу экрана, например «Макросы выключены»."
         , "Theme", "Цвет акцента меню — применяется сразу."
         , "Base", "Оттенок фона меню — применяется сразу."
@@ -1766,7 +1789,7 @@ InitHints() {
 
 ; ───────────────────────── Оптимизация Windows ─────────────────────────
 ; Каждый пункт можно включить и выключить. Перед изменением старое значение сохраняется
-; в [OptBackup], «Вернуть как было» откатывает только то, что включал FlashMacro.
+; в [OptBackup], «Вернуть как было» откатывает только то, что включал TweakMacro.
 
 RegGet(key, name, def := "") {
     try return RegRead(key, name)
@@ -1781,7 +1804,7 @@ SetBk(name, v) {
 
 ; Выполнить консольную команду скрыто и вернуть её вывод
 ShellOut(cmd) {
-    tmp := A_Temp "\flashmacro_out.txt"
+    tmp := A_Temp "\tweakmacro_out.txt"
     try FileDelete(tmp)
     try {
         RunWait(A_ComSpec ' /c ' cmd ' > "' tmp '" 2>&1', , "Hide")
@@ -1963,7 +1986,7 @@ OptApply(id, on, refresh := true) {
             case "fso":
                 fp := FortnitePath()
                 if (fp = "")
-                    throw Error("Не нашёл Fortnite. Запусти игру один раз при включённом FlashMacro — путь запомнится.")
+                    throw Error("Не нашёл Fortnite. Запусти игру один раз при включённом TweakMacro — путь запомнится.")
                 cur := Trim(RegExReplace(RegGet(LAYERS_KEY, fp, ""), "\s*DISABLEDXMAXIMIZEDWINDOWEDMODE"))
                 if on
                     cur := (cur = "" ? "~" : cur) " DISABLEDXMAXIMIZEDWINDOWEDMODE"
@@ -2024,15 +2047,15 @@ OptRevertAll() {
 
 OptName(id) {
     static e := Map("priority", "priority", "power", "power plan", "gamedvr", "Game DVR", "timer", "timer", "mouseaccel", "mouse acceleration"
-        , "hags", "GPU scheduling", "gamemode", "game mode", "fso", "fullscreen optimizations", "autogame", "FlashMacro game mode")
+        , "hags", "GPU scheduling", "gamemode", "game mode", "fso", "fullscreen optimizations", "autogame", "TweakMacro game mode")
     if (Lang() = "en")
         return e.Has(id) ? e[id] : id
     static n := Map("priority", "приоритет", "power", "схема питания", "gamedvr", "Game DVR", "timer", "таймер", "mouseaccel", "ускорение мыши"
-        , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим FlashMacro")
+        , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим TweakMacro")
     return n.Has(id) ? n[id] : id
 }
 
-; Игровой режим FlashMacro: следит за запуском Fortnite
+; Игровой режим TweakMacro: следит за запуском Fortnite
 GameWatch() {
     global GameRunning
     isRun := ProcessExist(Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe")) != 0
@@ -2212,15 +2235,18 @@ HideOSD(*) {
 }
 
 SetupTray() {
-    A_IconTip := "FlashMacro"
+    A_IconTip := "TweakMacro"
     t := A_TrayMenu
     t.Delete()
-    t.Add(Tr("Открыть меню"), ShowUI)
-    t.Add(Tr("Макросы вкл/выкл"), ToggleSuspend)
-    t.Add(Tr("Прицел вкл/выкл"), ToggleCrosshair)
+    if Launched {
+        t.Add(Tr("Открыть меню"), ShowUI)
+        t.Add(Tr("Макросы вкл/выкл"), ToggleSuspend)
+        t.Add(Tr("Прицел вкл/выкл"), ToggleCrosshair)
+    }
+    t.Add(Tr("Лаунчер"), (*) => ShowLauncher())
     t.Add()
     t.Add(Tr("Выход"), (*) => ExitApp())
-    t.Default := Tr("Открыть меню")
+    t.Default := Tr(Launched ? "Открыть меню" : "Лаунчер")
     t.ClickCount := 1
 }
 
@@ -2252,14 +2278,69 @@ BuyUrl() {
     return u
 }
 
-Hwid() {
-    static id := ""
-    if (id = "") {
-        g := RegGet("HKLM\SOFTWARE\Microsoft\Cryptography", "MachineGuid", "")
-        id := (g != "") ? "MG-" g : "PC-" A_ComputerName
+; Отпечаток ПК: хэши MachineGuid, серийника системного диска, процессора и материнской платы.
+; Сервер узнаёт ПК, даже если одна-две детали сменились (нужно 2 совпадения из 4).
+HwInfo() {
+    static info := 0
+    if info
+        return info
+    raw := Map()
+    SetRegView(64)
+    raw["mg"] := RegGet("HKLM\SOFTWARE\Microsoft\Cryptography", "MachineGuid", "")
+    SetRegView("Default")
+    try raw["vol"] := String(DriveGetSerial(SubStr(A_WinDir, 1, 3)))
+    try {
+        wmi := ComObjGet("winmgmts:{impersonationLevel=impersonate}!\\.\root\cimv2")
+        for o in wmi.ExecQuery("SELECT ProcessorId FROM Win32_Processor") {
+            raw["cpu"] := String(o.ProcessorId)
+            break
+        }
+        for o in wmi.ExecQuery("SELECT SerialNumber FROM Win32_BaseBoard") {
+            raw["board"] := String(o.SerialNumber)
+            break
+        }
     }
-    return id
+    parts := Map(), all := ""
+    for k in ["mg", "vol", "cpu", "board"] {
+        v := Trim(raw.Has(k) ? raw[k] : "")
+        if (v = "" || RegExMatch(v, "i)^(0+|none|null|default string|to be filled by o\.e\.m\.|system serial number|not applicable|n/a|base board serial number|\W+)$"))
+            continue
+        parts[k] := Sha256("TweakMacro|" k "|" v)
+        all .= k "=" parts[k] ";"
+    }
+    if (all = "")
+        all := "pc=" A_ComputerName
+    h := Sha256("TweakMacro|hwid|" all)
+    info := {hwid: h, parts: parts, short: StrUpper(SubStr(h, 1, 4) "-" SubStr(h, 5, 4) "-" SubStr(h, 9, 4) "-" SubStr(h, 13, 4))}
+    return info
 }
+
+Sha256(str) {
+    buf := Buffer(StrPut(str, "UTF-8"))
+    n := StrPut(str, buf, "UTF-8") - 1
+    return Sha256Buf(buf, n)
+}
+Sha256File(path) {
+    if !FileExist(path)
+        return ""
+    buf := FileRead(path, "RAW")
+    return Sha256Buf(buf, buf.Size)
+}
+Sha256Buf(buf, n) {
+    hAlg := 0, hHash := 0, out := Buffer(32, 0), hex := ""
+    DllCall("bcrypt\BCryptOpenAlgorithmProvider", "ptr*", &hAlg, "wstr", "SHA256", "ptr", 0, "uint", 0)
+    DllCall("bcrypt\BCryptCreateHash", "ptr", hAlg, "ptr*", &hHash, "ptr", 0, "uint", 0, "ptr", 0, "uint", 0, "uint", 0)
+    DllCall("bcrypt\BCryptHashData", "ptr", hHash, "ptr", buf, "uint", n, "uint", 0)
+    DllCall("bcrypt\BCryptFinishHash", "ptr", hHash, "ptr", out, "uint", 32, "uint", 0)
+    DllCall("bcrypt\BCryptDestroyHash", "ptr", hHash)
+    DllCall("bcrypt\BCryptCloseAlgorithmProvider", "ptr", hAlg, "uint", 0)
+    loop 32
+        hex .= Format("{:02x}", NumGet(out, A_Index - 1, "UChar"))
+    return hex
+}
+
+; Подпись кэша проверки: правка срока или даты проверки в config.ini руками сбрасывает кэш
+LicSig() => Sha256("tm-cache-v1|" Get("License", "Key") "|" Get("License", "Plan") "|" Get("License", "ExpiresTs") "|" Get("License", "LastOk") "|" HwInfo().hwid)
 
 LicFromCache() {
     if (LicApi() = "")
@@ -2267,13 +2348,27 @@ LicFromCache() {
     if (Get("License", "Key") = "")
         return {ok: 0, state: "nokey"}
     last := Get("License", "LastOk"), exp := Get("License", "ExpiresTs")
-    if (last = "")
+    if (last = "" || Get("License", "Sig") != LicSig() || last > A_NowUTC)
         return {ok: 0, state: "checking"}
     if (exp != "" && exp < A_NowUTC)
         return {ok: 0, state: "expired"}
     if (DateDiff(A_NowUTC, last, "Hours") >= LIC_GRACE_H)
         return {ok: 0, state: "offline_expired"}
     return {ok: 1, state: "active"}
+}
+
+; Запрос к серверу. Возвращает текст ответа или "" без связи.
+Http(method, url, body := "") {
+    try {
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.Open(method, url, false)
+        req.SetTimeouts(4000, 4000, 8000, 10000)
+        if (body != "")
+            req.SetRequestHeader("Content-Type", "application/json")
+        req.Send(body)
+        return req.ResponseText
+    }
+    return ""
 }
 
 LicPeriodic() => LicenseCheck()
@@ -2287,15 +2382,8 @@ LicenseCheck(*) {
     } else if (key = "") {
         Lic := {ok: 0, state: "nokey"}
     } else {
-        res := ""
-        try {
-            req := ComObject("WinHttp.WinHttpRequest.5.1")
-            req.Open("POST", api "/api/license/activate", false)
-            req.SetTimeouts(4000, 4000, 6000, 8000)
-            req.SetRequestHeader("Content-Type", "application/json")
-            req.Send(Json(Map("key", key, "hwid", Hwid(), "app", APP_VERSION)))
-            res := req.ResponseText
-        }
+        hw := HwInfo()
+        res := Http("POST", api "/api/license/activate", Json(Map("key", key, "hwid", hw.hwid, "parts", hw.parts, "app", APP_VERSION)))
         if !InStr(res, '"valid"') {
             c := LicFromCache()
             Lic := c.ok ? {ok: 1, state: "offline"} : {ok: 0, state: c.state = "checking" ? "offline_expired" : c.state}
@@ -2304,18 +2392,21 @@ LicenseCheck(*) {
             SetVal("License", "Plan", JsonVal(res, "plan"))
             SetVal("License", "ExpiresTs", (ex = "" || ex = "0") ? "" : DateAdd("19700101000000", Integer(ex), "Seconds"))
             SetVal("License", "LastOk", A_NowUTC)
+            SetVal("License", "Sig", LicSig())
             Lic := {ok: 1, state: "active"}
         } else {
             err := JsonVal(res, "error")
             Lic := {ok: 0, state: err != "" ? err : "invalid_key"}
             SetVal("License", "LastOk", "")
+            SetVal("License", "Sig", "")
         }
         SaveIni()
     }
     ApplyEngine()
     UpdateCrosshair()
     PushState()
-    if (Lic.ok && !wasOk && Lic.state = "active")
+    LPush()
+    if (Lic.ok && !wasOk && Lic.state = "active" && Launched)
         Notify("Подписка активна")
 }
 
@@ -2331,7 +2422,395 @@ LicState() {
         exp := FormatTime(DateAdd(ts, DateDiff(A_Now, A_NowUTC, "Seconds"), "Seconds"), "dd.MM.yyyy")
     key := Get("License", "Key")
     return Map("ok", Lic.ok ? 1 : 0, "state", Lic.state, "plan", Get("License", "Plan"), "expires", exp
-        , "key", StrLen(key) > 8 ? SubStr(key, 1, 8) "…" SubStr(key, -4) : key, "api", LicApi() != "" ? 1 : 0, "buy", BuyUrl() != "" ? 1 : 0)
+        , "key", StrLen(key) > 8 ? SubStr(key, 1, 8) "…" SubStr(key, -4) : key, "api", LicApi() != "" ? 1 : 0, "buy", BuyUrl() != "" ? 1 : 0
+        , "hwid", LicApi() != "" ? HwInfo().short : "")
+}
+
+; ───────────────────────── Лаунчер ─────────────────────────
+; Окно перед запуском: проверка обновлений и ключа, покупка с автовыдачей ключа,
+; перенос ключа на новый ПК. Макросы и меню включаются только после «Запустить».
+
+SetWinIcon(hwnd) {
+    if !FileExist(ICON)
+        return
+    try {
+        hs := LoadPicture(ICON, "w16 h16", &t1)
+        hb := LoadPicture(ICON, "w32 h32", &t2)
+        SendMessage(0x80, 0, hs, , "ahk_id " hwnd)
+        SendMessage(0x80, 1, hb, , "ahk_id " hwnd)
+    }
+}
+
+; Современный режим встроенного движка (IE11) для AutoHotkey
+WebMode() {
+    SplitPath(A_AhkPath, &exe)
+    try RegWrite(11001, "REG_DWORD", "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION", exe)
+    try RegWrite(1, "REG_DWORD", "HKCU\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_GPU_RENDERING", exe)
+}
+
+StartLauncher() {
+    global LStep
+    LStep := "update"
+    if !(Bool("License", "AutoLaunch") && Lic.ok)
+        ShowLauncher()
+    SetTimer(LauncherChecks, -30)
+}
+
+LauncherChecks() {
+    global LStep, Upd
+    if (LicApi() != "")
+        CheckUpdate()
+    else
+        Upd.state := "off"
+    LStep := "license"
+    LPush()
+    LicenseCheck()
+    LStep := "done"
+    ResumePay()
+    LPush()
+    if (Lic.ok && !Launched && Upd.state != "available" && Bool("License", "AutoLaunch"))
+        Launch(!Bool("General", "StartHidden"))
+    else if (!LGShown && !Launched)
+        ShowLauncher()
+}
+
+ShowLauncher(view := "", *) {
+    global LG, LWB, LWnd, LGShown, DPI
+    if !LG {
+        DPI := A_ScreenDPI / 96
+        WebMode()
+        page := A_ScriptDir "\launcher.html"
+        if !FileExist(page) {
+            Launch(true)
+            return
+        }
+        LG := Gui("-Caption -Border -MaximizeBox", "TweakMacro")
+        SetWinIcon(LG.Hwnd)
+        LG.BackColor := "0B0B0E"
+        LG.MarginX := 0, LG.MarginY := 0
+        try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", LG.Hwnd, "int", 20, "int*", 1, "int", 4)
+        if (VerCompare(A_OSVersion, "10.0.22000") >= 0)
+            try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", LG.Hwnd, "int", 33, "int*", 2, "int", 4)
+        LG.OnEvent("Close", (*) => LClose())
+        LWB := LG.Add("ActiveX", "x0 y0 w440 h640", "Shell.Explorer").Value
+        LWB.Silent := true
+        LWB.Navigate(page)
+        t := A_TickCount
+        while (LWB.ReadyState != 4 || LWB.Busy) && A_TickCount - t < 10000
+            Sleep 20
+        LWnd := LWB.document.parentWindow
+        LWnd.setBridge(LBridge())
+        try LWB.ExecWB(63, 2, Round(DPI * 100), 0)
+    }
+    LG.Show("w440 h640")
+    LGShown := true
+    LPush()
+    if (view != "")
+        try LWnd.setView(view)
+    try WinActivate("ahk_id " LG.Hwnd)
+}
+
+LClose() {
+    global LGShown
+    if !Launched
+        ExitApp
+    LG.Hide()
+    LGShown := false
+}
+
+LState() => Map("lang", Lang(), "version", APP_VERSION, "api", LicApi() != "" ? 1 : 0, "step", LStep
+    , "upd", Map("state", Upd.state, "version", Upd.version, "progress", Upd.progress, "error", Upd.error)
+    , "lic", LicState(), "pay", Pay, "tr", TrS, "launched", Launched ? 1 : 0, "auto", Bool("License", "AutoLaunch") ? 1 : 0
+    , "email", Get("License", "Email"), "prices", Prices, "methods", PayMethods)
+
+LPush() {
+    if LWnd
+        try LWnd.render(Json(LState()))
+}
+
+; Запуск макросов и меню
+Launch(show := true, *) {
+    global Launched, LGShown
+    first := !Launched
+    Launched := true
+    if LG
+        LG.Hide()
+    LGShown := false
+    if first {
+        ApplyEngine()
+        UpdateCrosshair()
+        SetupTray()
+        Notify("TweakMacro запущен")
+    }
+    if show
+        ShowUI()
+}
+
+; ───── обновления ─────
+CheckUpdate() {
+    global Upd, PayMethods
+    Upd.state := "checking", Upd.error := ""
+    LPush()
+    api := LicApi()
+    res := Http("GET", api "/api/app/manifest")
+    if !InStr(res, '"version"') {
+        Upd.state := "error"
+    } else {
+        files := [], pos := 1
+        while (pos := RegExMatch(res, '\{"name":"([\w.-]+)","size":(\d+),"sha256":"([0-9a-f]{64})"\}', &m, pos)) {
+            files.Push({name: m[1], sha: m[3]})
+            pos += m.Len
+        }
+        Upd.version := JsonVal(res, "version"), Upd.files := files
+        Upd.state := (files.Length && VerCompare(Upd.version, APP_VERSION) > 0) ? "available" : "latest"
+    }
+    ; Цены и доступные способы оплаты — с сервера, чтобы не пересобирать программу при их смене
+    pl := Http("GET", api "/api/plans")
+    for id in ["m1", "m3", "life"]
+        if RegExMatch(pl, '"' id '":\{"usd":([\d.]+),"rub":([\d.]+)', &m)
+            Prices[id] := Map("usd", m[1] + 0, "rub", m[2] + 0)
+    if RegExMatch(pl, '"methods":\{"usd":(true|false),"rub":(true|false)', &m)
+        PayMethods := Map("usd", m[1] = "true" ? 1 : 0, "rub", m[2] = "true" ? 1 : 0)
+}
+
+; Скачиваем только изменённые файлы, сверяем SHA-256 и перезапускаемся
+DoUpdate() {
+    global Upd
+    api := LicApi(), dir := A_ScriptDir "\update"
+    Upd.state := "downloading", Upd.progress := 0, Upd.error := ""
+    LPush()
+    try {
+        DirCreate(dir)
+        todo := []
+        for f in Upd.files
+            if (Sha256File(A_ScriptDir "\" f.name) != f.sha)
+                todo.Push(f)
+        for i, f in todo {
+            Download(api "/app/" f.name "?v=" Upd.version "&t=" A_TickCount, dir "\" f.name)
+            if (Sha256File(dir "\" f.name) != f.sha)
+                throw Error("bad hash: " f.name)
+            Upd.progress := Round(i * 100 / todo.Length)
+            LPush()
+        }
+        for f in todo
+            FileMove(dir "\" f.name, A_ScriptDir "\" f.name, 1)
+    } catch {
+        try DirDelete(dir, 1)
+        Upd.state := "available", Upd.error := "download"
+        LPush()
+        return
+    }
+    try DirDelete(dir, 1)
+    Reload()
+}
+
+; ───── покупка с автовыдачей ключа ─────
+; Платёж открывается в браузере, а программа сама спрашивает сервер, пока заказ не оплачен,
+; забирает ключ и активирует его. Сервер сразу привязывает ключ к этому ПК.
+LBuy(plan, cur, email) {
+    global Pay
+    Pay := {state: "creating"}
+    LPush()
+    SetVal("License", "Email", email)
+    SaveIni()
+    hw := HwInfo()
+    body := Map("plan", plan, "currency", cur, "email", email, "lang", Lang(), "hwid", hw.hwid, "parts", hw.parts)
+    if (Get("License", "Key") != "" && Lic.state != "invalid_key")
+        body["renew_key"] := Get("License", "Key")
+    res := Http("POST", LicApi() "/api/checkout", Json(body))
+    url := JsonStr(res, "url"), ref := JsonVal(res, "ref")
+    if (url = "" || ref = "") {
+        err := JsonVal(res, "error")
+        Pay := {state: "error", error: res = "" ? "network" : (err != "" ? err : "payment_error")}
+        LPush()
+        return
+    }
+    SetVal("License", "PendingRef", ref)
+    SetVal("License", "PendingUrl", url)
+    SetVal("License", "PendingAt", A_NowUTC)
+    SaveIni()
+    Pay := {state: "waiting"}
+    LPush()
+    try Run(url)
+    SetTimer(PayPoll, 3000)
+}
+
+ResumePay() {
+    global Pay
+    if (Get("License", "PendingRef") = "")
+        return
+    Pay := {state: "waiting"}
+    SetTimer(PayPoll, 3000)
+}
+
+ClearPending() {
+    for k in ["PendingRef", "PendingUrl", "PendingAt"]
+        SetVal("License", k, "")
+    SaveIni()
+}
+
+PayPoll() {
+    global Pay
+    ref := Get("License", "PendingRef")
+    if (ref = "" || DateDiff(A_NowUTC, Get("License", "PendingAt", A_NowUTC), "Hours") >= 24) {
+        SetTimer(PayPoll, 0)
+        if (ref != "") {
+            ClearPending()
+            Pay := {state: ""}
+            LPush()
+        }
+        return
+    }
+    res := Http("GET", LicApi() "/api/order/" ref)
+    if InStr(res, '"not_found"') {
+        SetTimer(PayPoll, 0)
+        ClearPending()
+        Pay := {state: "error", error: "not_found"}
+        LPush()
+        return
+    }
+    if (JsonVal(res, "status") != "paid")
+        return
+    SetTimer(PayPoll, 0)
+    key := JsonVal(res, "key")
+    ClearPending()
+    SetVal("License", "Key", key)
+    SetVal("License", "LastOk", "")
+    SetVal("License", "Sig", "")
+    SaveIni()
+    Pay := {state: "paid", key: key}
+    LicenseCheck()
+    Notify("Ключ получен и активирован")
+    ShowLauncher()
+}
+
+CancelPay() {
+    global Pay
+    SetTimer(PayPoll, 0)
+    ClearPending()
+    Pay := {state: ""}
+    LPush()
+}
+
+; ───── ключ и перенос ─────
+LActivate(key) {
+    global Lic, TrS
+    SetVal("License", "Key", key)
+    SetVal("License", "LastOk", "")
+    SetVal("License", "Sig", "")
+    SaveIni()
+    Lic := {ok: 0, state: "checking"}
+    TrS := {state: ""}
+    LPush()
+    LicenseCheck()
+}
+
+LTransfer(email) {
+    global TrS
+    TrS := {state: "working"}
+    LPush()
+    SetVal("License", "Email", email)
+    SaveIni()
+    hw := HwInfo()
+    res := Http("POST", LicApi() "/api/license/transfer", Json(Map("key", Get("License", "Key"), "email", email, "hwid", hw.hwid, "parts", hw.parts, "app", APP_VERSION)))
+    if (JsonVal(res, "valid") = "true") {
+        TrS := {state: ""}
+        LicenseCheck()
+        Notify("Ключ перенесён на этот ПК")
+        return
+    }
+    err := (res = "") ? "network" : JsonVal(res, "error"), nx := JsonVal(res, "next_unix"), when := ""
+    if (nx != "")
+        when := FormatTime(DateAdd("19700101000000", Integer(nx) + DateDiff(A_Now, A_NowUTC, "Seconds"), "Seconds"), "dd.MM.yyyy HH:mm")
+    TrS := {state: "error", error: err, next: when}
+    LPush()
+}
+
+JsonStr(text, name) {
+    v := JsonVal(text, name)
+    v := StrReplace(v, "\/", "/")
+    v := StrReplace(v, '\"', '"')
+    return StrReplace(v, "\\", "\")
+}
+
+class LBridge {
+    activate(key) {
+        SetTimer(LActivate.Bind(StrUpper(Trim(key))), -10)
+        return 1
+    }
+    buy(plan, cur, email) {
+        SetTimer(LBuy.Bind(plan, cur, email), -10)
+        return 1
+    }
+    cancelPay() {
+        SetTimer(CancelPay, -10)
+        return 1
+    }
+    reopenPay() {
+        u := Get("License", "PendingUrl")
+        if (u != "")
+            try Run(u)
+        return 1
+    }
+    transfer(email) {
+        SetTimer(LTransfer.Bind(email), -10)
+        return 1
+    }
+    update() {
+        SetTimer(DoUpdate, -10)
+        return 1
+    }
+    recheck() {
+        SetTimer(LicenseCheck, -10)
+        return 1
+    }
+    launch() {
+        SetTimer(Launch.Bind(true), -10)
+        return 1
+    }
+    setAuto(on) {
+        SetVal("License", "AutoLaunch", on ? 1 : 0)
+        SaveIni()
+        SetTimer(LPush, -10)
+        return 1
+    }
+    setLang(l) {
+        SetVal("General", "Language", l = "en" ? "en" : "ru")
+        SetTimer(() => (Commit(), LPush()), -10)
+        return 1
+    }
+    removeKey() {
+        for k in ["Key", "Plan", "ExpiresTs", "LastOk", "Sig"]
+            SetVal("License", k, "")
+        SaveIni()
+        SetTimer(LicenseCheck, -10)
+        return 1
+    }
+    site() {
+        try Run(LicApi() "/")
+        return 1
+    }
+    folder() {
+        Run(A_ScriptDir)
+        return 1
+    }
+    copy(text) {
+        A_Clipboard := text
+        return 1
+    }
+    close() {
+        SetTimer(LClose, -10)
+        return 1
+    }
+    minimize() {
+        SetTimer(() => LG.Minimize(), -10)
+        return 1
+    }
+    drag() {
+        DllCall("ReleaseCapture")
+        PostMessage(0xA1, 2, 0, , "ahk_id " LG.Hwnd)
+        return 1
+    }
 }
 
 ; ───────────────────────── Язык ─────────────────────────
@@ -2344,16 +2823,17 @@ Tr(msg) {
     if (Lang() != "en")
         return msg
     if !en {
-        en := Map("FlashMacro запущен", "FlashMacro started", "Макросы выключены", "Macros off", "Макросы включены", "Macros on"
+        en := Map("TweakMacro запущен", "TweakMacro started", "Макросы выключены", "Macros off", "Макросы включены", "Macros on"
             , "Бинды импортированы", "Binds imported", "Сброшено к стандартным", "Reset to defaults"
             , "Профиль с таким названием уже есть", "A profile with this name already exists"
             , "Нельзя удалить активный профиль", "You can't delete the active profile", "Профиль сохранён в файл", "Profile saved to file"
             , "Макрос с таким названием уже есть", "A macro with this name already exists"
-            , "FlashMacro работает в трее. Клик по иконке — открыть меню.", "FlashMacro keeps running in the tray. Click the icon to open the menu."
+            , "TweakMacro работает в трее. Клик по иконке — открыть меню.", "TweakMacro keeps running in the tray. Click the icon to open the menu."
             , "Рекомендуемые настройки применены", "Recommended settings applied", "Настройки Windows возвращены как были", "Windows settings restored"
             , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
             , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
-            , "Открыть меню", "Open menu", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
+            , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
+            , "Ключ перенесён на этот ПК", "Key moved to this PC", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
         pats := [["^Профиль: (.*)$", "Profile: $1"], ["^Создан профиль «(.*)»$", "Profile “$1” created"]
             , ["^Профиль «(.*)» удалён$", "Profile “$1” deleted"], ["^Импортирован профиль «(.*)»$", "Profile “$1” imported"]
             , ["^Применено, кроме: (.*)$", "Applied, except: $1"], ["^Возвращено, кроме \(нужны права администратора\): (.*)$", "Restored, except (admin rights needed): $1"]

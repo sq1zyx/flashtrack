@@ -1,8 +1,8 @@
 {
-  "name": "flashmacro-server",
+  "name": "tweakmacro-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Оплата подписок FlashMacro (Stripe, ЮKassa), выдача и проверка лицензионных ключей",
+  "description": "Оплата подписок TweakMacro (Stripe, ЮKassa), выдача и проверка лицензионных ключей",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

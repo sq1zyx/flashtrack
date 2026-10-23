@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>TweakMacro</title>
+<!-- Лаунчер TweakMacro: обновления, ключ, покупка с автовыдачей ключа, перенос на новый ПК и запуск.
+     Работает во встроенном движке Windows (IE11), поэтому только ES5. -->
+<style>
+html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{background:#0B0B0E;color:#ECECF1;font-family:"Segoe UI",Tahoma,Arial,sans-serif;font-size:13px;cursor:default;-ms-user-select:none;user-select:none}
+input{-ms-user-select:text;user-select:text}
+input::-ms-clear{display:none}
+#app{position:absolute;left:0;top:0;right:0;bottom:0;background:#0B0B0E;background-image:radial-gradient(circle at 50% -10%,rgba(229,36,47,.28) 0%,rgba(229,36,47,0) 55%)}
+#top{height:52px;display:flex;align-items:center;padding:0 10px 0 18px}
+.mark{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#F6343E 0%,#A80E1A 100%);box-shadow:0 6px 18px rgba(229,36,47,.4);display:flex;align-items:center;justify-content:center;margin-right:10px}
+.mark svg{width:16px;height:16px}
+.wm{font-size:14px;font-weight:700;letter-spacing:.07em}
+.wm b{color:#F0333D}
+.grow{flex:1;align-self:stretch}
+.seg{display:flex;background:#16161B;border:1px solid #26262E;border-radius:9px;padding:2px;margin-right:6px}
+.seg span{padding:3px 8px;border-radius:7px;font-size:11px;font-weight:700;color:#8C8C99;cursor:pointer}
+.seg span.on{background:#E5242F;color:#fff}
+.wb{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#8C8C99;cursor:pointer}
+.wb:hover{background:#1C1C22;color:#fff}
+.wb.x:hover{background:#E5242F}
+.wb svg{width:14px;height:14px}
+
+#hero{text-align:center;padding:14px 24px 4px}
+#hero .big{width:76px;height:76px;border-radius:22px;margin:0 auto 14px;background:linear-gradient(135deg,#F6343E 0%,#A80E1A 100%);box-shadow:0 14px 40px rgba(229,36,47,.45);display:flex;align-items:center;justify-content:center}
+#hero .big svg{width:40px;height:40px}
+#hero h1{margin:0;font-size:22px;letter-spacing:.06em;font-weight:700}
+#hero h1 b{color:#F0333D}
+#hero p{margin:4px 0 0;color:#8C8C99;font-size:12px}
+
+#body{position:absolute;left:0;right:0;top:214px;bottom:44px;padding:0 22px;overflow-x:hidden;overflow-y:auto;scrollbar-face-color:#2A2A33;scrollbar-track-color:#0B0B0E;scrollbar-arrow-color:#5E5E6A;scrollbar-shadow-color:#0B0B0E;scrollbar-highlight-color:#0B0B0E;scrollbar-3dlight-color:#0B0B0E;scrollbar-darkshadow-color:#0B0B0E}
+.card{background:#141419;border:1px solid #23232B;border-radius:16px;padding:6px 16px;margin-bottom:12px}
+.row{display:flex;align-items:center;min-height:40px;border-bottom:1px solid #1F1F26}
+.row:last-child{border-bottom:0}
+.row .l{color:#8C8C99;width:118px;flex:none}
+.row .v{flex:1;text-align:right;font-weight:600}
+.row .v small{display:block;color:#8C8C99;font-weight:400;font-size:11px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:4px;margin-right:7px;background:#5A5A66;vertical-align:1px}
+.dot.ok{background:#22C55E;box-shadow:0 0 8px rgba(34,197,94,.6)}
+.dot.bad{background:#E5242F;box-shadow:0 0 8px rgba(229,36,47,.6)}
+.dot.warn{background:#F59E0B}
+.mono{font-family:Consolas,monospace;letter-spacing:.04em}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid #33333D;border-top-color:#F0333D;border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px;margin-right:7px}
+.spin.big{width:26px;height:26px;border-width:3px;margin:0 0 10px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.btn{display:flex;align-items:center;justify-content:center;height:40px;border-radius:12px;background:#1C1C22;border:1px solid #2A2A33;color:#ECECF1;font-weight:600;cursor:pointer;padding:0 14px;box-sizing:border-box;transition:background .15s}
+.btn:hover{background:#24242B}
+.btn.pri{background:linear-gradient(135deg,#F0333D 0%,#B5121E 100%);border:0;color:#fff;box-shadow:0 8px 24px rgba(229,36,47,.35)}
+.btn.pri:hover{background:linear-gradient(135deg,#FF4550 0%,#C8192A 100%)}
+.btn.huge{height:54px;font-size:16px;letter-spacing:.08em;border-radius:15px}
+.btn.dis{opacity:.45;cursor:default}
+.btn.sm{height:30px;font-size:12px;border-radius:9px;padding:0 10px;display:inline-flex}
+.acts{display:flex;margin-top:10px}
+.acts .btn{flex:1}
+.acts .btn+.btn{margin-left:8px}
+.in{width:100%;height:42px;box-sizing:border-box;border-radius:12px;background:#0F0F13;border:1px solid #2A2A33;color:#fff;padding:0 13px;font-size:14px;outline:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif}
+.in:focus{border-color:#E5242F}
+.in.key{font-family:Consolas,monospace;font-size:15px;letter-spacing:.06em;text-transform:uppercase}
+h3{margin:4px 0 10px;font-size:14px}
+.msg{color:#A3A3AF;line-height:1.5;margin:0 0 10px;font-size:12px}
+.err{color:#FF6B73;line-height:1.5;margin:8px 0 0;font-size:12px}
+.lnk{color:#F0333D;cursor:pointer;text-decoration:none;font-weight:600}
+.lnk:hover{text-decoration:underline}
+.center{text-align:center}
+.chk{display:flex;align-items:center;margin-top:12px;color:#A3A3AF;cursor:pointer}
+.chk i{width:34px;height:20px;border-radius:10px;background:#2A2A33;position:relative;margin-right:10px;transition:background .15s}
+.chk i:after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:7px;background:#fff;transition:left .15s}
+.chk.on i{background:#E5242F}
+.chk.on i:after{left:17px}
+
+.plans{display:flex;margin:0 -4px 10px}
+.pl{flex:1;margin:0 4px;border-radius:13px;border:1px solid #2A2A33;background:#101015;padding:10px 6px;text-align:center;cursor:pointer;position:relative}
+.pl:hover{border-color:#3A3A45}
+.pl.on{border-color:#E5242F;background:#1E1013}
+.pl b{display:block;font-size:12px;color:#A3A3AF;font-weight:600}
+.pl em{display:block;font-style:normal;font-size:17px;font-weight:700;margin-top:3px}
+.pl small{display:block;font-size:10px;color:#8C8C99;margin-top:2px}
+.pl .tag{position:absolute;top:-8px;left:50%;margin-left:-30px;width:60px;font-size:9px;font-weight:700;background:#E5242F;color:#fff;border-radius:6px;padding:1px 0;letter-spacing:.05em}
+.cur{display:flex;margin-bottom:10px}
+.cur span{flex:1;text-align:center;padding:7px 0;border-radius:10px;border:1px solid #2A2A33;font-weight:700;font-size:12px;color:#8C8C99;cursor:pointer}
+.cur span+span{margin-left:8px}
+.cur span.on{border-color:#E5242F;color:#fff;background:#1E1013}
+.cur span.dis{opacity:.4;cursor:default}
+.keybox{display:flex;align-items:center;background:#0F0F13;border:1px solid #2A2A33;border-radius:12px;padding:10px 12px;margin:10px 0}
+.keybox .mono{flex:1;font-size:14px;font-weight:700;white-space:nowrap}
+
+#foot{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;justify-content:center;color:#5E5E6A;font-size:11px}
+#foot .lnk{color:#8C8C99;font-weight:400;margin:0 8px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top" data-drag="1">
+    <div class="mark" data-drag="1"><svg viewBox="0 0 24 24"><path d="M13.5 2L4.5 13.5h6.2L9.8 22l9.2-12h-6.4z" fill="#fff"/></svg></div>
+    <div class="wm" data-drag="1">TWEAK<b>MACRO</b></div>
+    <div class="grow" data-drag="1"></div>
+    <div class="seg" id="lang"><span data-act="lang" data-v="ru">RU</span><span data-act="lang" data-v="en">EN</span></div>
+    <div class="wb" data-act="min"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg></div>
+    <div class="wb x" data-act="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+  </div>
+  <div id="hero" data-drag="1">
+    <div class="big" data-drag="1"><svg viewBox="0 0 24 24" data-drag="1"><path d="M13.5 2L4.5 13.5h6.2L9.8 22l9.2-12h-6.4z" fill="#fff"/></svg></div>
+    <h1 data-drag="1">TWEAK<b>MACRO</b></h1>
+    <p id="sub" data-drag="1"></p>
+  </div>
+  <div id="body"></div>
+  <div id="foot"><span class="lnk" data-act="site" id="fsite"></span>·<span class="lnk" data-act="folder" id="ffold"></span>·<span id="fver"></span></div>
+</div>
+<script>window.onerror = function (m, u, l) { document.title = 'JSERR ' + m + ' @' + l; };</script>
+<script>
+var ahk = null, S = null, view = '', plan = 'm3', cur = '', lastHtml = '';
+function setBridge(b) { ahk = b; }
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function call(name, a, b, c) {
+  if (!ahk) return '';
+  try {
+    switch (name) {
+      case 'activate': return ahk.activate(a);
+      case 'buy': return ahk.buy(a, b, c);
+      case 'cancelPay': return ahk.cancelPay();
+      case 'reopenPay': return ahk.reopenPay();
+      case 'transfer': return ahk.transfer(a);
+      case 'update': return ahk.update();
+      case 'recheck': return ahk.recheck();
+      case 'launch': return ahk.launch();
+      case 'setAuto': return ahk.setAuto(a);
+      case 'setLang': return ahk.setLang(a);
+      case 'removeKey': return ahk.removeKey();
+      case 'site': return ahk.site();
+      case 'folder': return ahk.folder();
+      case 'copy': return ahk.copy(a);
+      case 'close': return ahk.close();
+      case 'min': return ahk.minimize();
+      case 'drag': return ahk.drag();
+    }
+  } catch (e) {}
+  return '';
+}
+
+// ───── язык ─────
+var EN = {
+  'Проверяю обновления…': 'Checking for updates…', 'Проверяю ключ…': 'Checking key…', 'Готово к запуску': 'Ready to launch',
+  'Обновления': 'Updates', 'Подписка': 'Subscription', 'ID этого ПК': 'This PC ID', 'Ключ': 'Key',
+  'Последняя версия': 'Up to date', 'Не удалось проверить': 'Could not check', 'Доступна': 'Available', 'Скачиваю': 'Downloading',
+  'Обновить': 'Update', 'Выключены': 'Off',
+  'Активна': 'Active', 'до': 'until', 'Навсегда': 'Lifetime', 'Не активна': 'Not active', 'Не требуется': 'Not required',
+  'Без интернета, по последней проверке': 'Offline, using last check',
+  'ЗАПУСТИТЬ': 'LAUNCH', 'ОТКРЫТЬ МЕНЮ': 'OPEN MENU', 'Запускать сразу, без лаунчера': 'Launch right away, skip the launcher',
+  'Сначала установи обновление или запусти текущую версию.': 'Install the update first or launch the current version.',
+  'Запустить без обновления': 'Launch without updating',
+  'Активация': 'Activation', 'Вставь ключ из письма или со страницы после оплаты.': 'Paste the key from the email or the page after payment.',
+  'Активировать': 'Activate', 'Купить ключ': 'Buy a key', 'Есть ключ?': 'Have a key?', 'Нет ключа?': 'No key?', 'Сменить ключ': 'Change key',
+  'Покупка': 'Purchase', 'Почта для чека и ключа': 'Email for receipt and key', 'Оплатить': 'Pay',
+  'в месяц': '/ month', 'за 3 месяца': 'for 3 months', 'один раз': 'one time', 'ВЫГОДНО': 'BEST',
+  '1 месяц': '1 month', '3 месяца': '3 months',
+  'Оплата в долларах продлевается автоматически, в рублях — нет.': 'Dollar payments renew automatically, ruble payments do not.',
+  'Создаю платёж…': 'Creating payment…', 'Жду оплату в браузере': 'Waiting for payment in your browser',
+  'Ключ придёт в программу сам и привяжется к этому ПК. Окно можно не закрывать.': 'The key will arrive in the app by itself and bind to this PC. Keep this window open.',
+  'Открыть оплату ещё раз': 'Open payment again', 'Отмена': 'Cancel', 'Ключ получен и активирован': 'Key received and activated',
+  'Копировать': 'Copy', 'Скопировано': 'Copied', 'Сохрани ключ — он также отправлен на почту.': 'Save the key, it was also sent to your email.',
+  'Перенос на этот ПК': 'Move to this PC',
+  'Ключ уже активирован на другом ПК. Укажи почту, на которую он куплен, — привязка перейдёт на этот ПК. Переносить можно раз в 7 дней.': 'The key is already activated on another PC. Enter the email you bought it with and the binding moves to this PC. You can do this once every 7 days.',
+  'Перенести': 'Move', 'Назад': 'Back', 'Повторить': 'Retry',
+  'Сайт': 'Website', 'Папка программы': 'App folder', 'Проверить ещё раз': 'Check again',
+  'Вставь ключ целиком.': 'Paste the whole key.', 'Проверь адрес почты.': 'Check your email address.',
+  'Нет связи с сервером. Проверь интернет.': 'No connection to the server. Check your internet.',
+  'Этот способ оплаты пока не подключён — выбери другую валюту.': 'This payment method is not available yet, choose another currency.',
+  'Платёжная система не ответила. Попробуй ещё раз.': 'The payment system did not respond. Try again.',
+  'Заказ не найден. Если деньги списались — напиши в поддержку.': 'Order not found. If you were charged, contact support.',
+  'Почта не совпадает с почтой покупки.': 'The email does not match the purchase email.',
+  'У этого ключа нет почты — перенос через поддержку.': 'This key has no email, transfer via support.',
+  'Переносить можно раз в 7 дней. Следующий перенос:': 'You can move the key once every 7 days. Next transfer:',
+  'Такой ключ не найден. Проверь, что скопировал его полностью.': 'Key not found. Make sure you copied all of it.',
+  'Срок подписки закончился. Продли её — ключ останется тем же.': 'Your subscription has ended. Renew it and keep the same key.',
+  'Нет связи с сервером, а последняя проверка была больше 3 дней назад.': 'No connection to the server and the last check was over 3 days ago.',
+  'Продлить': 'Renew', 'Ошибка загрузки обновления. Попробуй ещё раз.': 'Update download failed. Try again.',
+  'Проверка подписки выключена: в программе не указан адрес сервера.': 'Subscription check is off: no server address is set in the app.',
+  'Макросы для Fortnite': 'Fortnite macros'
+};
+var lang = 'ru';
+function t(s) { return lang === 'en' && EN[s] ? EN[s] : s; }
+
+var PLAN = { m1: '1 месяц', m3: '3 месяца', life: 'Навсегда' };
+var LIC_ERR = {
+  invalid_key: 'Такой ключ не найден. Проверь, что скопировал его полностью.',
+  expired: 'Срок подписки закончился. Продли её — ключ останется тем же.',
+  offline_expired: 'Нет связи с сервером, а последняя проверка была больше 3 дней назад.'
+};
+var PAY_ERR = {
+  network: 'Нет связи с сервером. Проверь интернет.', bad_email: 'Проверь адрес почты.',
+  not_configured: 'Этот способ оплаты пока не подключён — выбери другую валюту.', payment_error: 'Платёжная система не ответила. Попробуй ещё раз.',
+  not_found: 'Заказ не найден. Если деньги списались — напиши в поддержку.'
+};
+var TR_ERR = { email_mismatch: 'Почта не совпадает с почтой покупки.', no_email: 'У этого ключа нет почты — перенос через поддержку.', network: 'Нет связи с сервером. Проверь интернет.', invalid_key: LIC_ERR.invalid_key };
+
+function money(c, v) {
+  v = Number(v);
+  if (c === 'usd') return '$' + v.toFixed(2);
+  var s = String(Math.round(v)), o = '';
+  while (s.length > 3) { o = ' ' + s.slice(-3) + o; s = s.slice(0, -3); }
+  return s + o + ' ₽';
+}
+
+// ───── отрисовка ─────
+function render(json) {
+  var keep = {};
+  var ins = document.getElementsByTagName('input');
+  for (var i = 0; i < ins.length; i++) if (ins[i].id) keep[ins[i].id] = ins[i].value;
+  var focus = document.activeElement && document.activeElement.id;
+  S = JSON.parse(json);
+  lang = S.lang === 'en' ? 'en' : 'ru';
+  if (!cur) cur = lang === 'en' ? 'usd' : 'rub';
+  if (S.methods && !S.methods[cur]) cur = cur === 'usd' ? 'rub' : 'usd';
+  var segs = $('lang').getElementsByTagName('span');
+  for (i = 0; i < segs.length; i++) segs[i].className = segs[i].getAttribute('data-v') === lang ? 'on' : '';
+  $('sub').innerHTML = esc(t('Макросы для Fortnite')) + ' · v' + esc(S.version);
+  $('fsite').innerHTML = t('Сайт'); $('ffold').innerHTML = t('Папка программы'); $('fver').innerHTML = 'v' + esc(S.version);
+  $('fsite').style.display = S.api ? '' : 'none';
+
+  var v = curView(), h = (v === 'buy' || v === 'pay' || v === 'transfer' ? '' : statusCard()) + mainPart();
+  if (h !== lastHtml) {
+    lastHtml = h;
+    $('body').innerHTML = h;
+    for (var id in keep) if ($(id) && keep[id]) $(id).value = keep[id];
+    if (focus && $(focus)) try { $(focus).focus(); } catch (e) {}
+  }
+}
+
+function statusCard() {
+  var L = S.lic || {}, U = S.upd || {}, h = '<div class="card">';
+  var u;
+  if (!S.api || U.state === 'off') u = '<span class="dot"></span>' + t('Выключены');
+  else if (U.state === 'checking' || (S.step === 'update' && !U.state)) u = '<span class="spin"></span>' + t('Проверяю обновления…');
+  else if (U.state === 'available') u = '<span class="dot warn"></span>' + t('Доступна') + ' v' + esc(U.version) + ' <span class="btn sm pri" data-act="update" style="margin-left:8px">' + t(U.error ? 'Повторить' : 'Обновить') + '</span>' +
+    (U.error ? '<small style="color:#FF6B73">' + t('Ошибка загрузки обновления. Попробуй ещё раз.') + '</small>' : '');
+  else if (U.state === 'downloading') u = '<span class="spin"></span>' + t('Скачиваю') + ' ' + (U.progress || 0) + '%';
+  else if (U.state === 'error') u = '<span class="dot warn"></span>' + t('Не удалось проверить');
+  else u = '<span class="dot ok"></span>' + t('Последняя версия');
+  h += '<div class="row"><span class="l">' + t('Обновления') + '</span><span class="v">' + u + '</span></div>';
+
+  var l;
+  if (L.state === 'free') l = '<span class="dot ok"></span>' + t('Не требуется');
+  else if (L.state === 'checking' || S.step === 'update' || (S.step === 'license' && !L.ok)) l = '<span class="spin"></span>' + t('Проверяю ключ…');
+  else if (L.ok) l = '<span class="dot ok"></span>' + t('Активна') + ' · ' + esc(t(PLAN[L.plan] || L.plan || '')) +
+    '<small>' + (L.expires ? t('до') + ' ' + esc(L.expires) : t('Навсегда')) + (L.state === 'offline' ? ' · ' + t('Без интернета, по последней проверке') : '') + '</small>';
+  else l = '<span class="dot bad"></span>' + t('Не активна');
+  h += '<div class="row"><span class="l">' + t('Подписка') + '</span><span class="v">' + l + '</span></div>';
+  if (L.key) h += '<div class="row"><span class="l">' + t('Ключ') + '</span><span class="v mono">' + esc(L.key) + '</span></div>';
+  if (S.api && L.hwid) h += '<div class="row"><span class="l">' + t('ID этого ПК') + '</span><span class="v mono">' + esc(L.hwid) + '</span></div>';
+  return h + '</div>';
+}
+
+function curView() {
+  var P = S.pay || {}, L = S.lic || {};
+  if (P.state) return 'pay';
+  if (view === 'buy' || view === 'transfer' || view === 'key') return view;
+  if (S.step !== 'done') return 'wait';
+  if (L.ok) return 'ready';
+  if (L.state === 'other_device') return 'transfer';
+  return 'key';
+}
+
+function mainPart() {
+  var v = curView(), L = S.lic || {}, P = S.pay || {}, T = S.tr || {}, h = '';
+  if (v === 'wait') return '<div class="center" style="padding-top:18px"><span class="spin big"></span></div>';
+  if (v === 'ready') {
+    if ((S.upd || {}).state === 'available')
+      h += '<p class="msg center">' + t('Сначала установи обновление или запусти текущую версию.') + '</p>';
+    h += '<div class="btn pri huge" data-act="launch">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</div>';
+    h += '<div class="chk' + (S.auto ? ' on' : '') + '" data-act="auto"><i></i>' + t('Запускать сразу, без лаунчера') + '</div>';
+    if (S.api && L.state !== 'free') h += '<div class="acts"><span class="btn" data-act="recheck">' + t('Проверить ещё раз') + '</span><span class="btn" data-act="view" data-v="buy">' + t('Продлить') + '</span></div>';
+    return h;
+  }
+  if (v === 'key') {
+    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Активация') + '</h3>';
+    h += '<p class="msg">' + t(LIC_ERR[L.state] || 'Вставь ключ из письма или со страницы после оплаты.') + '</p>';
+    h += '<input class="in key" id="key" placeholder="TM-XXXX-XXXX-XXXX-XXXX" maxlength="40">';
+    h += '<div id="kerr" class="err" style="display:none"></div>';
+    h += '<div class="acts"><span class="btn pri" data-act="activate">' + t('Активировать') + '</span></div></div>';
+    if (S.api) h += '<p class="msg center">' + t('Нет ключа?') + ' <span class="lnk" data-act="view" data-v="buy">' + t('Купить ключ') + '</span></p>';
+    return h;
+  }
+  if (v === 'buy') {
+    var pr = S.prices || {}, m = S.methods || { usd: 1, rub: 1 }, ids = ['m1', 'm3', 'life'], per = { m1: 'в месяц', m3: 'за 3 месяца', life: 'один раз' };
+    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Покупка') + '</h3><div class="cur">' +
+      '<span class="' + (cur === 'usd' ? 'on' : '') + (m.usd ? '' : ' dis') + '" data-act="cur" data-v="usd">$ USD</span>' +
+      '<span class="' + (cur === 'rub' ? 'on' : '') + (m.rub ? '' : ' dis') + '" data-act="cur" data-v="rub">₽ RUB</span></div><div class="plans">';
+    for (var i = 0; i < ids.length; i++) {
+      var p = pr[ids[i]] || {};
+      h += '<div class="pl' + (plan === ids[i] ? ' on' : '') + '" data-act="plan" data-v="' + ids[i] + '">' + (ids[i] === 'm3' ? '<span class="tag">' + t('ВЫГОДНО') + '</span>' : '') +
+        '<b>' + t(PLAN[ids[i]]) + '</b><em>' + money(cur, p[cur]) + '</em><small>' + t(per[ids[i]]) + '</small></div>';
+    }
+    h += '</div><input class="in" id="email" placeholder="' + esc(t('Почта для чека и ключа')) + '" value="' + esc(S.email || '') + '">';
+    h += '<div id="berr" class="err" style="display:none"></div>';
+    h += '<div class="acts"><span class="btn pri" data-act="pay">' + t('Оплатить') + ' ' + money(cur, (pr[plan] || {})[cur]) + '</span></div>';
+    h += '<p class="msg" style="margin:10px 0 0">' + t('Оплата в долларах продлевается автоматически, в рублях — нет.') + '</p></div>';
+    h += '<p class="msg center">' + t('Есть ключ?') + ' <span class="lnk" data-act="view" data-v="' + (L.ok ? '' : 'key') + '">' + t(L.ok ? 'Назад' : 'Активировать') + '</span></p>';
+    return h;
+  }
+  if (v === 'pay') {
+    h += '<div class="card center" style="padding:20px 16px">';
+    if (P.state === 'creating') h += '<span class="spin big"></span><h3>' + t('Создаю платёж…') + '</h3>';
+    else if (P.state === 'waiting') h += '<span class="spin big"></span><h3>' + t('Жду оплату в браузере') + '</h3><p class="msg">' + t('Ключ придёт в программу сам и привяжется к этому ПК. Окно можно не закрывать.') + '</p>' +
+      '<div class="acts"><span class="btn" data-act="reopen">' + t('Открыть оплату ещё раз') + '</span><span class="btn" data-act="cancelPay">' + t('Отмена') + '</span></div>';
+    else if (P.state === 'paid') h += '<h3><span class="dot ok"></span>' + t('Ключ получен и активирован') + '</h3><div class="keybox"><span class="mono" id="pkey">' + esc(P.key) + '</span><span class="btn sm" data-act="copy">' + t('Копировать') + '</span></div>' +
+      '<p class="msg">' + t('Сохрани ключ — он также отправлен на почту.') + '</p><div class="acts"><span class="btn pri" data-act="paidOk">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</span></div>';
+    else h += '<h3><span class="dot bad"></span>' + t(PAY_ERR[P.error] || PAY_ERR.payment_error) + '</h3><div class="acts"><span class="btn" data-act="cancelPay">' + t('Назад') + '</span></div>';
+    return h + '</div>';
+  }
+  if (v === 'transfer') {
+    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Перенос на этот ПК') + '</h3>';
+    h += '<p class="msg">' + t('Ключ уже активирован на другом ПК. Укажи почту, на которую он куплен, — привязка перейдёт на этот ПК. Переносить можно раз в 7 дней.') + '</p>';
+    h += '<input class="in" id="temail" placeholder="email@example.com" value="' + esc(S.email || '') + '">';
+    if (T.state === 'error') h += '<div class="err">' + (T.error === 'cooldown' ? t('Переносить можно раз в 7 дней. Следующий перенос:') + ' ' + esc(T.next) : t(TR_ERR[T.error] || TR_ERR.network)) + '</div>';
+    h += '<div class="acts">' + (T.state === 'working' ? '<span class="btn pri dis"><span class="spin"></span></span>' : '<span class="btn pri" data-act="transfer">' + t('Перенести') + '</span>') +
+      '<span class="btn" data-act="changeKey">' + t('Сменить ключ') + '</span></div></div>';
+    return h;
+  }
+  return h;
+}
+
+function setView(v) { view = v || ''; lastHtml = ''; if (S) render(JSON.stringify(S)); }
+function showErr(id, msg) { var e = $(id); if (e) { e.innerHTML = esc(t(msg)); e.style.display = ''; } }
+
+// ───── действия ─────
+function up(el, attr) {
+  while (el && el.getAttribute) { if (el.getAttribute(attr)) return el; el = el.parentNode; }
+  return null;
+}
+function act(el) {
+  var a = el.getAttribute('data-act'), v = el.getAttribute('data-v');
+  if (/\bdis\b/.test(el.className)) return;
+  switch (a) {
+    case 'lang': call('setLang', v); break;
+    case 'min': call('min'); break;
+    case 'close': call('close'); break;
+    case 'site': call('site'); break;
+    case 'folder': call('folder'); break;
+    case 'update': call('update'); break;
+    case 'launch': call('launch'); break;
+    case 'recheck': call('recheck'); break;
+    case 'auto': call('setAuto', S.auto ? 0 : 1); break;
+    case 'view': setView(v); break;
+    case 'cur': cur = v; setView(view); break;
+    case 'plan': plan = v; setView(view); break;
+    case 'activate':
+      var k = ($('key').value || '').replace(/\s+/g, '').toUpperCase();
+      if (k.length < 10) { showErr('kerr', 'Вставь ключ целиком.'); return; }
+      view = ''; call('activate', k); break;
+    case 'pay':
+      var m = ($('email').value || '').replace(/^\s+|\s+$/g, '');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(m)) { showErr('berr', 'Проверь адрес почты.'); return; }
+      view = ''; call('buy', plan, cur, m); break;
+    case 'reopen': call('reopenPay'); break;
+    case 'cancelPay': call('cancelPay'); break;
+    case 'paidOk': call('cancelPay'); call('launch'); break;
+    case 'copy': call('copy', $('pkey').innerText); el.innerHTML = t('Скопировано'); break;
+    case 'transfer':
+      var te = ($('temail').value || '').replace(/^\s+|\s+$/g, '');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(te)) return;
+      call('transfer', te); break;
+    case 'changeKey': view = 'key'; call('removeKey'); break;
+  }
+}
+document.onmousedown = function (e) {
+  e = e || window.event;
+  var tg = e.target || e.srcElement;
+  if (e.button === 0 || e.button === 1) {
+    if (up(tg, 'data-drag') && !up(tg, 'data-act')) call('drag');
+  }
+};
+document.onclick = function (e) {
+  e = e || window.event;
+  var el = up(e.target || e.srcElement, 'data-act');
+  if (el) act(el);
+};
+document.onkeydown = function (e) {
+  e = e || window.event;
+  if (e.keyCode !== 13) return;
+  var id = (e.target || e.srcElement).id;
+  if (id === 'key') act({ getAttribute: function (n) { return n === 'data-act' ? 'activate' : null; }, className: '' });
+  else if (id === 'email') act({ getAttribute: function (n) { return n === 'data-act' ? 'pay' : null; }, className: '' });
+  else if (id === 'temail') act({ getAttribute: function (n) { return n === 'data-act' ? 'transfer' : null; }, className: '' });
+};
+document.oncontextmenu = function () { return false; };
+document.onselectstart = function (e) { e = e || window.event; var tg = e.target || e.srcElement; return tg.tagName === 'INPUT'; };
+</script>
+</body>
+</html>
