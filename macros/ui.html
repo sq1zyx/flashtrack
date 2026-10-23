@@ -51,11 +51,11 @@ svg{overflow:hidden}
 .sfoot b{color:@text@;font-weight:600}
 
 /* ── контент ── */
-#content{position:absolute;left:214px;right:0;top:58px;bottom:0;overflow-y:auto;overflow-x:hidden;padding:20px 24px 24px;box-sizing:border-box}
+#content{position:absolute;left:214px;right:-20px;top:58px;bottom:0;overflow-y:scroll;overflow-x:hidden;padding:20px 27px 24px 24px;box-sizing:border-box}
 .page{display:none}
 .page.show{display:block;animation:pin .22s ease-out}
 @keyframes pin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-.ph{display:flex;align-items:center;margin-bottom:16px;min-height:34px}
+.ph{display:flex;align-items:center;margin-bottom:16px;padding:1px 0}
 .ph h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
 .ph .sub{color:@muted@;font-size:12px;margin-left:16px;padding-left:16px;border-left:1px solid @line@}
 .panel{background:@panel@;border:1px solid @line@;border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.22)}
@@ -136,7 +136,7 @@ svg{overflow:hidden}
 .swt.sel{box-shadow:0 0 0 2px @panel@,0 0 0 4px @text@}
 
 /* ── формы ── */
-.row{display:flex;align-items:center;min-height:50px;border-bottom:1px solid @line@}
+.row{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid @line@}
 .row:last-child{border-bottom:0}
 .lb{width:250px;flex:none;font-size:13px;padding-right:16px;line-height:1.35}
 .lb small{display:block;color:@muted@;font-size:11px;margin-top:2px}
@@ -196,6 +196,14 @@ svg{overflow:hidden}
 @keyframes fire{0%{box-shadow:0 0 0 0 @a60@}100%{box-shadow:0 0 0 14px @a0@}}
 .pop{position:fixed;z-index:40;width:300px;max-height:440px;overflow-y:auto;padding:14px 12px;border-radius:16px;background:@tip@;border:1px solid @line2@;box-shadow:0 18px 44px rgba(0,0,0,.55);display:none;box-sizing:border-box}
 .pop.show{display:block;animation:pin .16s ease-out}
+/* свой скроллбар: системный скрыт, поверх контента — тонкая скруглённая полоса */
+/* у #content системная полоса уезжает за правый край окна (right:-20px), у списков — скрыта */
+.pop{-ms-overflow-style:none;scrollbar-width:none}
+.pop::-webkit-scrollbar{display:none}
+.sbar{position:fixed;width:12px;z-index:60;display:none}
+.sbar i{position:absolute;right:3px;width:5px;border-radius:5px;background:@line2@;transition:width .12s,background .12s,right .12s}
+.sbar:hover i{width:7px;right:2px;background:@muted@}
+.sbar.drag i{width:7px;right:2px;background:@accent@}
 .pop h4{margin:0 4px 6px;font-size:15px;display:flex;align-items:center}
 .pop h4 .kc{margin-right:10px;cursor:default}
 .pop .info{color:@muted@;font-size:12px;line-height:1.5;margin:0 4px 6px;white-space:pre-line}
@@ -230,7 +238,7 @@ svg{overflow:hidden}
 .rbox h4{margin:0 0 6px;font-size:14px}
 .rbox p{color:@muted@;font-size:12px;line-height:1.5;margin:0 0 14px}
 .rbox .btn{display:flex;margin-bottom:8px;justify-content:flex-start}
-.rrow{display:flex;align-items:center;min-height:56px;border-bottom:1px solid @line@}
+.rrow{display:flex;align-items:center;padding:12px 0;border-bottom:1px solid @line@}
 .rrow:last-child{border-bottom:0}
 .rrow .arrow{color:@muted@;margin:0 14px;display:flex}
 .rrow .arrow svg{width:18px;height:18px}
@@ -309,7 +317,7 @@ svg{overflow:hidden}
 .ast span{display:block;color:@muted@;font-size:11px;margin-top:3px}
 .ast.hl{background:@a14@;border-color:@accent@}
 .ast.hl b{color:@accent@}
-.atw{max-height:360px;overflow-y:auto;overflow-x:hidden}
+.atw{overflow:hidden}
 .atbl{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
 .atbl th{text-align:left;color:@muted@;font-weight:600;padding:6px 5px;border-bottom:1px solid @line@;white-space:nowrap}
 .atbl td{padding:7px 5px;border-bottom:1px solid @line@;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1247,7 +1255,56 @@ function fire(sec) {
 }
 
 // ───────────── вызовы из AutoHotkey ─────────────
-function init(meta) { M = JSON.parse(meta); build(); }
+function init(meta) {
+  M = JSON.parse(meta);
+  build();
+  fancyScroll($('content')); fancyScroll($('kpop')); fancyScroll($('ppop'));
+}
+
+// ───────────── свой скроллбар ─────────────
+var SB = [];
+function fancyScroll(el) {
+  var bar = document.createElement('div'), th = document.createElement('i'), o = { el: el, bar: bar, th: th };
+  bar.className = 'sbar';
+  if (el.getAttribute('data-pop')) bar.setAttribute('data-pop', '1');
+  bar.appendChild(th);
+  document.body.appendChild(bar);
+  SB.push(o);
+  el.onscroll = function () { sbUpdate(o); };
+  th.onmousedown = function (e) {
+    e = e || window.event;
+    var y0 = e.clientY, s0 = el.scrollTop, track = bar.offsetHeight - th.offsetHeight, max = el.scrollHeight - el.clientHeight;
+    setCls(bar, 'drag', true);
+    function mv(ev) { el.scrollTop = s0 + (ev.clientY - y0) * (track > 0 ? max / track : 0); ev.preventDefault(); }
+    function stop() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', stop); setCls(bar, 'drag', false); }
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', stop);
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+    return false;
+  };
+  bar.onmousedown = function (e) {
+    e = e || window.event;
+    if ((e.target || e.srcElement) === th) return;
+    var r = th.getBoundingClientRect();
+    el.scrollTop += (e.clientY < r.top ? -1 : 1) * el.clientHeight * 0.85;
+    return false;
+  };
+  sbUpdate(o);
+}
+function sbUpdate(o) {
+  var el = o.el, max = el.scrollHeight - el.clientHeight;
+  if (!el.offsetHeight || max <= 1) { o.bar.style.display = 'none'; return; }
+  var r = el.getBoundingClientRect(), pad = 6, track = Math.round(r.bottom - r.top - pad * 2);
+  var h = Math.max(32, Math.round(track * el.clientHeight / el.scrollHeight));
+  o.bar.style.display = 'block';
+  o.bar.style.left = Math.round(Math.min(r.right, document.documentElement.clientWidth) - 13) + 'px';
+  o.bar.style.top = Math.round(r.top + pad) + 'px';
+  o.bar.style.height = track + 'px';
+  o.th.style.height = h + 'px';
+  o.th.style.top = Math.round((track - h) * el.scrollTop / max) + 'px';
+}
+setInterval(function () { for (var i = 0; i < SB.length; i++) sbUpdate(SB[i]); }, 250);
 var licShown = false;
 function render(state) {
   S = JSON.parse(state);

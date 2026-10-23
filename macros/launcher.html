@@ -33,7 +33,12 @@ input::-ms-clear{display:none}
 #hero h1 b{color:#F0333D}
 #hero p{margin:4px 0 0;color:#8C8C99;font-size:12px}
 
-#body{position:absolute;left:0;right:0;top:196px;bottom:44px;padding:0 22px;overflow-x:hidden;overflow-y:auto;-ms-overflow-style:-ms-autohiding-scrollbar;scrollbar-face-color:#2A2A33;scrollbar-track-color:#0B0B0E;scrollbar-arrow-color:#5E5E6A;scrollbar-shadow-color:#0B0B0E;scrollbar-highlight-color:#0B0B0E;scrollbar-3dlight-color:#0B0B0E;scrollbar-darkshadow-color:#0B0B0E}
+/* системная полоса прокрутки уезжает за правый край окна, вместо неё — своя */
+#body{position:absolute;left:0;right:-20px;top:196px;bottom:44px;padding:0 25px 0 22px;overflow-x:hidden;overflow-y:scroll}
+.sbar{position:fixed;width:12px;z-index:60;display:none}
+.sbar i{position:absolute;right:3px;width:5px;border-radius:5px;background:#33333D;transition:width .12s,background .12s,right .12s}
+.sbar:hover i{width:7px;right:2px;background:#5E5E6A}
+.sbar.drag i{width:7px;right:2px;background:#E5242F}
 .card{background:#141419;border:1px solid #23232B;border-radius:16px;padding:6px 16px;margin-bottom:12px}
 .row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #1F1F26}
 .row:last-child{border-bottom:0}
@@ -375,6 +380,38 @@ document.onkeydown = function (e) {
   else if (id === 'email') act({ getAttribute: function (n) { return n === 'data-act' ? 'pay' : null; }, className: '' });
   else if (id === 'remail') act({ getAttribute: function (n) { return n === 'data-act' ? 'reset' : null; }, className: '' });
 };
+// Свой скроллбар: системный скрыт, поверх контента — тонкая скруглённая полоса
+(function () {
+  var el = $('body'), bar = document.createElement('div'), th = document.createElement('i');
+  bar.className = 'sbar';
+  bar.appendChild(th);
+  document.body.appendChild(bar);
+  function upd() {
+    var max = el.scrollHeight - el.clientHeight;
+    if (max <= 1) { bar.style.display = 'none'; return; }
+    var r = el.getBoundingClientRect(), pad = 4, track = Math.round(r.bottom - r.top - pad * 2), h = Math.max(32, Math.round(track * el.clientHeight / el.scrollHeight));
+    bar.style.display = 'block';
+    bar.style.left = Math.round(Math.min(r.right, document.documentElement.clientWidth) - 13) + 'px';
+    bar.style.top = Math.round(r.top + pad) + 'px';
+    bar.style.height = track + 'px';
+    th.style.height = h + 'px';
+    th.style.top = Math.round((track - h) * el.scrollTop / max) + 'px';
+  }
+  el.onscroll = upd;
+  th.onmousedown = function (e) {
+    e = e || window.event;
+    var y0 = e.clientY, s0 = el.scrollTop, track = bar.offsetHeight - th.offsetHeight, max = el.scrollHeight - el.clientHeight;
+    bar.className = 'sbar drag';
+    function mv(ev) { el.scrollTop = s0 + (ev.clientY - y0) * (track > 0 ? max / track : 0); ev.preventDefault(); }
+    function stop() { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', stop); bar.className = 'sbar'; }
+    document.addEventListener('mousemove', mv);
+    document.addEventListener('mouseup', stop);
+    if (e.stopPropagation) e.stopPropagation();
+    if (e.preventDefault) e.preventDefault();
+    return false;
+  };
+  setInterval(upd, 250);
+})();
 document.oncontextmenu = function () { return false; };
 document.onselectstart = function (e) { e = e || window.event; var tg = e.target || e.srcElement; return tg.tagName === 'INPUT'; };
 </script>
