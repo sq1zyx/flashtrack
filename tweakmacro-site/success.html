@@ -40,6 +40,12 @@ ol { padding-left: 20px; color: var(--muted); } ol b { color: var(--text); }
     </ol>
     <div class="row"><a class="btn" href="/download" data-t="dl">Скачать TweakMacro</a><a class="btn ghost" href="/" data-t="home">На главную</a></div>
   </div>
+  <div id="reset" hidden>
+    <h1 data-t="rok">Привязка сброшена</h1>
+    <p data-t="rokp">Ключ отвязан от старого ПК. Запусти TweakMacro на новом ПК и вставь ключ в лаунчере — он привяжется к нему.</p>
+    <div class="key"><code id="rk"></code><button id="rcopy" class="ghost" data-t="copy">Копировать</button></div>
+    <div class="row"><a class="btn" href="/download" data-t="dl">Скачать TweakMacro</a><a class="btn ghost" href="/" data-t="home">На главную</a></div>
+  </div>
   <div id="err" hidden><h1 data-t="nf">Заказ не найден</h1><p data-t="nfp">Проверь ссылку или напиши в поддержку — ключ также приходит на почту.</p><a class="btn ghost" href="/" data-t="home">На главную</a></div>
 </main>
 <script>
@@ -52,6 +58,7 @@ ol { padding-left: 20px; color: var(--muted); } ol b { color: var(--text); }
     ok: 'Payment received', okp: 'Your key has been emailed to you. Keep it: you will need it if you reinstall.',
     copy: 'Copy', plan: 'Plan', exp: 'Valid until', dl: 'Download TweakMacro', home: 'Home',
     s1: '<b>Download the installer</b> and run it.', s2: 'Start <b>TweakMacro</b>, the launcher opens.', s3: 'Paste the key and press <b>“Activate”</b>.',
+    rok: 'Binding reset', rokp: 'The key is no longer tied to the old PC. Start TweakMacro on the new PC and paste the key into the launcher to bind it there.',
     nf: 'Order not found', nfp: 'Check the link or contact support. Your key is also sent by email.'
   };
   var PLANS = { ru: { m1: '1 месяц', m3: '3 месяца', life: 'Навсегда' }, en: { m1: '1 month', m3: '3 months', life: 'Lifetime' } };
@@ -60,13 +67,14 @@ ol { padding-left: 20px; color: var(--muted); } ol b { color: var(--text); }
     [].forEach.call(document.querySelectorAll('[data-t]'), function (el) { if (EN[el.dataset.t]) el.innerHTML = EN[el.dataset.t]; });
   }
   var ref = new URLSearchParams(location.search).get('ref');
-  function show(id) { ['wait', 'done', 'err'].forEach(function (x) { document.getElementById(x).hidden = x !== id; }); }
+  function show(id) { ['wait', 'done', 'reset', 'err'].forEach(function (x) { document.getElementById(x).hidden = x !== id; }); }
   if (!ref) return show('err');
   var tries = 0;
   function poll() {
     fetch('/api/order/' + encodeURIComponent(ref)).then(function (r) { return r.status === 404 ? null : r.json(); }).then(function (o) {
       if (!o) return show('err');
       if (o.status !== 'paid') { if (++tries < 100) setTimeout(poll, 3000); return; }
+      if (o.kind === 'reset') { document.getElementById('rk').textContent = o.key; return show('reset'); }
       document.getElementById('k').textContent = o.key;
       document.getElementById('plan').textContent = PLANS[lang][o.plan] || o.plan;
       document.getElementById('exp').textContent = o.expires ? new Date(o.expires).toLocaleDateString(lang === 'en' ? 'en-GB' : 'ru-RU') : (lang === 'en' ? 'Forever' : 'Бессрочно');
@@ -74,6 +82,9 @@ ol { padding-left: 20px; color: var(--muted); } ol b { color: var(--text); }
     }).catch(function () { setTimeout(poll, 4000); });
   }
   poll();
+  document.getElementById('rcopy').addEventListener('click', function () {
+    var b = this; navigator.clipboard.writeText(document.getElementById('rk').textContent).then(function () { b.textContent = lang === 'en' ? 'Copied' : 'Скопировано'; });
+  });
   document.getElementById('copy').addEventListener('click', function () {
     var b = this; navigator.clipboard.writeText(document.getElementById('k').textContent).then(function () { b.textContent = lang === 'en' ? 'Copied' : 'Скопировано'; });
   });

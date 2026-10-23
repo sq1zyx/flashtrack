@@ -78,6 +78,12 @@ const { app, db } = require('./server');
     assert.equal((await (await fetch(base + '/api/order/' + rref)).json()).key, ak);
     j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-NEW' })).json(); assert.equal(j.valid, true);
     j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-1' })).json(); assert.equal(j.error, 'other_device');
+    // с сайта: без ПК — привязка снимается, ключ берёт первый ПК, где его активируют
+    j = await (await post('/api/checkout', { plan: 'reset', email: 'app@x.io', renew_key: ak })).json();
+    await fetch(base + '/dev-pay?ref=' + j.ref, { method: 'POST', redirect: 'manual' });
+    o = await (await fetch(base + '/api/order/' + j.ref)).json(); assert.equal(o.kind, 'reset'); assert.equal(o.key, ak);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM devices WHERE key = ?').get(ak).n, 0);
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-NEW' })).json(); assert.equal(j.valid, true);
     console.log('✓ сброс привязки за 279 ₽');
 
     // 7b. продление из лаунчера сохраняет ключ и добавляет срок

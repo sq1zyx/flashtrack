@@ -294,8 +294,9 @@ app.post('/api/checkout', limit(20), async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || ''))) return res.status(400).json({ error: 'bad_email' });
   const key = renew_key ? normKey(renew_key) : null;
   const lic = key && db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
-  // Сброс привязки покупается только для существующего ключа и с ПК, на который он переедет
-  if (plan === 'reset' && (!lic || lic.status !== 'active' || !hwid)) return res.status(400).json({ error: 'invalid_key' });
+  // Сброс привязки покупается только для существующего ключа. Из лаунчера ключ сразу переезжает на этот ПК,
+  // с сайта — привязка просто снимается, и ключ привяжется к первому ПК, где его активируют
+  if (plan === 'reset' && (!lic || lic.status !== 'active')) return res.status(400).json({ error: 'invalid_key' });
   try {
     const r = await createCheckout({ planId: plan, email: String(email).trim().toLowerCase(), lang: lang === 'en' ? 'en' : 'ru',
       hwid: normHwid(hwid), parts: normParts(parts), source: hwid ? 'app' : 'site', renewKey: lic ? key : null });
@@ -310,9 +311,9 @@ app.post('/api/checkout', limit(20), async (req, res) => {
 app.get('/api/order/:ref', limit(120), (req, res) => {
   const o = db.prepare('SELECT * FROM orders WHERE ref = ?').get(String(req.params.ref));
   if (!o) return res.status(404).json({ error: 'not_found' });
-  if (o.status !== 'paid') return res.json({ status: 'pending', plan: o.plan });
+  if (o.status !== 'paid') return res.json({ status: 'pending', plan: o.plan, kind: o.plan === 'reset' ? 'reset' : 'buy' });
   const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(o.license_key);
-  res.json({ status: 'paid', key: o.license_key, email: o.email, ...licenseView(l) });
+  res.json({ status: 'paid', key: o.license_key, email: o.email, ...licenseView(l), kind: o.plan === 'reset' ? 'reset' : 'buy' });
 });
 
 // Проверка ключа программой. Первый запуск привязывает ключ к ПК.
