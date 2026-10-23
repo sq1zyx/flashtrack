@@ -2549,7 +2549,7 @@ ShowLauncher(view := "", *) {
         if (VerCompare(A_OSVersion, "10.0.22000") >= 0)
             try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", LG.Hwnd, "int", 33, "int*", 2, "int", 4)
         LG.OnEvent("Close", (*) => LClose())
-        LWB := LG.Add("ActiveX", "x0 y0 w440 h640", "Shell.Explorer").Value
+        LWB := LG.Add("ActiveX", "x0 y0 w440 h690", "Shell.Explorer").Value
         LWB.Silent := true
         LWB.Navigate(page)
         t := A_TickCount
@@ -2559,7 +2559,7 @@ ShowLauncher(view := "", *) {
         LWnd.setBridge(LBridge())
         try LWB.ExecWB(63, 2, Round(DPI * 100), 0)
     }
-    LG.Show("w440 h640")
+    LG.Show("w440 h690")
     LGShown := true
     LPush()
     if (view != "")

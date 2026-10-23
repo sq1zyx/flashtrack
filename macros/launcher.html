@@ -26,16 +26,16 @@ input::-ms-clear{display:none}
 .wb.x:hover{background:#E5242F}
 .wb svg{width:14px;height:14px}
 
-#hero{text-align:center;padding:14px 24px 4px}
-#hero .big{width:76px;height:76px;border-radius:22px;margin:0 auto 14px;background:linear-gradient(135deg,#F6343E 0%,#A80E1A 100%);box-shadow:0 14px 40px rgba(229,36,47,.45);display:flex;align-items:center;justify-content:center}
-#hero .big svg{width:40px;height:40px}
+#hero{text-align:center;padding:8px 24px 0}
+#hero .big{width:68px;height:68px;border-radius:20px;margin:0 auto 12px;background:linear-gradient(135deg,#F6343E 0%,#A80E1A 100%);box-shadow:0 14px 40px rgba(229,36,47,.45);display:flex;align-items:center;justify-content:center}
+#hero .big svg{width:36px;height:36px}
 #hero h1{margin:0;font-size:22px;letter-spacing:.06em;font-weight:700}
 #hero h1 b{color:#F0333D}
 #hero p{margin:4px 0 0;color:#8C8C99;font-size:12px}
 
-#body{position:absolute;left:0;right:0;top:214px;bottom:44px;padding:0 22px;overflow-x:hidden;overflow-y:auto;scrollbar-face-color:#2A2A33;scrollbar-track-color:#0B0B0E;scrollbar-arrow-color:#5E5E6A;scrollbar-shadow-color:#0B0B0E;scrollbar-highlight-color:#0B0B0E;scrollbar-3dlight-color:#0B0B0E;scrollbar-darkshadow-color:#0B0B0E}
+#body{position:absolute;left:0;right:0;top:196px;bottom:44px;padding:0 22px;overflow-x:hidden;overflow-y:auto;-ms-overflow-style:-ms-autohiding-scrollbar;scrollbar-face-color:#2A2A33;scrollbar-track-color:#0B0B0E;scrollbar-arrow-color:#5E5E6A;scrollbar-shadow-color:#0B0B0E;scrollbar-highlight-color:#0B0B0E;scrollbar-3dlight-color:#0B0B0E;scrollbar-darkshadow-color:#0B0B0E}
 .card{background:#141419;border:1px solid #23232B;border-radius:16px;padding:6px 16px;margin-bottom:12px}
-.row{display:flex;align-items:center;min-height:40px;border-bottom:1px solid #1F1F26}
+.row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #1F1F26}
 .row:last-child{border-bottom:0}
 .row .l{color:#8C8C99;width:118px;flex:none}
 .row .v{flex:1;text-align:right;font-weight:600}
@@ -55,9 +55,9 @@ input::-ms-clear{display:none}
 .btn.pri:hover{background:linear-gradient(135deg,#FF4550 0%,#C8192A 100%)}
 .btn.huge{height:54px;font-size:16px;letter-spacing:.08em;border-radius:15px}
 .btn.dis{opacity:.45;cursor:default}
-.btn.sm{height:30px;font-size:12px;border-radius:9px;padding:0 10px;display:inline-flex}
+.btn.sm{height:30px;font-size:12px;border-radius:9px;padding:0 10px;display:inline-flex;vertical-align:middle}
 .acts{display:flex;margin-top:10px}
-.acts .btn{flex:1}
+.acts .btn{-ms-flex:1 1 0%;flex:1 1 0%;min-width:0;text-align:center;line-height:1.2}
 .acts .btn+.btn{margin-left:8px}
 .in{width:100%;height:42px;box-sizing:border-box;border-radius:12px;background:#0F0F13;border:1px solid #2A2A33;color:#fff;padding:0 13px;font-size:14px;outline:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif}
 .in:focus{border-color:#E5242F}
@@ -81,7 +81,7 @@ h3{margin:4px 0 10px;font-size:14px}
 .pl b{display:block;font-size:12px;color:#A3A3AF;font-weight:600}
 .pl em{display:block;font-style:normal;font-size:17px;font-weight:700;margin-top:3px}
 .pl small{display:block;font-size:10px;color:#8C8C99;margin-top:2px}
-.pl .tag{position:absolute;top:-8px;left:50%;margin-left:-30px;width:60px;font-size:9px;font-weight:700;background:#E5242F;color:#fff;border-radius:6px;padding:1px 0;letter-spacing:.05em}
+.pl .tag{position:absolute;top:-8px;left:50%;transform:translateX(-50%);-ms-transform:translateX(-50%);white-space:nowrap;font-size:9px;font-weight:700;background:#E5242F;color:#fff;border-radius:6px;padding:1px 7px;letter-spacing:.05em;line-height:14px}
 .keybox{display:flex;align-items:center;background:#0F0F13;border:1px solid #2A2A33;border-radius:12px;padding:10px 12px;margin:10px 0}
 .keybox .mono{flex:1;font-size:14px;font-weight:700;white-space:nowrap}
 
@@ -162,7 +162,7 @@ var EN = {
   'Вставь ключ из письма. Админ-код — тоже сюда.': 'Paste the key from the email. The admin code goes here too.',
   'Создаю платёж…': 'Creating payment…', 'Жду оплату в браузере': 'Waiting for payment in your browser',
   'Ключ придёт в программу сам и привяжется к этому ПК. Окно можно не закрывать.': 'The key will arrive in the app by itself and bind to this PC. Keep this window open.',
-  'Открыть оплату ещё раз': 'Open payment again', 'Отмена': 'Cancel', 'Ключ получен и активирован': 'Key received and activated',
+  'Открыть оплату': 'Open payment', 'Отмена': 'Cancel', 'Ключ получен и активирован': 'Key received and activated',
   'Копировать': 'Copy', 'Скопировано': 'Copied', 'Сохрани ключ — он также отправлен на почту.': 'Save the key, it was also sent to your email.',
   'Перенос на этот ПК': 'Move to this PC',
 'Назад': 'Back', 'Повторить': 'Retry',
@@ -294,7 +294,7 @@ function mainPart() {
     h += '<div class="card center" style="padding:20px 16px">';
     if (P.state === 'creating') h += '<span class="spin big"></span><h3>' + t('Создаю платёж…') + '</h3>';
     else if (P.state === 'waiting') h += '<span class="spin big"></span><h3>' + t('Жду оплату в браузере') + '</h3><p class="msg">' + t('Ключ придёт в программу сам и привяжется к этому ПК. Окно можно не закрывать.') + '</p>' +
-      '<div class="acts"><span class="btn" data-act="reopen">' + t('Открыть оплату ещё раз') + '</span><span class="btn" data-act="cancelPay">' + t('Отмена') + '</span></div>';
+      '<div class="acts"><span class="btn" data-act="reopen">' + t('Открыть оплату') + '</span><span class="btn" data-act="cancelPay">' + t('Отмена') + '</span></div>';
     else if (P.state === 'paid' && P.kind === 'reset') h += '<h3><span class="dot ok"></span>' + t('Привязка перенесена на этот ПК') + '</h3><div class="acts"><span class="btn pri" data-act="paidOk">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</span></div>';
     else if (P.state === 'paid') h += '<h3><span class="dot ok"></span>' + t('Ключ получен и активирован') + '</h3><div class="keybox"><span class="mono" id="pkey">' + esc(P.key) + '</span><span class="btn sm" data-act="copy">' + t('Копировать') + '</span></div>' +
       '<p class="msg">' + t('Сохрани ключ — он также отправлен на почту.') + '</p><div class="acts"><span class="btn pri" data-act="paidOk">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</span></div>';
