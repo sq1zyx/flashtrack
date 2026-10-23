@@ -20,8 +20,6 @@ const env = (k, d = '') => process.env[k] || d;
 const CFG = {
   port: +env('PORT', '8080'),
   site: env('SITE_URL', 'http://localhost:8080').replace(/\/$/, ''),
-  stripeKey: env('STRIPE_SECRET_KEY'),
-  stripeHook: env('STRIPE_WEBHOOK_SECRET'),
   ykShop: env('YOOKASSA_SHOP_ID'),
   ykKey: env('YOOKASSA_SECRET_KEY'),
   ykReceipts: env('YOOKASSA_RECEIPTS') === '1',
@@ -34,16 +32,17 @@ const CFG = {
   dbFile: env('DB_FILE', path.join(__dirname, 'data.sqlite')),
   siteDir: env('SITE_DIR', path.join(__dirname, '..', 'tweakmacro-site')),
   downloadFile: env('DOWNLOAD_FILE', path.join(__dirname, '..', 'macros', 'install-TweakMacro.bat')),
-  appDir: env('APP_DIR', path.join(__dirname, '..', 'macros')),
-  transferDays: Math.max(0, +env('TRANSFER_COOLDOWN_DAYS', '7'))
+  appDir: env('APP_DIR', path.join(__dirname, '..', 'macros'))
 };
 
-// ───── тарифы (цены в центах и рублях) ─────
+// ───── тарифы (цены в рублях) ─────
 const PLANS = {
-  m1: { days: 31, usd: 899, rub: 849, months: 1, name: { ru: 'TweakMacro — 1 месяц', en: 'TweakMacro — 1 month' } },
-  m3: { days: 92, usd: 1999, rub: 1890, months: 3, name: { ru: 'TweakMacro — 3 месяца', en: 'TweakMacro — 3 months' } },
-  life: { days: null, usd: 4999, rub: 4790, months: 0, name: { ru: 'TweakMacro — навсегда', en: 'TweakMacro — lifetime' } }
+  m1: { days: 31, rub: 849, name: { ru: 'TweakMacro — 1 месяц', en: 'TweakMacro — 1 month' } },
+  m3: { days: 92, rub: 1890, name: { ru: 'TweakMacro — 3 месяца', en: 'TweakMacro — 3 months' } },
+  life: { days: null, rub: 4790, name: { ru: 'TweakMacro — навсегда', en: 'TweakMacro — lifetime' } }
 };
+// Платный сброс привязки ключа к ПК: после оплаты ключ переходит на ПК, с которого куплен сброс
+const HWID_RESET = { rub: 279, name: { ru: 'TweakMacro — сброс привязки к ПК', en: 'TweakMacro — PC binding reset' } };
 
 // ───── база ─────
 const db = new Database(CFG.dbFile);
@@ -126,8 +125,7 @@ function licenseView(l) {
   return {
     plan: l.plan,
     expires: l.expires_at ? new Date(l.expires_at).toISOString() : null,
-    expires_unix: l.expires_at ? Math.floor(l.expires_at / 1000) : 0,
-    auto_renew: !!l.auto_renew
+    expires_unix: l.expires_at ? Math.floor(l.expires_at / 1000) : 0
   };
 }
 
@@ -136,16 +134,27 @@ function markPaid(ref, extra = {}) {
   const o = db.prepare('SELECT * FROM orders WHERE ref = ?').get(ref);
   if (!o) throw new Error('order not found: ' + ref);
   if (o.status === 'paid' && o.license_key) return o.license_key;
+  const paid = key => db.prepare("UPDATE orders SET status = 'paid', license_key = ?, paid_at = ?, provider_id = COALESCE(?, provider_id) WHERE ref = ?")
+    .run(key, now(), extra.providerId || null, ref);
+  if (o.plan === 'reset') {
+    db.transaction(() => {
+      db.prepare('DELETE FROM devices WHERE key = ?').run(o.renew_key);
+      if (o.hwid) bindDevice(o.renew_key, o.hwid, normParts(JSON.parse(o.parts || '{}')), 'reset');
+      db.prepare('UPDATE licenses SET last_transfer = ?, transfers = COALESCE(transfers, 0) + 1 WHERE key = ?').run(now(), o.renew_key);
+      paid(o.renew_key);
+    })();
+    console.log(`[hwid-reset] ${ref} → ${o.renew_key}`);
+    return o.renew_key;
+  }
   const plan = PLANS[o.plan];
   // Продление из лаунчера: тот же ключ, срок добавляется к оставшемуся
   const old = o.renew_key && db.prepare("SELECT * FROM licenses WHERE key = ? AND status = 'active'").get(o.renew_key);
   if (old) {
     const exp = !plan.days || !old.expires_at && old.plan === 'life' ? null : Math.max(now(), old.expires_at || 0) + plan.days * DAY;
     db.transaction(() => {
-      db.prepare('UPDATE licenses SET plan = ?, expires_at = ?, sub_id = COALESCE(?, sub_id), auto_renew = ?, email = COALESCE(email, ?) WHERE key = ?')
-        .run(old.plan === 'life' ? 'life' : o.plan, old.plan === 'life' ? null : exp, extra.subId || null, extra.subId ? 1 : old.auto_renew, o.email, old.key);
-      db.prepare("UPDATE orders SET status = 'paid', license_key = ?, paid_at = ?, provider_id = COALESCE(?, provider_id) WHERE ref = ?")
-        .run(old.key, now(), extra.providerId || null, ref);
+      db.prepare('UPDATE licenses SET plan = ?, expires_at = ?, email = COALESCE(email, ?) WHERE key = ?')
+        .run(old.plan === 'life' ? 'life' : o.plan, old.plan === 'life' ? null : exp, o.email, old.key);
+      paid(old.key);
     })();
     sendKeyMail(o.email, old.key, o.plan, o.lang).catch(e => console.error('mail:', e.message));
     console.log(`[renew-paid] ${ref} ${o.plan} → ${old.key}`);
@@ -153,28 +162,15 @@ function markPaid(ref, extra = {}) {
   }
   const key = newKey();
   db.transaction(() => {
-    db.prepare(`INSERT INTO licenses (key, email, plan, expires_at, provider, sub_id, auto_renew, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(key, o.email, o.plan, plan.days ? now() + plan.days * DAY : null, o.provider, extra.subId || null, extra.subId ? 1 : 0, now());
-    db.prepare("UPDATE orders SET status = 'paid', license_key = ?, paid_at = ?, provider_id = COALESCE(?, provider_id) WHERE ref = ?")
-      .run(key, now(), extra.providerId || null, ref);
+    db.prepare('INSERT INTO licenses (key, email, plan, expires_at, provider, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(key, o.email, o.plan, plan.days ? now() + plan.days * DAY : null, o.provider, now());
+    paid(key);
     // Куплено из лаунчера — ключ сразу привязывается к этому ПК
     if (o.hwid) bindDevice(key, o.hwid, normParts(JSON.parse(o.parts || '{}')), 'checkout');
   })();
   sendKeyMail(o.email, key, o.plan, o.lang).catch(e => console.error('mail:', e.message));
-  console.log(`[paid] ${ref} ${o.plan} ${o.currency} → ${key}`);
+  console.log(`[paid] ${ref} ${o.plan} → ${key}`);
   return key;
-}
-
-// Продление подписки Stripe при очередном списании
-function extendBySub(subId) {
-  const l = db.prepare('SELECT * FROM licenses WHERE sub_id = ?').get(subId);
-  if (!l) return;
-  const plan = PLANS[l.plan];
-  if (!plan.days) return;
-  const base = Math.max(now(), l.expires_at || 0);
-  db.prepare('UPDATE licenses SET expires_at = ?, auto_renew = 1 WHERE key = ?').run(base + plan.days * DAY, l.key);
-  console.log(`[renew] ${l.key} +${plan.days}d`);
 }
 
 async function sendKeyMail(to, key, planId, lang) {
@@ -193,7 +189,6 @@ async function sendKeyMail(to, key, planId, lang) {
 }
 
 // ───── платёжные системы ─────
-const stripe = CFG.stripeKey ? require('stripe')(CFG.stripeKey) : null;
 const ykOn = !!(CFG.ykShop && CFG.ykKey);
 
 async function ykRequest(method, url, body, idemKey) {
@@ -211,39 +206,20 @@ async function ykRequest(method, url, body, idemKey) {
   return data;
 }
 
-async function createCheckout({ planId, currency, email, lang, hwid = '', parts = {}, source = 'site', renewKey = null }) {
-  const plan = PLANS[planId];
+async function createCheckout({ planId, email, lang, hwid = '', parts = {}, source = 'site', renewKey = null }) {
+  const plan = planId === 'reset' ? HWID_RESET : PLANS[planId];
   const ref = crypto.randomUUID();
-  const amount = currency === 'usd' ? plan.usd : plan.rub;
   const success = `${CFG.site}/success.html?ref=${ref}`;
-  const cancel = `${CFG.site}/#pricing`;
   const name = plan.name[lang === 'en' ? 'en' : 'ru'];
   const insert = provider => db.prepare(`INSERT INTO orders (ref, provider, plan, currency, amount, email, lang, created_at, hwid, parts, source, renew_key)
-                                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(ref, provider, planId, currency, amount, email, lang, now(), hwid || null, JSON.stringify(parts), source, renewKey);
+                                         VALUES (?, ?, ?, 'rub', ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(ref, provider, planId, plan.rub, email, lang, now(), hwid || null, JSON.stringify(parts), source, renewKey);
 
   if (CFG.devPay) {
     insert('dev');
     return { ref, url: `${CFG.site}/dev-pay?ref=${ref}` };
   }
-  if (currency === 'usd') {
-    if (!stripe) throw Object.assign(new Error('Оплата в долларах ещё не подключена'), { code: 'not_configured' });
-    insert('stripe');
-    const recurring = plan.months ? { interval: 'month', interval_count: plan.months } : undefined;
-    const s = await stripe.checkout.sessions.create({
-      mode: recurring ? 'subscription' : 'payment',
-      customer_email: email,
-      line_items: [{ quantity: 1, price_data: { currency: 'usd', unit_amount: plan.usd, product_data: { name }, ...(recurring ? { recurring } : {}) } }],
-      success_url: success,
-      cancel_url: cancel,
-      locale: lang === 'en' ? 'en' : 'auto',
-      metadata: { ref, plan: planId },
-      ...(recurring ? { subscription_data: { metadata: { ref, plan: planId } } } : {})
-    });
-    db.prepare('UPDATE orders SET provider_id = ? WHERE ref = ?').run(s.id, ref);
-    return { ref, url: s.url };
-  }
-  if (!ykOn) throw Object.assign(new Error('Оплата в рублях ещё не подключена'), { code: 'not_configured' });
+  if (!ykOn) throw Object.assign(new Error('Оплата ещё не подключена'), { code: 'not_configured' });
   insert('yookassa');
   const value = plan.rub.toFixed(2);
   const p = await ykRequest('POST', '/payments', {
@@ -281,30 +257,6 @@ function limit(max) {
 }
 setInterval(() => { const t = now(); for (const [k, h] of hits) if (t - h.t > 120000) hits.delete(k); }, 60000).unref();
 
-// Вебхук Stripe — нужен «сырой» body для проверки подписи, поэтому до express.json()
-app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), (req, res) => {
-  if (!stripe || !CFG.stripeHook) return res.status(503).end();
-  let ev;
-  try { ev = stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], CFG.stripeHook); }
-  catch (e) { return res.status(400).send('bad signature'); }
-  if (db.prepare('SELECT 1 FROM events WHERE id = ?').get(ev.id)) return res.json({ ok: true });
-  try {
-    const o = ev.data.object;
-    if (ev.type === 'checkout.session.completed' && o.metadata && o.metadata.ref && (o.payment_status === 'paid' || o.mode === 'subscription')) {
-      markPaid(o.metadata.ref, { subId: o.subscription || null, providerId: o.id });
-    } else if (ev.type === 'invoice.paid' && o.billing_reason === 'subscription_cycle' && o.subscription) {
-      extendBySub(typeof o.subscription === 'string' ? o.subscription : o.subscription.id);
-    } else if (ev.type === 'customer.subscription.deleted') {
-      db.prepare('UPDATE licenses SET auto_renew = 0 WHERE sub_id = ?').run(o.id);
-    }
-    db.prepare('INSERT INTO events (id, at) VALUES (?, ?)').run(ev.id, now());
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('stripe webhook:', e.message);
-    res.status(500).end();
-  }
-});
-
 app.use(express.json({ limit: '20kb' }));
 app.use('/api', (req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
@@ -330,20 +282,23 @@ app.post('/webhooks/yookassa', async (req, res) => {
 
 app.get('/api/plans', (req, res) => {
   res.json({
-    plans: Object.fromEntries(Object.entries(PLANS).map(([id, p]) => [id, { usd: p.usd / 100, rub: p.rub, months: p.months }])),
-    methods: { usd: !!stripe || CFG.devPay, rub: ykOn || CFG.devPay }
+    plans: Object.fromEntries(Object.entries(PLANS).map(([id, p]) => [id, { rub: p.rub }])),
+    reset: HWID_RESET.rub,
+    enabled: ykOn || CFG.devPay
   });
 });
 
 app.post('/api/checkout', limit(20), async (req, res) => {
-  const { plan, currency, email, lang, hwid, parts, renew_key } = req.body || {};
-  if (!PLANS[plan]) return res.status(400).json({ error: 'bad_plan' });
-  if (currency !== 'usd' && currency !== 'rub') return res.status(400).json({ error: 'bad_currency' });
+  const { plan, email, lang, hwid, parts, renew_key } = req.body || {};
+  if (!PLANS[plan] && plan !== 'reset') return res.status(400).json({ error: 'bad_plan' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || ''))) return res.status(400).json({ error: 'bad_email' });
+  const key = renew_key ? normKey(renew_key) : null;
+  const lic = key && db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
+  // Сброс привязки покупается только для существующего ключа и с ПК, на который он переедет
+  if (plan === 'reset' && (!lic || lic.status !== 'active' || !hwid)) return res.status(400).json({ error: 'invalid_key' });
   try {
-    const r = await createCheckout({ planId: plan, currency, email: String(email).trim().toLowerCase(), lang: lang === 'en' ? 'en' : 'ru',
-      hwid: normHwid(hwid), parts: normParts(parts), source: hwid ? 'app' : 'site',
-      renewKey: renew_key && db.prepare('SELECT 1 FROM licenses WHERE key = ?').get(normKey(renew_key)) ? normKey(renew_key) : null });
+    const r = await createCheckout({ planId: plan, email: String(email).trim().toLowerCase(), lang: lang === 'en' ? 'en' : 'ru',
+      hwid: normHwid(hwid), parts: normParts(parts), source: hwid ? 'app' : 'site', renewKey: lic ? key : null });
     res.json(r);
   } catch (e) {
     console.error('checkout:', e.message);
@@ -367,27 +322,6 @@ app.post('/api/license/activate', limit(30), (req, res) => {
   const r = checkDevice(key, hwid, normParts(b.parts), b.app);
   if (!r.ok) return res.json({ valid: false, error: r.error, ...(r.license ? licenseView(r.license) : {}) });
   res.json({ valid: true, ...licenseView(r.license) });
-});
-
-// Перенос ключа на новый ПК без поддержки: нужна почта, на которую куплен ключ.
-// Не чаще раза в TRANSFER_COOLDOWN_DAYS дней, чтобы ключ не передавали по кругу.
-app.post('/api/license/transfer', limit(10), (req, res) => {
-  const b = req.body || {}, key = normKey(b.key), hwid = normHwid(b.hwid), email = String(b.email || '').trim().toLowerCase();
-  if (!key || !hwid) return res.status(400).json({ valid: false, error: 'bad_request' });
-  const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
-  if (!l || l.status !== 'active') return res.json({ valid: false, error: 'invalid_key' });
-  if (!l.email) return res.json({ valid: false, error: 'no_email' });
-  if (!email || email !== String(l.email).toLowerCase()) return res.json({ valid: false, error: 'email_mismatch' });
-  const next = (l.last_transfer || 0) + CFG.transferDays * DAY;
-  if (next > now()) return res.json({ valid: false, error: 'cooldown', next_unix: Math.floor(next / 1000) });
-  db.transaction(() => {
-    db.prepare('DELETE FROM devices WHERE key = ?').run(key);
-    bindDevice(key, hwid, normParts(b.parts), b.app);
-    db.prepare('UPDATE licenses SET last_transfer = ?, transfers = COALESCE(transfers, 0) + 1 WHERE key = ?').run(now(), key);
-  })();
-  console.log(`[transfer] ${key}`);
-  if (l.expires_at && l.expires_at < now()) return res.json({ valid: false, error: 'expired', ...licenseView(l) });
-  res.json({ valid: true, ...licenseView(l) });
 });
 
 // ───── обновления программы ─────
@@ -439,6 +373,33 @@ app.get('/api/admin/licenses', admin, (req, res) => {
   res.json(db.prepare(`SELECT l.*, (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices
                        FROM licenses l ORDER BY created_at DESC LIMIT 500`).all());
 });
+// Сводка для админ-вкладки программы
+app.get('/api/admin/stats', admin, (req, res) => {
+  const t = now(), one = (sql, ...a) => db.prepare(sql).get(...a);
+  const activeWhere = "status = 'active' AND (expires_at IS NULL OR expires_at > ?)";
+  const byPlan = {};
+  for (const r of db.prepare(`SELECT plan, COUNT(*) AS n FROM licenses WHERE ${activeWhere} GROUP BY plan`).all(t)) byPlan[r.plan] = r.n;
+  const sum = (from, plan) => one(`SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS n FROM orders WHERE status = 'paid' AND currency = 'rub' AND provider != 'dev' AND paid_at >= ?${plan ? ' AND plan = ?' : ''}`, from, ...(plan ? [plan] : []));
+  res.json({
+    active: one(`SELECT COUNT(*) AS n FROM licenses WHERE ${activeWhere}`, t).n,
+    people: one(`SELECT COUNT(DISTINCT COALESCE(NULLIF(email, ''), key)) AS n FROM licenses WHERE ${activeWhere}`, t).n,
+    by_plan: { m1: byPlan.m1 || 0, m3: byPlan.m3 || 0, life: byPlan.life || 0 },
+    expired: one("SELECT COUNT(*) AS n FROM licenses WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?", t).n,
+    revoked: one("SELECT COUNT(*) AS n FROM licenses WHERE status = 'revoked'").n,
+    total: one('SELECT COUNT(*) AS n FROM licenses').n,
+    new7: one('SELECT COUNT(*) AS n FROM licenses WHERE created_at >= ?', t - 7 * DAY).n,
+    new30: one('SELECT COUNT(*) AS n FROM licenses WHERE created_at >= ?', t - 30 * DAY).n,
+    expiring7: one(`SELECT COUNT(*) AS n FROM licenses WHERE ${activeWhere} AND expires_at IS NOT NULL AND expires_at < ?`, t, t + 7 * DAY).n,
+    online24: one('SELECT COUNT(DISTINCT key) AS n FROM devices WHERE last_seen >= ?', t - DAY).n,
+    revenue30: sum(t - 30 * DAY).s,
+    revenue: sum(0).s,
+    resets30: sum(t - 30 * DAY, 'reset').n,
+    recent: db.prepare(`SELECT l.key, l.email, l.plan, l.status, l.expires_at, l.created_at, l.provider,
+                          (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices,
+                          (SELECT MAX(last_seen) FROM devices d WHERE d.key = l.key) AS last_seen
+                        FROM licenses l ORDER BY l.created_at DESC LIMIT 100`).all()
+  });
+});
 app.get('/api/admin/licenses/:key', admin, (req, res) => {
   const key = normKey(req.params.key);
   const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
@@ -463,7 +424,7 @@ if (CFG.devPay) {
     res.send(`<!doctype html><meta charset="utf-8"><title>Тестовая оплата</title>
 <body style="font:16px system-ui;background:#0A0A0D;color:#eee;display:grid;place-items:center;height:100vh;margin:0">
 <form method="post" style="background:#17171D;padding:28px;border-radius:18px;max-width:360px">
-<h2 style="margin-top:0">Тестовая оплата</h2><p>Тариф: <b>${o.plan}</b>, ${o.currency === 'usd' ? '$' + (o.amount / 100).toFixed(2) : o.amount + ' ₽'}</p>
+<h2 style="margin-top:0">Тестовая оплата</h2><p>Тариф: <b>${o.plan}</b>, ${o.amount} ₽</p>
 <p style="color:#999">Это заглушка для проверки. Настоящие деньги не списываются.</p>
 <button style="background:#E5242F;color:#fff;border:0;padding:12px 18px;border-radius:12px;font-size:15px">Оплатить (тест)</button></form>`);
   });
@@ -483,7 +444,7 @@ if (fs.existsSync(CFG.siteDir)) app.use(express.static(CFG.siteDir, { extensions
 if (require.main === module) {
   app.listen(CFG.port, () => {
     console.log(`TweakMacro server: http://localhost:${CFG.port}`);
-    console.log(`  Stripe: ${stripe ? 'вкл' : 'выкл'}, ЮKassa: ${ykOn ? 'вкл' : 'выкл'}, письма: ${CFG.resendKey ? 'вкл' : 'выкл'}, тест-оплата: ${CFG.devPay ? 'ВКЛ' : 'выкл'}`);
+    console.log(`  ЮKassa: ${ykOn ? 'вкл' : 'выкл'}, письма: ${CFG.resendKey ? 'вкл' : 'выкл'}, тест-оплата: ${CFG.devPay ? 'ВКЛ' : 'выкл'}`);
   });
 }
 module.exports = { app, db, markPaid, PLANS };

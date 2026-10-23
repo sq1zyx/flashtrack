@@ -1,15 +1,12 @@
-// Проверка сервера без реальных платёжных систем: тестовая оплата и подписанный вебхук Stripe.
+// Проверка сервера без реальных платёжных систем: тестовая оплата, привязка к ПК, админка.
 const assert = require('assert');
 const os = require('os');
 const path = require('path');
 process.env.DB_FILE = path.join(os.tmpdir(), 'tm-test-' + Date.now() + '.sqlite');
 process.env.DEV_FAKE_PAY = '1';
-process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
 process.env.ADMIN_TOKEN = 'admin-test-token-123';
 process.env.SITE_URL = 'http://site.test';
 const { app, db } = require('./server');
-const Stripe = require('stripe');
 
 (async () => {
   const srv = app.listen(0);
@@ -17,7 +14,7 @@ const Stripe = require('stripe');
   const post = (u, b, h = {}) => fetch(base + u, { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify(b) });
   try {
     // 1. заказ и тестовая оплата
-    let r = await post('/api/checkout', { plan: 'm3', currency: 'rub', email: 'Test@Mail.ru', lang: 'ru' });
+    let r = await post('/api/checkout', { plan: 'm3', email: 'Test@Mail.ru', lang: 'ru' });
     let j = await r.json();
     assert.ok(j.url.includes('/dev-pay?ref='), 'checkout url');
     const ref = new URL(j.url).searchParams.get('ref');
@@ -47,39 +44,17 @@ const Stripe = require('stripe');
     console.log('✓ просроченный ключ не принимается');
 
     // 4. ошибки ввода и админка
-    assert.equal((await post('/api/checkout', { plan: 'x', currency: 'usd', email: 'a@b.cc' })).status, 400);
-    assert.equal((await post('/api/checkout', { plan: 'm1', currency: 'usd', email: 'bad' })).status, 400);
+    assert.equal((await post('/api/checkout', { plan: 'x', email: 'a@b.cc' })).status, 400);
+    assert.equal((await post('/api/checkout', { plan: 'm1', email: 'bad' })).status, 400);
     assert.equal((await post('/api/admin/licenses', { plan: 'life' })).status, 401);
     j = await (await post('/api/admin/licenses', { plan: 'life', email: 'friend@x.io' }, { Authorization: 'Bearer admin-test-token-123' })).json();
     const life = j.key;
     j = await (await post('/api/license/activate', { key: life, hwid: 'PC-Z' })).json(); assert.equal(j.valid, true); assert.equal(j.expires, null);
     console.log('✓ проверки ввода, ручной вечный ключ');
 
-    // 5. вебхук Stripe: оплата подписки и продление
-    db.prepare("INSERT INTO orders (ref, provider, plan, currency, amount, email, lang, created_at) VALUES ('stripe-ref', 'stripe', 'm1', 'usd', 899, 's@x.io', 'en', ?)").run(Date.now());
-    const stripe = Stripe('sk_test_dummy');
-    const send = async ev => {
-      const payload = JSON.stringify(ev);
-      const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: 'whsec_test_secret' });
-      return fetch(base + '/webhooks/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'stripe-signature': sig }, body: payload });
-    };
-    r = await send({ id: 'evt_1', type: 'checkout.session.completed', data: { object: { id: 'cs_1', mode: 'subscription', payment_status: 'paid', subscription: 'sub_1', metadata: { ref: 'stripe-ref' } } } });
-    assert.equal(r.status, 200);
-    const sk = db.prepare("SELECT * FROM licenses WHERE sub_id = 'sub_1'").get();
-    assert.ok(sk && sk.plan === 'm1');
-    const exp1 = sk.expires_at;
-    await send({ id: 'evt_2', type: 'invoice.paid', data: { object: { billing_reason: 'subscription_cycle', subscription: 'sub_1' } } });
-    const exp2 = db.prepare("SELECT expires_at FROM licenses WHERE sub_id = 'sub_1'").get().expires_at;
-    assert.ok(Math.round((exp2 - exp1) / 86400000) === 31, 'renewal +31d');
-    await send({ id: 'evt_2', type: 'invoice.paid', data: { object: { billing_reason: 'subscription_cycle', subscription: 'sub_1' } } });
-    assert.equal(db.prepare("SELECT expires_at FROM licenses WHERE sub_id = 'sub_1'").get().expires_at, exp2, 'duplicate event ignored');
-    r = await fetch(base + '/webhooks/stripe', { method: 'POST', headers: { 'Content-Type': 'application/json', 'stripe-signature': 't=1,v1=bad' }, body: '{}' });
-    assert.equal(r.status, 400);
-    console.log('✓ вебхук Stripe: подпись, оплата, продление, защита от повторов');
-
     // 6. покупка из лаунчера: ключ сразу привязан к ПК, допуск к смене одной детали
     const P = { mg: 'a'.repeat(64), vol: 'b'.repeat(64), cpu: 'c'.repeat(64), board: 'd'.repeat(64) };
-    j = await (await post('/api/checkout', { plan: 'm1', currency: 'usd', email: 'app@x.io', hwid: 'HW-1', parts: P })).json();
+    j = await (await post('/api/checkout', { plan: 'm1', email: 'app@x.io', hwid: 'HW-1', parts: P })).json();
     assert.ok(j.ref && j.url, 'checkout returns ref');
     await fetch(base + '/dev-pay?ref=' + j.ref, { method: 'POST', redirect: 'manual' });
     const ak = (await (await fetch(base + '/api/order/' + j.ref)).json()).key;
@@ -91,23 +66,36 @@ const Stripe = require('stripe');
     assert.equal(j.valid, true, 'parts updated after previous match');
     console.log('✓ автовыдача в лаунчер, привязка при оплате, смена железа');
 
-    // 7. перенос на новый ПК по почте
-    j = await (await post('/api/license/transfer', { key: ak, email: 'wrong@x.io', hwid: 'HW-NEW' })).json(); assert.equal(j.error, 'email_mismatch');
-    j = await (await post('/api/license/transfer', { key: ak, email: 'APP@x.io', hwid: 'HW-NEW' })).json(); assert.equal(j.valid, true);
+    // 7. платный сброс привязки: ключ переезжает на ПК, с которого куплен сброс
+    j = await (await post('/api/checkout', { plan: 'reset', email: 'app@x.io', renew_key: 'TM-AAAA-BBBB-CCCC-DDDD', hwid: 'HW-NEW' })).json();
+    assert.equal(j.error, 'invalid_key');
+    j = await (await post('/api/checkout', { plan: 'reset', email: 'app@x.io', renew_key: ak, hwid: 'HW-NEW' })).json();
+    let o = db.prepare('SELECT amount, plan FROM orders WHERE ref = ?').get(j.ref);
+    assert.equal(o.amount, 279); assert.equal(o.plan, 'reset');
+    j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-NEW' })).json(); assert.equal(j.error, 'other_device', 'not moved before payment');
+    const rref = db.prepare("SELECT ref FROM orders WHERE plan = 'reset'").get().ref;
+    await fetch(base + '/dev-pay?ref=' + rref, { method: 'POST', redirect: 'manual' });
+    assert.equal((await (await fetch(base + '/api/order/' + rref)).json()).key, ak);
     j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-NEW' })).json(); assert.equal(j.valid, true);
     j = await (await post('/api/license/activate', { key: ak, hwid: 'HW-1' })).json(); assert.equal(j.error, 'other_device');
-    j = await (await post('/api/license/transfer', { key: ak, email: 'app@x.io', hwid: 'HW-1' })).json(); assert.equal(j.error, 'cooldown');
-    console.log('✓ перенос ключа по почте с ограничением раз в 7 дней');
+    console.log('✓ сброс привязки за 279 ₽');
 
     // 7b. продление из лаунчера сохраняет ключ и добавляет срок
     const before = db.prepare('SELECT expires_at FROM licenses WHERE key = ?').get(ak).expires_at;
-    j = await (await post('/api/checkout', { plan: 'm3', currency: 'rub', email: 'app@x.io', hwid: 'HW-NEW', renew_key: ak })).json();
+    j = await (await post('/api/checkout', { plan: 'm3', email: 'app@x.io', hwid: 'HW-NEW', renew_key: ak })).json();
     await fetch(base + '/dev-pay?ref=' + j.ref, { method: 'POST', redirect: 'manual' });
     j = await (await fetch(base + '/api/order/' + j.ref)).json();
     assert.equal(j.key, ak, 'same key after renewal');
     const after = db.prepare('SELECT expires_at, plan FROM licenses WHERE key = ?').get(ak);
     assert.equal(Math.round((after.expires_at - before) / 86400000), 92); assert.equal(after.plan, 'm3');
     console.log('✓ продление того же ключа');
+
+    // 7c. статистика для админ-вкладки
+    assert.equal((await fetch(base + '/api/admin/stats')).status, 401);
+    j = await (await fetch(base + '/api/admin/stats', { headers: { Authorization: 'Bearer admin-test-token-123' } })).json();
+    assert.ok(j.active >= 2 && j.people >= 2 && j.by_plan.life >= 1 && Array.isArray(j.recent), 'stats');
+    j = await (await fetch(base + '/api/plans')).json(); assert.equal(j.reset, 279); assert.equal(j.plans.m1.rub, 849); assert.ok(!('usd' in j.plans.m1));
+    console.log('✓ статистика подписок для админа');
 
     // 8. обновления
     j = await (await fetch(base + '/api/app/manifest')).json();

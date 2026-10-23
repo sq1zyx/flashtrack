@@ -82,11 +82,6 @@ h3{margin:4px 0 10px;font-size:14px}
 .pl em{display:block;font-style:normal;font-size:17px;font-weight:700;margin-top:3px}
 .pl small{display:block;font-size:10px;color:#8C8C99;margin-top:2px}
 .pl .tag{position:absolute;top:-8px;left:50%;margin-left:-30px;width:60px;font-size:9px;font-weight:700;background:#E5242F;color:#fff;border-radius:6px;padding:1px 0;letter-spacing:.05em}
-.cur{display:flex;margin-bottom:10px}
-.cur span{flex:1;text-align:center;padding:7px 0;border-radius:10px;border:1px solid #2A2A33;font-weight:700;font-size:12px;color:#8C8C99;cursor:pointer}
-.cur span+span{margin-left:8px}
-.cur span.on{border-color:#E5242F;color:#fff;background:#1E1013}
-.cur span.dis{opacity:.4;cursor:default}
 .keybox{display:flex;align-items:center;background:#0F0F13;border:1px solid #2A2A33;border-radius:12px;padding:10px 12px;margin:10px 0}
 .keybox .mono{flex:1;font-size:14px;font-weight:700;white-space:nowrap}
 
@@ -114,7 +109,7 @@ h3{margin:4px 0 10px;font-size:14px}
 </div>
 <script>window.onerror = function (m, u, l) { document.title = 'JSERR ' + m + ' @' + l; };</script>
 <script>
-var ahk = null, S = null, view = '', plan = 'm3', cur = '', lastHtml = '';
+var ahk = null, S = null, view = '', plan = 'm3', lastHtml = '';
 function setBridge(b) { ahk = b; }
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -123,10 +118,9 @@ function call(name, a, b, c) {
   try {
     switch (name) {
       case 'activate': return ahk.activate(a);
-      case 'buy': return ahk.buy(a, b, c);
+      case 'buy': return ahk.buy(a, b);
       case 'cancelPay': return ahk.cancelPay();
       case 'reopenPay': return ahk.reopenPay();
-      case 'transfer': return ahk.transfer(a);
       case 'update': return ahk.update();
       case 'recheck': return ahk.recheck();
       case 'launch': return ahk.launch();
@@ -160,23 +154,23 @@ var EN = {
   'Покупка': 'Purchase', 'Почта для чека и ключа': 'Email for receipt and key', 'Оплатить': 'Pay',
   'в месяц': '/ month', 'за 3 месяца': 'for 3 months', 'один раз': 'one time', 'ВЫГОДНО': 'BEST',
   '1 месяц': '1 month', '3 месяца': '3 months',
-  'Оплата в долларах продлевается автоматически, в рублях — нет.': 'Dollar payments renew automatically, ruble payments do not.',
+  'Оплата картой РФ, через СБП или ЮMoney. Продление добавляет срок к этому же ключу.': 'Pay with a Russian card, SBP or YooMoney. Renewing adds time to the same key.',
+  'Оплата пока не подключена.': 'Payments are not available yet.',
+  'Сброс привязки к ПК': 'PC binding reset', 'Привязка перенесена на этот ПК': 'Binding moved to this PC',
+  'Ключ уже активирован на другом ПК. Сбрось привязку — после оплаты ключ сразу перейдёт на этот ПК. Замена 1–2 деталей или переустановка Windows сброса не требует.': 'The key is already activated on another PC. Reset the binding and after payment the key moves to this PC right away. Replacing 1–2 parts or reinstalling Windows does not need a reset.',
+  'Сбросить за': 'Reset for', 'Почта для чека': 'Email for the receipt', 'Админ-доступ': 'Admin access', 'Все функции': 'All features',
+  'Вставь ключ из письма. Админ-код — тоже сюда.': 'Paste the key from the email. The admin code goes here too.',
   'Создаю платёж…': 'Creating payment…', 'Жду оплату в браузере': 'Waiting for payment in your browser',
   'Ключ придёт в программу сам и привяжется к этому ПК. Окно можно не закрывать.': 'The key will arrive in the app by itself and bind to this PC. Keep this window open.',
   'Открыть оплату ещё раз': 'Open payment again', 'Отмена': 'Cancel', 'Ключ получен и активирован': 'Key received and activated',
   'Копировать': 'Copy', 'Скопировано': 'Copied', 'Сохрани ключ — он также отправлен на почту.': 'Save the key, it was also sent to your email.',
   'Перенос на этот ПК': 'Move to this PC',
-  'Ключ уже активирован на другом ПК. Укажи почту, на которую он куплен, — привязка перейдёт на этот ПК. Переносить можно раз в 7 дней.': 'The key is already activated on another PC. Enter the email you bought it with and the binding moves to this PC. You can do this once every 7 days.',
-  'Перенести': 'Move', 'Назад': 'Back', 'Повторить': 'Retry',
+'Назад': 'Back', 'Повторить': 'Retry',
   'Сайт': 'Website', 'Папка программы': 'App folder', 'Проверить ещё раз': 'Check again',
   'Вставь ключ целиком.': 'Paste the whole key.', 'Проверь адрес почты.': 'Check your email address.',
   'Нет связи с сервером. Проверь интернет.': 'No connection to the server. Check your internet.',
-  'Этот способ оплаты пока не подключён — выбери другую валюту.': 'This payment method is not available yet, choose another currency.',
   'Платёжная система не ответила. Попробуй ещё раз.': 'The payment system did not respond. Try again.',
   'Заказ не найден. Если деньги списались — напиши в поддержку.': 'Order not found. If you were charged, contact support.',
-  'Почта не совпадает с почтой покупки.': 'The email does not match the purchase email.',
-  'У этого ключа нет почты — перенос через поддержку.': 'This key has no email, transfer via support.',
-  'Переносить можно раз в 7 дней. Следующий перенос:': 'You can move the key once every 7 days. Next transfer:',
   'Такой ключ не найден. Проверь, что скопировал его полностью.': 'Key not found. Make sure you copied all of it.',
   'Срок подписки закончился. Продли её — ключ останется тем же.': 'Your subscription has ended. Renew it and keep the same key.',
   'Нет связи с сервером, а последняя проверка была больше 3 дней назад.': 'No connection to the server and the last check was over 3 days ago.',
@@ -195,15 +189,12 @@ var LIC_ERR = {
 };
 var PAY_ERR = {
   network: 'Нет связи с сервером. Проверь интернет.', bad_email: 'Проверь адрес почты.',
-  not_configured: 'Этот способ оплаты пока не подключён — выбери другую валюту.', payment_error: 'Платёжная система не ответила. Попробуй ещё раз.',
-  not_found: 'Заказ не найден. Если деньги списались — напиши в поддержку.'
+  not_configured: 'Оплата пока не подключена.', payment_error: 'Платёжная система не ответила. Попробуй ещё раз.',
+  not_found: 'Заказ не найден. Если деньги списались — напиши в поддержку.', invalid_key: LIC_ERR.invalid_key
 };
-var TR_ERR = { email_mismatch: 'Почта не совпадает с почтой покупки.', no_email: 'У этого ключа нет почты — перенос через поддержку.', network: 'Нет связи с сервером. Проверь интернет.', invalid_key: LIC_ERR.invalid_key };
 
-function money(c, v) {
-  v = Number(v);
-  if (c === 'usd') return '$' + v.toFixed(2);
-  var s = String(Math.round(v)), o = '';
+function money(v) {
+  var s = String(Math.round(Number(v) || 0)), o = '';
   while (s.length > 3) { o = ' ' + s.slice(-3) + o; s = s.slice(0, -3); }
   return s + o + ' ₽';
 }
@@ -216,15 +207,13 @@ function render(json) {
   var focus = document.activeElement && document.activeElement.id;
   S = JSON.parse(json);
   lang = S.lang === 'en' ? 'en' : 'ru';
-  if (!cur) cur = lang === 'en' ? 'usd' : 'rub';
-  if (S.methods && !S.methods[cur]) cur = cur === 'usd' ? 'rub' : 'usd';
   var segs = $('lang').getElementsByTagName('span');
   for (i = 0; i < segs.length; i++) segs[i].className = segs[i].getAttribute('data-v') === lang ? 'on' : '';
   $('sub').innerHTML = esc(t('Макросы для Fortnite')) + ' · v' + esc(S.version);
   $('fsite').innerHTML = t('Сайт'); $('ffold').innerHTML = t('Папка программы'); $('fver').innerHTML = 'v' + esc(S.version);
   $('fsite').style.display = S.api ? '' : 'none';
 
-  var v = curView(), h = (v === 'buy' || v === 'pay' || v === 'transfer' ? '' : statusCard()) + mainPart();
+  var v = curView(), h = (v === 'buy' || v === 'pay' || v === 'reset' ? '' : statusCard()) + mainPart();
   if (h !== lastHtml) {
     lastHtml = h;
     $('body').innerHTML = h;
@@ -247,12 +236,13 @@ function statusCard() {
 
   var l;
   if (L.state === 'free') l = '<span class="dot ok"></span>' + t('Не требуется');
+  else if (L.state === 'admin') l = '<span class="dot ok"></span>' + t('Админ-доступ') + '<small>' + t('Все функции') + '</small>';
   else if (L.state === 'checking' || S.step === 'update' || (S.step === 'license' && !L.ok)) l = '<span class="spin"></span>' + t('Проверяю ключ…');
   else if (L.ok) l = '<span class="dot ok"></span>' + t('Активна') + ' · ' + esc(t(PLAN[L.plan] || L.plan || '')) +
     '<small>' + (L.expires ? t('до') + ' ' + esc(L.expires) : t('Навсегда')) + (L.state === 'offline' ? ' · ' + t('Без интернета, по последней проверке') : '') + '</small>';
   else l = '<span class="dot bad"></span>' + t('Не активна');
   h += '<div class="row"><span class="l">' + t('Подписка') + '</span><span class="v">' + l + '</span></div>';
-  if (L.key) h += '<div class="row"><span class="l">' + t('Ключ') + '</span><span class="v mono">' + esc(L.key) + '</span></div>';
+  if (L.key && L.state !== 'admin') h += '<div class="row"><span class="l">' + t('Ключ') + '</span><span class="v mono">' + esc(L.key) + '</span></div>';
   if (S.api && L.hwid) h += '<div class="row"><span class="l">' + t('ID этого ПК') + '</span><span class="v mono">' + esc(L.hwid) + '</span></div>';
   return h + '</div>';
 }
@@ -260,27 +250,27 @@ function statusCard() {
 function curView() {
   var P = S.pay || {}, L = S.lic || {};
   if (P.state) return 'pay';
-  if (view === 'buy' || view === 'transfer' || view === 'key') return view;
+  if (view === 'buy' || view === 'reset' || view === 'key') return view;
   if (S.step !== 'done') return 'wait';
   if (L.ok) return 'ready';
-  if (L.state === 'other_device') return 'transfer';
+  if (L.state === 'other_device') return 'reset';
   return 'key';
 }
 
 function mainPart() {
-  var v = curView(), L = S.lic || {}, P = S.pay || {}, T = S.tr || {}, h = '';
+  var v = curView(), L = S.lic || {}, P = S.pay || {}, pr = S.prices || {}, h = '';
   if (v === 'wait') return '<div class="center" style="padding-top:18px"><span class="spin big"></span></div>';
   if (v === 'ready') {
     if ((S.upd || {}).state === 'available')
       h += '<p class="msg center">' + t('Сначала установи обновление или запусти текущую версию.') + '</p>';
     h += '<div class="btn pri huge" data-act="launch">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</div>';
     h += '<div class="chk' + (S.auto ? ' on' : '') + '" data-act="auto"><i></i>' + t('Запускать сразу, без лаунчера') + '</div>';
-    if (S.api && L.state !== 'free') h += '<div class="acts"><span class="btn" data-act="recheck">' + t('Проверить ещё раз') + '</span><span class="btn" data-act="view" data-v="buy">' + t('Продлить') + '</span></div>';
+    if (S.api && L.state !== 'free' && L.state !== 'admin') h += '<div class="acts"><span class="btn" data-act="recheck">' + t('Проверить ещё раз') + '</span><span class="btn" data-act="view" data-v="buy">' + t('Продлить') + '</span></div>';
     return h;
   }
   if (v === 'key') {
     h += '<div class="card" style="padding:14px 16px"><h3>' + t('Активация') + '</h3>';
-    h += '<p class="msg">' + t(LIC_ERR[L.state] || 'Вставь ключ из письма или со страницы после оплаты.') + '</p>';
+    h += '<p class="msg">' + t(LIC_ERR[L.state] || 'Вставь ключ из письма. Админ-код — тоже сюда.') + '</p>';
     h += '<input class="in key" id="key" placeholder="TM-XXXX-XXXX-XXXX-XXXX" maxlength="40">';
     h += '<div id="kerr" class="err" style="display:none"></div>';
     h += '<div class="acts"><span class="btn pri" data-act="activate">' + t('Активировать') + '</span></div></div>';
@@ -288,19 +278,15 @@ function mainPart() {
     return h;
   }
   if (v === 'buy') {
-    var pr = S.prices || {}, m = S.methods || { usd: 1, rub: 1 }, ids = ['m1', 'm3', 'life'], per = { m1: 'в месяц', m3: 'за 3 месяца', life: 'один раз' };
-    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Покупка') + '</h3><div class="cur">' +
-      '<span class="' + (cur === 'usd' ? 'on' : '') + (m.usd ? '' : ' dis') + '" data-act="cur" data-v="usd">$ USD</span>' +
-      '<span class="' + (cur === 'rub' ? 'on' : '') + (m.rub ? '' : ' dis') + '" data-act="cur" data-v="rub">₽ RUB</span></div><div class="plans">';
-    for (var i = 0; i < ids.length; i++) {
-      var p = pr[ids[i]] || {};
+    var ids = ['m1', 'm3', 'life'], per = { m1: 'в месяц', m3: 'за 3 месяца', life: 'один раз' };
+    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Покупка') + '</h3><div class="plans">';
+    for (var i = 0; i < ids.length; i++)
       h += '<div class="pl' + (plan === ids[i] ? ' on' : '') + '" data-act="plan" data-v="' + ids[i] + '">' + (ids[i] === 'm3' ? '<span class="tag">' + t('ВЫГОДНО') + '</span>' : '') +
-        '<b>' + t(PLAN[ids[i]]) + '</b><em>' + money(cur, p[cur]) + '</em><small>' + t(per[ids[i]]) + '</small></div>';
-    }
+        '<b>' + t(PLAN[ids[i]]) + '</b><em>' + money(pr[ids[i]]) + '</em><small>' + t(per[ids[i]]) + '</small></div>';
     h += '</div><input class="in" id="email" placeholder="' + esc(t('Почта для чека и ключа')) + '" value="' + esc(S.email || '') + '">';
-    h += '<div id="berr" class="err" style="display:none"></div>';
-    h += '<div class="acts"><span class="btn pri" data-act="pay">' + t('Оплатить') + ' ' + money(cur, (pr[plan] || {})[cur]) + '</span></div>';
-    h += '<p class="msg" style="margin:10px 0 0">' + t('Оплата в долларах продлевается автоматически, в рублях — нет.') + '</p></div>';
+    h += '<div id="berr" class="err"' + (S.payOn ? ' style="display:none">' : '>' + t('Оплата пока не подключена.')) + '</div>';
+    h += '<div class="acts"><span class="btn pri' + (S.payOn ? '' : ' dis') + '" data-act="pay">' + t('Оплатить') + ' ' + money(pr[plan]) + '</span></div>';
+    h += '<p class="msg" style="margin:10px 0 0">' + t('Оплата картой РФ, через СБП или ЮMoney. Продление добавляет срок к этому же ключу.') + '</p></div>';
     h += '<p class="msg center">' + t('Есть ключ?') + ' <span class="lnk" data-act="view" data-v="' + (L.ok ? '' : 'key') + '">' + t(L.ok ? 'Назад' : 'Активировать') + '</span></p>';
     return h;
   }
@@ -309,17 +295,18 @@ function mainPart() {
     if (P.state === 'creating') h += '<span class="spin big"></span><h3>' + t('Создаю платёж…') + '</h3>';
     else if (P.state === 'waiting') h += '<span class="spin big"></span><h3>' + t('Жду оплату в браузере') + '</h3><p class="msg">' + t('Ключ придёт в программу сам и привяжется к этому ПК. Окно можно не закрывать.') + '</p>' +
       '<div class="acts"><span class="btn" data-act="reopen">' + t('Открыть оплату ещё раз') + '</span><span class="btn" data-act="cancelPay">' + t('Отмена') + '</span></div>';
+    else if (P.state === 'paid' && P.kind === 'reset') h += '<h3><span class="dot ok"></span>' + t('Привязка перенесена на этот ПК') + '</h3><div class="acts"><span class="btn pri" data-act="paidOk">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</span></div>';
     else if (P.state === 'paid') h += '<h3><span class="dot ok"></span>' + t('Ключ получен и активирован') + '</h3><div class="keybox"><span class="mono" id="pkey">' + esc(P.key) + '</span><span class="btn sm" data-act="copy">' + t('Копировать') + '</span></div>' +
       '<p class="msg">' + t('Сохрани ключ — он также отправлен на почту.') + '</p><div class="acts"><span class="btn pri" data-act="paidOk">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</span></div>';
     else h += '<h3><span class="dot bad"></span>' + t(PAY_ERR[P.error] || PAY_ERR.payment_error) + '</h3><div class="acts"><span class="btn" data-act="cancelPay">' + t('Назад') + '</span></div>';
     return h + '</div>';
   }
-  if (v === 'transfer') {
-    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Перенос на этот ПК') + '</h3>';
-    h += '<p class="msg">' + t('Ключ уже активирован на другом ПК. Укажи почту, на которую он куплен, — привязка перейдёт на этот ПК. Переносить можно раз в 7 дней.') + '</p>';
-    h += '<input class="in" id="temail" placeholder="email@example.com" value="' + esc(S.email || '') + '">';
-    if (T.state === 'error') h += '<div class="err">' + (T.error === 'cooldown' ? t('Переносить можно раз в 7 дней. Следующий перенос:') + ' ' + esc(T.next) : t(TR_ERR[T.error] || TR_ERR.network)) + '</div>';
-    h += '<div class="acts">' + (T.state === 'working' ? '<span class="btn pri dis"><span class="spin"></span></span>' : '<span class="btn pri" data-act="transfer">' + t('Перенести') + '</span>') +
+  if (v === 'reset') {
+    h += '<div class="card" style="padding:14px 16px"><h3>' + t('Сброс привязки к ПК') + '</h3>';
+    h += '<p class="msg">' + t('Ключ уже активирован на другом ПК. Сбрось привязку — после оплаты ключ сразу перейдёт на этот ПК. Замена 1–2 деталей или переустановка Windows сброса не требует.') + '</p>';
+    h += '<input class="in" id="remail" placeholder="' + esc(t('Почта для чека')) + '" value="' + esc(S.email || '') + '">';
+    h += '<div id="rerr" class="err"' + (S.payOn ? ' style="display:none">' : '>' + t('Оплата пока не подключена.')) + '</div>';
+    h += '<div class="acts"><span class="btn pri' + (S.payOn ? '' : ' dis') + '" data-act="reset">' + t('Сбросить за') + ' ' + money(pr.reset) + '</span>' +
       '<span class="btn" data-act="changeKey">' + t('Сменить ключ') + '</span></div></div>';
     return h;
   }
@@ -348,7 +335,6 @@ function act(el) {
     case 'recheck': call('recheck'); break;
     case 'auto': call('setAuto', S.auto ? 0 : 1); break;
     case 'view': setView(v); break;
-    case 'cur': cur = v; setView(view); break;
     case 'plan': plan = v; setView(view); break;
     case 'activate':
       var k = ($('key').value || '').replace(/\s+/g, '').toUpperCase();
@@ -357,15 +343,15 @@ function act(el) {
     case 'pay':
       var m = ($('email').value || '').replace(/^\s+|\s+$/g, '');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(m)) { showErr('berr', 'Проверь адрес почты.'); return; }
-      view = ''; call('buy', plan, cur, m); break;
+      view = ''; call('buy', plan, m); break;
+    case 'reset':
+      var rm = ($('remail').value || '').replace(/^\s+|\s+$/g, '');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(rm)) { showErr('rerr', 'Проверь адрес почты.'); return; }
+      view = ''; call('buy', 'reset', rm); break;
     case 'reopen': call('reopenPay'); break;
     case 'cancelPay': call('cancelPay'); break;
     case 'paidOk': call('cancelPay'); call('launch'); break;
     case 'copy': call('copy', $('pkey').innerText); el.innerHTML = t('Скопировано'); break;
-    case 'transfer':
-      var te = ($('temail').value || '').replace(/^\s+|\s+$/g, '');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(te)) return;
-      call('transfer', te); break;
     case 'changeKey': view = 'key'; call('removeKey'); break;
   }
 }
@@ -387,7 +373,7 @@ document.onkeydown = function (e) {
   var id = (e.target || e.srcElement).id;
   if (id === 'key') act({ getAttribute: function (n) { return n === 'data-act' ? 'activate' : null; }, className: '' });
   else if (id === 'email') act({ getAttribute: function (n) { return n === 'data-act' ? 'pay' : null; }, className: '' });
-  else if (id === 'temail') act({ getAttribute: function (n) { return n === 'data-act' ? 'transfer' : null; }, className: '' });
+  else if (id === 'remail') act({ getAttribute: function (n) { return n === 'data-act' ? 'reset' : null; }, className: '' });
 };
 document.oncontextmenu = function () { return false; };
 document.onselectstart = function (e) { e = e || window.event; var tg = e.target || e.srcElement; return tg.tagName === 'INPUT'; };

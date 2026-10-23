@@ -76,6 +76,9 @@ Email=
 PendingRef=
 PendingUrl=
 PendingAt=
+PendingKind=
+; Админ-код (ADM-...): все функции и вкладка Admin со статистикой подписок
+Admin=
 ; 1 = не показывать лаунчер, сразу запускать, если ключ в порядке
 AutoLaunch=0
 ; Свой адрес сервера (необязательно, иначе LICENSE_API из TweakMacro.ahk)
@@ -302,9 +305,10 @@ Launched := false
 LG := 0, LWB := 0, LWnd := 0, LGShown := false, LStep := "update"
 Upd := {state: "", version: "", progress: 0, error: "", files: []}
 Pay := {state: ""}
-TrS := {state: ""}
-Prices := Map("m1", Map("usd", 8.99, "rub", 849), "m3", Map("usd", 19.99, "rub", 1890), "life", Map("usd", 49.99, "rub", 4790))
-PayMethods := Map("usd", 1, "rub", 1)
+Prices := Map("m1", 849, "m3", 1890, "life", 4790, "reset", 279)
+PayOn := 1
+HttpStatus := 0
+AdminStats := ""
 CurPage := "Dashboard"
 FORMS := Map(), HintText := Map(), OsdG := 0, LogLines := [], ImportFound := Map()
 SEQ_HELP := "Последовательность через запятую: число — пауза в мс, X — нажать, +X — зажать, -X — отпустить, {Edit} — бинд со страницы Keybinds. Пример: {Wall}, 10, LButton, 15, {Slot1}"
@@ -1131,18 +1135,19 @@ class Bridge {
         return 1
     }
     licActivate(key) {
-        global Lic
-        key := StrUpper(Trim(RegExReplace(key, "\s")))
-        SetVal("License", "Key", key)
-        SetVal("License", "LastOk", "")
-        SaveIni()
-        Lic := {ok: 0, state: key = "" ? "nokey" : "checking"}
-        PushState()
-        SetTimer(LicenseCheck, -10)
+        SetTimer(LActivate.Bind(StrUpper(Trim(RegExReplace(key, "\s")))), -10)
+        return 1
+    }
+    adminRefresh() {
+        SetTimer(AdminRefresh, -10)
+        return 1
+    }
+    adminAction(kind, a := "", b := "") {
+        SetTimer(AdminAction.Bind(kind, a, b), -10)
         return 1
     }
     licRemove() {
-        for k in ["Key", "Plan", "ExpiresTs", "LastOk", "Sig"]
+        for k in ["Key", "Plan", "ExpiresTs", "LastOk", "Sig", "Admin"]
             SetVal("License", k, "")
         SaveIni()
         SetTimer(LicenseCheck, -10)
@@ -1155,7 +1160,7 @@ class Bridge {
     openBuy(view := "buy") {
         if (LicApi() = "")
             return 0
-        SetTimer(ShowLauncher.Bind(view = "transfer" ? "transfer" : "buy"), -10)
+        SetTimer(ShowLauncher.Bind(view = "reset" ? "reset" : "buy"), -10)
         return 1
     }
     optToggle(id, on) => Json(OptApply(id, on ? true : false))
@@ -1782,6 +1787,7 @@ InitHints() {
         , "page.Configs", "Профили настроек: создать, переключить, дублировать, сохранить в файл, загрузить из файла, сбросить."
         , "Language", "Язык меню и уведомлений."
         , "page.License", "Подписка, ключ и продление."
+        , "page.Admin", "Админ-панель: сколько людей с подпиской, выручка, выдача и отзыв ключей."
         , "page.Optimize", "Оптимизация Windows и игры: приоритет, питание, ускорение мыши, Game DVR, очистка кэша, тяжёлые программы."
         , "page.Support", "Как начать, нужные настройки Fortnite и что делать, если не работает.")
         HintText[k] := v
@@ -2340,12 +2346,13 @@ Sha256Buf(buf, n) {
 }
 
 ; Подпись кэша проверки: правка срока или даты проверки в config.ini руками сбрасывает кэш
-LicSig() => Sha256("tm-cache-v1|" Get("License", "Key") "|" Get("License", "Plan") "|" Get("License", "ExpiresTs") "|" Get("License", "LastOk") "|" HwInfo().hwid)
+LicSig() => Sha256("tm-cache-v1|" Get("License", "Admin") "|" Get("License", "Key") "|" Get("License", "Plan") "|" Get("License", "ExpiresTs") "|" Get("License", "LastOk") "|" HwInfo().hwid)
 
 LicFromCache() {
     if (LicApi() = "")
         return {ok: 1, state: "free"}
-    if (Get("License", "Key") = "")
+    adm := Get("License", "Admin") != ""
+    if (!adm && Get("License", "Key") = "")
         return {ok: 0, state: "nokey"}
     last := Get("License", "LastOk"), exp := Get("License", "ExpiresTs")
     if (last = "" || Get("License", "Sig") != LicSig() || last > A_NowUTC)
@@ -2354,21 +2361,69 @@ LicFromCache() {
         return {ok: 0, state: "expired"}
     if (DateDiff(A_NowUTC, last, "Hours") >= LIC_GRACE_H)
         return {ok: 0, state: "offline_expired"}
-    return {ok: 1, state: "active"}
+    return {ok: 1, state: adm ? "admin" : "active"}
 }
 
-; Запрос к серверу. Возвращает текст ответа или "" без связи.
-Http(method, url, body := "") {
+; Запрос к серверу. Возвращает текст ответа или "" без связи; код ответа — в HttpStatus.
+Http(method, url, body := "", token := "") {
+    global HttpStatus
+    HttpStatus := 0
     try {
         req := ComObject("WinHttp.WinHttpRequest.5.1")
         req.Open(method, url, false)
         req.SetTimeouts(4000, 4000, 8000, 10000)
         if (body != "")
             req.SetRequestHeader("Content-Type", "application/json")
+        if (token != "")
+            req.SetRequestHeader("Authorization", "Bearer " token)
         req.Send(body)
+        HttpStatus := req.Status
         return req.ResponseText
     }
     return ""
+}
+
+; ───── админ-режим ─────
+; Админ-код = ADMIN_TOKEN сервера. Открывает все функции без подписки и вкладку Admin.
+AdminCheck() {
+    global Lic, AdminStats
+    res := Http("GET", LicApi() "/api/admin/stats", "", Get("License", "Admin"))
+    if (HttpStatus = 200 && InStr(res, '"active"')) {
+        AdminStats := res
+        SetVal("License", "Plan", "admin")
+        SetVal("License", "ExpiresTs", "")
+        SetVal("License", "LastOk", A_NowUTC)
+        SetVal("License", "Sig", LicSig())
+        Lic := {ok: 1, state: "admin"}
+        try Wnd.adminData(res)
+    } else if (HttpStatus = 401) {
+        for k in ["Admin", "Plan", "LastOk", "Sig"]
+            SetVal("License", k, "")
+        Lic := {ok: 0, state: "invalid_key"}
+    } else {
+        c := LicFromCache()
+        Lic := c.ok ? {ok: 1, state: "admin"} : {ok: 0, state: "offline_expired"}
+    }
+    SaveIni()
+}
+
+AdminRefresh() {
+    LicenseCheck()
+}
+
+AdminAction(kind, a, b) {
+    api := LicApi(), tok := Get("License", "Admin"), out := Map("kind", kind, "ok", 0)
+    if (kind = "create") {
+        res := Http("POST", api "/api/admin/licenses", Json(Map("plan", a, "email", b)), tok)
+        out["key"] := JsonVal(res, "key"), out["ok"] := out["key"] != "" ? 1 : 0
+    } else if (kind = "reset" || kind = "revoke") {
+        res := Http("POST", api "/api/admin/" (kind = "reset" ? "reset-device" : "revoke"), Json(Map("key", a)), tok)
+        n := JsonVal(res, kind = "reset" ? "removed" : "updated")
+        out["ok"] := (n != "" && n != "0") ? 1 : 0, out["key"] := a
+    }
+    try Wnd.adminResult(Json(out))
+    AdminCheck()
+    PushState()
 }
 
 LicPeriodic() => LicenseCheck()
@@ -2379,6 +2434,8 @@ LicenseCheck(*) {
     api := LicApi(), key := Get("License", "Key")
     if (api = "") {
         Lic := {ok: 1, state: "free"}
+    } else if (Get("License", "Admin") != "") {
+        AdminCheck()
     } else if (key = "") {
         Lic := {ok: 0, state: "nokey"}
     } else {
@@ -2520,8 +2577,8 @@ LClose() {
 
 LState() => Map("lang", Lang(), "version", APP_VERSION, "api", LicApi() != "" ? 1 : 0, "step", LStep
     , "upd", Map("state", Upd.state, "version", Upd.version, "progress", Upd.progress, "error", Upd.error)
-    , "lic", LicState(), "pay", Pay, "tr", TrS, "launched", Launched ? 1 : 0, "auto", Bool("License", "AutoLaunch") ? 1 : 0
-    , "email", Get("License", "Email"), "prices", Prices, "methods", PayMethods)
+    , "lic", LicState(), "pay", Pay, "launched", Launched ? 1 : 0, "auto", Bool("License", "AutoLaunch") ? 1 : 0
+    , "email", Get("License", "Email"), "prices", Prices, "payOn", PayOn)
 
 LPush() {
     if LWnd
@@ -2548,7 +2605,7 @@ Launch(show := true, *) {
 
 ; ───── обновления ─────
 CheckUpdate() {
-    global Upd, PayMethods
+    global Upd, PayOn
     Upd.state := "checking", Upd.error := ""
     LPush()
     api := LicApi()
@@ -2567,10 +2624,12 @@ CheckUpdate() {
     ; Цены и доступные способы оплаты — с сервера, чтобы не пересобирать программу при их смене
     pl := Http("GET", api "/api/plans")
     for id in ["m1", "m3", "life"]
-        if RegExMatch(pl, '"' id '":\{"usd":([\d.]+),"rub":([\d.]+)', &m)
-            Prices[id] := Map("usd", m[1] + 0, "rub", m[2] + 0)
-    if RegExMatch(pl, '"methods":\{"usd":(true|false),"rub":(true|false)', &m)
-        PayMethods := Map("usd", m[1] = "true" ? 1 : 0, "rub", m[2] = "true" ? 1 : 0)
+        if RegExMatch(pl, '"' id '":\{"rub":(\d+)', &m)
+            Prices[id] := Integer(m[1])
+    if RegExMatch(pl, '"reset":(\d+)', &m)
+        Prices["reset"] := Integer(m[1])
+    if RegExMatch(pl, '"enabled":(true|false)', &m)
+        PayOn := m[1] = "true" ? 1 : 0
 }
 
 ; Скачиваем только изменённые файлы, сверяем SHA-256 и перезапускаемся
@@ -2607,29 +2666,31 @@ DoUpdate() {
 ; ───── покупка с автовыдачей ключа ─────
 ; Платёж открывается в браузере, а программа сама спрашивает сервер, пока заказ не оплачен,
 ; забирает ключ и активирует его. Сервер сразу привязывает ключ к этому ПК.
-LBuy(plan, cur, email) {
+LBuy(plan, email) {
     global Pay
-    Pay := {state: "creating"}
+    kind := plan = "reset" ? "reset" : "buy"
+    Pay := {state: "creating", kind: kind}
     LPush()
     SetVal("License", "Email", email)
     SaveIni()
     hw := HwInfo()
-    body := Map("plan", plan, "currency", cur, "email", email, "lang", Lang(), "hwid", hw.hwid, "parts", hw.parts)
+    body := Map("plan", plan, "email", email, "lang", Lang(), "hwid", hw.hwid, "parts", hw.parts)
     if (Get("License", "Key") != "" && Lic.state != "invalid_key")
         body["renew_key"] := Get("License", "Key")
     res := Http("POST", LicApi() "/api/checkout", Json(body))
     url := JsonStr(res, "url"), ref := JsonVal(res, "ref")
     if (url = "" || ref = "") {
         err := JsonVal(res, "error")
-        Pay := {state: "error", error: res = "" ? "network" : (err != "" ? err : "payment_error")}
+        Pay := {state: "error", kind: kind, error: res = "" ? "network" : (err != "" ? err : "payment_error")}
         LPush()
         return
     }
+    SetVal("License", "PendingKind", kind)
     SetVal("License", "PendingRef", ref)
     SetVal("License", "PendingUrl", url)
     SetVal("License", "PendingAt", A_NowUTC)
     SaveIni()
-    Pay := {state: "waiting"}
+    Pay := {state: "waiting", kind: kind}
     LPush()
     try Run(url)
     SetTimer(PayPoll, 3000)
@@ -2639,12 +2700,12 @@ ResumePay() {
     global Pay
     if (Get("License", "PendingRef") = "")
         return
-    Pay := {state: "waiting"}
+    Pay := {state: "waiting", kind: Get("License", "PendingKind", "buy")}
     SetTimer(PayPoll, 3000)
 }
 
 ClearPending() {
-    for k in ["PendingRef", "PendingUrl", "PendingAt"]
+    for k in ["PendingRef", "PendingUrl", "PendingAt", "PendingKind"]
         SetVal("License", k, "")
     SaveIni()
 }
@@ -2665,22 +2726,22 @@ PayPoll() {
     if InStr(res, '"not_found"') {
         SetTimer(PayPoll, 0)
         ClearPending()
-        Pay := {state: "error", error: "not_found"}
+        Pay := {state: "error", kind: "buy", error: "not_found"}
         LPush()
         return
     }
     if (JsonVal(res, "status") != "paid")
         return
     SetTimer(PayPoll, 0)
-    key := JsonVal(res, "key")
+    key := JsonVal(res, "key"), kind := Get("License", "PendingKind", "buy")
     ClearPending()
     SetVal("License", "Key", key)
     SetVal("License", "LastOk", "")
     SetVal("License", "Sig", "")
     SaveIni()
-    Pay := {state: "paid", key: key}
+    Pay := {state: "paid", key: key, kind: kind}
     LicenseCheck()
-    Notify("Ключ получен и активирован")
+    Notify(kind = "reset" ? "Привязка перенесена на этот ПК" : "Ключ получен и активирован")
     ShowLauncher()
 }
 
@@ -2694,36 +2755,19 @@ CancelPay() {
 
 ; ───── ключ и перенос ─────
 LActivate(key) {
-    global Lic, TrS
-    SetVal("License", "Key", key)
+    global Lic
+    ; Админ-код вместо ключа включает админ-режим
+    isAdmin := SubStr(key, 1, 4) = "ADM-"
+    SetVal("License", isAdmin ? "Admin" : "Key", key)
+    if !isAdmin
+        SetVal("License", "Admin", "")
     SetVal("License", "LastOk", "")
     SetVal("License", "Sig", "")
     SaveIni()
-    Lic := {ok: 0, state: "checking"}
-    TrS := {state: ""}
+    Lic := {ok: 0, state: key = "" ? "nokey" : "checking"}
+    PushState()
     LPush()
     LicenseCheck()
-}
-
-LTransfer(email) {
-    global TrS
-    TrS := {state: "working"}
-    LPush()
-    SetVal("License", "Email", email)
-    SaveIni()
-    hw := HwInfo()
-    res := Http("POST", LicApi() "/api/license/transfer", Json(Map("key", Get("License", "Key"), "email", email, "hwid", hw.hwid, "parts", hw.parts, "app", APP_VERSION)))
-    if (JsonVal(res, "valid") = "true") {
-        TrS := {state: ""}
-        LicenseCheck()
-        Notify("Ключ перенесён на этот ПК")
-        return
-    }
-    err := (res = "") ? "network" : JsonVal(res, "error"), nx := JsonVal(res, "next_unix"), when := ""
-    if (nx != "")
-        when := FormatTime(DateAdd("19700101000000", Integer(nx) + DateDiff(A_Now, A_NowUTC, "Seconds"), "Seconds"), "dd.MM.yyyy HH:mm")
-    TrS := {state: "error", error: err, next: when}
-    LPush()
 }
 
 JsonStr(text, name) {
@@ -2738,8 +2782,8 @@ class LBridge {
         SetTimer(LActivate.Bind(StrUpper(Trim(key))), -10)
         return 1
     }
-    buy(plan, cur, email) {
-        SetTimer(LBuy.Bind(plan, cur, email), -10)
+    buy(plan, email) {
+        SetTimer(LBuy.Bind(plan, email), -10)
         return 1
     }
     cancelPay() {
@@ -2750,10 +2794,6 @@ class LBridge {
         u := Get("License", "PendingUrl")
         if (u != "")
             try Run(u)
-        return 1
-    }
-    transfer(email) {
-        SetTimer(LTransfer.Bind(email), -10)
         return 1
     }
     update() {
@@ -2780,7 +2820,7 @@ class LBridge {
         return 1
     }
     removeKey() {
-        for k in ["Key", "Plan", "ExpiresTs", "LastOk", "Sig"]
+        for k in ["Key", "Plan", "ExpiresTs", "LastOk", "Sig", "Admin"]
             SetVal("License", k, "")
         SaveIni()
         SetTimer(LicenseCheck, -10)
@@ -2833,7 +2873,7 @@ Tr(msg) {
             , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
             , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
             , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
-            , "Ключ перенесён на этот ПК", "Key moved to this PC", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
+            , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
         pats := [["^Профиль: (.*)$", "Profile: $1"], ["^Создан профиль «(.*)»$", "Profile “$1” created"]
             , ["^Профиль «(.*)» удалён$", "Profile “$1” deleted"], ["^Импортирован профиль «(.*)»$", "Profile “$1” imported"]
             , ["^Применено, кроме: (.*)$", "Applied, except: $1"], ["^Возвращено, кроме \(нужны права администратора\): (.*)$", "Restored, except (admin rights needed): $1"]
