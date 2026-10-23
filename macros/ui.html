@@ -244,6 +244,47 @@ svg{overflow:hidden}
 .xs svg{width:20px;height:20px}
 .ph .btn{margin-left:10px}
 
+/* ── оптимизация ── */
+.obar{display:flex;align-items:center;padding:14px 18px;margin-bottom:14px}
+.obar .oinfo{flex:1;color:@muted@;font-size:12px;line-height:1.55}
+.obar .oinfo b{color:@text@}
+.obar .btn{margin-left:10px}
+.chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:8px;font-size:11px;font-weight:700;margin-right:8px;background:@key@;color:@muted@}
+.chip i{display:inline-block;width:7px;height:7px;border-radius:4px;margin-right:7px;background:@muted@}
+.chip.ok{color:#4ADE80;background:rgba(34,197,94,.12)}
+.chip.ok i{background:#22C55E}
+.chip.warn{color:#FBBF24;background:rgba(245,158,11,.12)}
+.chip.warn i{background:#F59E0B}
+.og{display:flex;flex-wrap:wrap;margin-right:-14px}
+.oc{width:calc(50% - 14px);box-sizing:border-box;margin:0 14px 14px 0;padding:16px 16px 16px 16px;display:flex;align-items:flex-start;border-radius:16px;background:@card@;border:1px solid @line@;transition:border-color .15s,box-shadow .15s}
+.oc.on{border-color:@a50@;box-shadow:0 0 0 1px @a24@}
+.oi{width:38px;height:38px;border-radius:11px;background:@key@;color:@muted@;display:flex;align-items:center;justify-content:center;flex:none}
+.oc.on .oi{background:@a16@;color:@accent@}
+.oi svg{width:19px;height:19px}
+.ob{flex:1;min-width:0;margin:0 14px}
+.ob h4{margin:1px 0 0;font-size:13.5px;line-height:1.35}
+.ob p{margin:5px 0 0;color:@muted@;font-size:12px;line-height:1.5}
+.tags{margin-top:7px}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;margin-right:6px;background:@key@;color:@muted@}
+.tag.adm{color:#FBBF24;background:rgba(245,158,11,.12)}
+.tag.rb{color:#60A5FA;background:rgba(96,165,250,.12)}
+.tag.rec{color:@accent@;background:@a14@}
+.ou{display:flex;margin-right:-14px}
+.ou .panel{flex:1;margin-right:14px;padding:18px}
+.ou h4{margin:0 0 6px;font-size:14px;display:flex;align-items:center}
+.ou h4 svg{width:17px;height:17px;margin-right:9px;color:@accent@}
+.ou p{margin:0 0 12px;color:@muted@;font-size:12px;line-height:1.5}
+.res{margin-top:10px;font-size:12px;color:@muted@;line-height:1.5}
+.res b{color:@text@}
+.pr{display:flex;align-items:center;height:36px;padding:0 6px 0 10px;border-radius:9px}
+.pr:hover{background:@key@}
+.pr span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.pr em{font-style:normal;width:64px;text-align:right;color:@muted@;font-size:12px;font-variant-numeric:tabular-nums}
+.prh{display:flex;padding:0 6px 4px 10px;font-size:10px;font-weight:700;letter-spacing:.12em;color:@muted@}
+.prh span{flex:1}
+.prh em{font-style:normal;width:64px;text-align:right}
+.prh i{width:38px}
+
 /* ── подсказка, уведомление, окно ── */
 .tip{position:fixed;left:0;top:0;max-width:290px;padding:10px 13px;border-radius:12px;background:@tip@;border:1px solid @line2@;color:@text@;font-size:12px;line-height:1.5;box-shadow:0 14px 34px rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:opacity .14s;pointer-events:none;z-index:50}
 .tip.show{opacity:1;visibility:visible}
@@ -279,6 +320,7 @@ svg{overflow:hidden}
     <div class="page" id="pg-Custom"></div>
     <div class="page" id="pg-Remap"></div>
     <div class="page" id="pg-Crosshair"></div>
+    <div class="page" id="pg-Optimize"></div>
     <div class="page" id="pg-Configs"></div>
     <div class="page" id="pg-Settings"></div>
     <div class="page" id="pg-Support"></div>
@@ -297,7 +339,7 @@ var M = null;                        // статичные описания: м�
 var S = null;                        // текущее состояние: конфиг, клавиши, пауза
 var page = 'Dashboard', curMacro = 'DragEdit', curCustom = '', capEl = null;
 var pressed = {}, themeKey = '', customKey = null, remapKey = null, profKey = null, timers = {}, pickNorm = '';
-var PAGES = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Remap', 'Crosshair', 'Configs', 'Settings', 'Support'];
+var PAGES = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Remap', 'Crosshair', 'Optimize', 'Configs', 'Settings', 'Support'];
 var GAMEB = [['Edit', 'Редактирование'], ['Select', 'Выбор / выстрел'], ['Wall', 'Стена'], ['Floor', 'Пол'], ['Stairs', 'Лестница'], ['Cone', 'Конус (крыша)'], ['Pickaxe', 'Кирка'], ['Interact', 'Взаимодействие'],
   ['Crouch', 'Присесть'], ['Jump', 'Прыжок'], ['Sprint', 'Спринт'], ['Slot1', 'Слот оружия 1'], ['Slot2', 'Слот оружия 2'], ['Slot3', 'Слот оружия 3'], ['Slot4', 'Слот оружия 4'], ['Slot5', 'Слот оружия 5']];
 
@@ -356,6 +398,14 @@ function call(name, a, b, c) {
       case 'resetGroup': return ahk.resetGroup(a);
       case 'newRemap': return ahk.newRemap();
       case 'deleteSec': return ahk.deleteSec(a);
+      case 'optToggle': return ahk.optToggle(a, b);
+      case 'optRefresh': return ahk.optRefresh();
+      case 'optRecommended': return ahk.optRecommended();
+      case 'optRevert': return ahk.optRevert();
+      case 'clean': return ahk.clean();
+      case 'procs': return ahk.procs();
+      case 'killProc': return ahk.killProc(a);
+      case 'elevate': return ahk.elevate();
     }
   } catch (e) { toast('Ошибка: ' + (e.message || e)); }
   return '';
@@ -412,6 +462,19 @@ var ICON = {
   Remap: '<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
   Configs: '<path d="M12 2l10 5-10 5L2 7z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  Optimize: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/>',
+  gauge: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/>',
+  bolt: '<path d="M13 2L4.5 13.5H11l-1 8.5 8.5-11.5H12z"/>',
+  novideo: '<path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2M9 5h5a2 2 0 0 1 2 2v3.3l1 1L23 7v10M1 1l22 22"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  mouse: '<rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/>',
+  chip: '<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>',
+  monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  rocket: '<path d="M5 15c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9a2.2 2.2 0 0 0-2.9-.1z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.9A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22 22 0 0 1-4 2z"/><path d="M9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5"/>',
+  feather: '<path d="M20.2 12.2a6 6 0 0 0-8.5-8.5L5 10.5V19h8.5z"/><path d="M16 8L2 22M17.5 15H9"/>',
+  broom: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   upload: '<path d="M12 21V9M7 14l5-5 5 5M5 3h14"/>',
   reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
@@ -493,7 +556,7 @@ function head(title, sub, right) {
 }
 
 function buildSide() {
-  var h = '<div class="navh">МЕНЮ</div>', pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Remap', 'Crosshair', 'Configs', 'Settings'];
+  var h = '<div class="navh">МЕНЮ</div>', pages = ['Dashboard', 'Keybinds', 'Macros', 'Custom', 'Remap', 'Crosshair', 'Optimize', 'Configs', 'Settings'];
   for (var i = 0; i < pages.length; i++) h += navItem(pages[i]);
   h += '<div class="sep"></div>' + navItem('Support');
   h += '<div class="sfoot"><b>FlashMacro ' + esc(M.version) + '</b><br>Наведи курсор на любой элемент, чтобы увидеть подсказку.</div>';
@@ -714,6 +777,87 @@ function modalInput(title, value, ok) {
   modal(title, '', [['Отмена', ''], ['Сохранить', 'pri', function () { ok($('mi').value); }]], value);
 }
 
+// ───────────── оптимизация ─────────────
+var OPTS = [
+  ['СИСТЕМА И ИГРА', 'priority', 'gauge', 'Высокий приоритет Fortnite', 'Windows отдаёт процессор игре раньше остальных программ. Меньше просадок FPS, когда в фоне что-то работает (браузер, Discord, обновления).', 'adm rec'],
+  ['', 'power', 'bolt', 'Схема питания «Максимальная производительность»', 'Процессор не снижает частоту и не «засыпает» между кадрами — FPS ровнее. На ноутбуке без зарядки батарея сядет быстрее.', 'rec'],
+  ['', 'gamedvr', 'novideo', 'Отключить фоновую запись Xbox Game Bar', 'Game DVR постоянно пишет последние секунды игры в фоне и отнимает FPS. После отключения не будет работать запись клипов Win+Alt+G.', 'rec'],
+  ['', 'gamemode', 'game', 'Игровой режим Windows', 'Пока идёт игра, Windows не ставит обновления и откладывает фоновые задачи. Обычно включён по умолчанию.', 'rec'],
+  ['', 'timer', 'clock', 'Точный системный таймер', 'Разрешает держать таймер Windows на 0,5–1 мс для всей системы (как было до Windows 10 2004). Меньше микрофризов, макросы срабатывают точнее.', 'adm rb'],
+  ['', 'hags', 'chip', 'Аппаратное планирование GPU', 'Видеокарта сама управляет очередью кадров — немного меньше задержка. Нужна NVIDIA GTX 10xx / AMD RX 5000 и новее. Если после включения стало хуже — выключи.', 'adm rb'],
+  ['МЫШЬ И ЭКРАН', 'mouseaccel', 'mouse', 'Выключить ускорение мыши', 'Отключает «Повышенную точность указателя»: курсор движется ровно на столько, на сколько двигаешь мышь. Важно для аима, drag edit и меню.', 'rec'],
+  ['', 'fso', 'monitor', 'Отключить оптимизацию во весь экран', 'Для Fortnite отключается слой Windows поверх полноэкранного режима. На части ПК снижает задержку ввода. Путь к игре находится автоматически.', 'rec'],
+  ['АВТОМАТИКА', 'autogame', 'rocket', 'Игровой режим FlashMacro', 'Когда запускаешь Fortnite — включается схема максимальной производительности, высокий приоритет и точный таймер. Когда выходишь — всё возвращается.', 'rec'],
+  ['', 'lite', 'feather', 'Лёгкий режим FlashMacro', 'Через 20 секунд после закрытия меню оно выгружается из памяти. В фоне остаётся только движок макросов, меню откроется снова за секунду.', '']
+];
+var TAGTXT = { adm: 'нужны права администратора', rb: 'нужна перезагрузка', rec: 'рекомендуется' };
+function buildOptimize() {
+  var h = head('Optimize', 'Оптимизация Windows и игры',
+    '<span class="grow"></span><span class="btn" data-act="optRevert" data-tip="Откатить все изменения Windows, которые сделал FlashMacro, к сохранённым значениям.">' + ico('reset') + 'Вернуть как было</span>' +
+    '<span class="btn pri" data-act="optRecommended" data-tip="Включить пункты с пометкой «рекомендуется». Пункты, которым нужны права администратора, включатся, только если FlashMacro запущен от администратора.">' + ico('check') + 'Применить рекомендуемое</span>');
+  h += '<div class="panel obar"><div class="oinfo" id="oinfo">Проверяю состояние Windows…</div><span class="btn" id="obtnadm" data-act="elevate" data-tip="Перезапустить FlashMacro с правами администратора — нужно для пунктов с жёлтой пометкой.">' + ico('shield') + 'Запустить от администратора</span></div>';
+  var grp = '';
+  for (var i = 0; i < OPTS.length; i++) {
+    var o = OPTS[i];
+    if (o[0]) { if (grp) h += '</div>'; grp = o[0]; h += '<div class="h3">' + grp + '</div><div class="og">'; }
+    var tags = '';
+    var ts = o[5] ? o[5].split(' ') : [];
+    for (var t = 0; t < ts.length; t++) tags += '<span class="tag ' + ts[t] + '">' + TAGTXT[ts[t]] + '</span>';
+    h += '<div class="oc" id="oc-' + o[1] + '"><div class="oi">' + ico(o[2]) + '</div><div class="ob"><h4>' + esc(o[3]) + '</h4><p>' + esc(o[4]) + '</p>' +
+      (tags ? '<div class="tags">' + tags + '</div>' : '') + '</div><span class="sw" id="os-' + o[1] + '" data-act="opt" data-id="' + o[1] + '" data-tip="Включить или выключить. Выключение возвращает прежнее значение."><i></i></span></div>';
+  }
+  h += '</div>';
+  h += '<div class="h3">ОЧИСТКА И ФОН</div><div class="ou">' +
+    '<div class="panel"><h4>' + ico('broom') + 'Очистить временные файлы и кэш шейдеров</h4><p>Удаляет временные файлы Windows и кэш шейдеров DirectX, NVIDIA и AMD. Помогает от фризов после обновления драйвера или игры. Первый матч после очистки может подгружаться чуть дольше — кэш соберётся заново.</p>' +
+    '<span class="btn" data-act="clean">' + ico('broom') + 'Очистить</span><div class="res" id="cleanres"></div></div>' +
+    '<div class="panel"><h4>' + ico('list') + 'Тяжёлые фоновые программы</h4><p>Показывает, что сейчас занимает память и процессор. Системные процессы и игра в список не попадают. Закрыть программу можно здесь же — ничего не закрывается без твоего подтверждения.</p>' +
+    '<span class="btn" data-act="procs">' + ico('list') + 'Показать</span><div class="res" id="procres"></div></div></div>';
+  $('pg-Optimize').innerHTML = h;
+}
+function syncOpt() {
+  var o = S.opt || {}, admin = S.admin;
+  for (var i = 0; i < OPTS.length; i++) {
+    var id = OPTS[i][1], on = !!o[id] && o[id] !== '0';
+    setCls($('os-' + id), 'on', on);
+    setCls($('oc-' + id), 'on', on);
+  }
+  var info = '<span class="chip ' + (admin ? 'ok' : 'warn') + '"><i></i>' + (admin ? 'Права администратора есть' : 'Без прав администратора') + '</span>' +
+    '<span class="chip ' + (o.gameRunning ? 'ok' : '') + '"><i></i>' + (o.gameRunning ? 'Fortnite запущен' : 'Fortnite не запущен') + '</span>';
+  if (o.planName) info += '<span class="chip"><i></i>Питание: ' + esc(o.planName) + '</span>';
+  info += '<br>Все изменения обратимы: исходные значения сохраняются, кнопка «Вернуть как было» откатывает только то, что включал FlashMacro.' +
+    (o.fsoPath ? '' : ' Путь к Fortnite пока не найден — запусти игру один раз.');
+  $('oinfo').innerHTML = info;
+  $('obtnadm').style.display = admin ? 'none' : '';
+}
+function optToggle(el) {
+  var id = el.getAttribute('data-id'), on = !hasCls(el, 'on');
+  setCls(el, 'on', on); setCls($('oc-' + id), 'on', on);
+  var raw = call('optToggle', id, on), r = null;
+  try { r = JSON.parse(raw); } catch (e) { r = { ok: 1 }; }
+  if (!r.ok) {
+    setCls(el, 'on', !on); setCls($('oc-' + id), 'on', !on);
+    if (r.need === 'admin')
+      modal('Нужны права администратора', 'Этот пункт меняет системные настройки Windows. Перезапустить FlashMacro от имени администратора? Настройки и макросы сохранятся.',
+        [['Отмена', ''], ['Перезапустить', 'pri', function () { call('elevate'); }]]);
+    else modal('Не получилось', r.msg || 'Неизвестная ошибка', [['Понятно', 'pri']]);
+  } else if (r.msg) toast(r.msg);
+}
+function cleanDone(json) {
+  var r = JSON.parse(json);
+  $('cleanres').innerHTML = 'Освобождено <b>' + r.mb + ' МБ</b>, удалено файлов: <b>' + r.files + '</b>' + (r.skipped ? ', пропущено занятых: ' + r.skipped : '') + '.';
+}
+function procs(json) {
+  var list = JSON.parse(json), h = '';
+  if (!list.length) { $('procres').innerHTML = 'Не удалось получить список программ.'; return; }
+  h = '<div class="prh"><span>ПРОГРАММА</span><em>ЦП</em><em>ПАМЯТЬ</em><i></i></div>';
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    h += '<div class="pr"><span>' + esc(p.name) + '</span><em>' + (p.cpu < 0 ? '—' : p.cpu + '%') + '</em><em>' + p.mb + ' МБ</em>' +
+      '<span class="ib del" style="flex:none" data-act="kill" data-pid="' + p.pid + '" data-name="' + esc(p.name) + '" data-tip="Закрыть ' + esc(p.name) + '">' + ico('trash') + '</span></div>';
+  }
+  $('procres').innerHTML = h;
+}
+
 function buildSettings() {
   var F = [{ t: 'key', k: 'SuspendKey', label: 'Вкл/выкл все макросы' }, { t: 'key', k: 'MenuKey', label: 'Открыть меню поверх игры' },
     { t: 'toggle', k: 'MenuOnTop', label: 'Меню поверх всех окон' }, { t: 'toggle', k: 'Indicator', label: 'Индикатор в углу экрана' },
@@ -751,7 +895,7 @@ function buildSupport() {
 
 function build() {
   applyTheme();
-  buildSide(); buildDashboard(); buildKeybinds(); buildMacros(); buildCustom(); buildRemap(); buildCrosshair(); buildConfigs(); buildSettings(); buildSupport();
+  buildSide(); buildDashboard(); buildKeybinds(); buildMacros(); buildCustom(); buildRemap(); buildCrosshair(); buildOptimize(); buildConfigs(); buildSettings(); buildSupport();
   $('profchev').innerHTML = ico('chev');
   $('pill').setAttribute('data-tip', 'Включает или выключает все макросы сразу. Справа — горячая клавиша для этого (работает и в игре).');
   $('suskey').setAttribute('data-tip', hint('General', 'SuspendKey'));
@@ -886,7 +1030,7 @@ function fire(sec) {
 function init(meta) { M = JSON.parse(meta); build(); }
 function render(state) {
   S = JSON.parse(state);
-  applyTheme(); syncCustom(); syncRemaps(); syncProfiles(); update();
+  applyTheme(); syncCustom(); syncRemaps(); syncProfiles(); syncOpt(); update();
   if (pickNorm && hasCls($('kpop'), 'show')) { var el = findCap(pickNorm); if (el) openKey(el); }
   if (S.log !== undefined) setLog(S.log);
 }
@@ -949,6 +1093,7 @@ function showPage(p) {
   hidePops();
   call('setPage', p);
   if (S) { if (p === 'Custom') syncCustom(); update(); }
+  if (p === 'Optimize') call('optRefresh');
 }
 function isPresetOrBuiltin(sec) {
   for (var i = 0; i < M.builtin.length; i++) if (M.builtin[i].sec === sec) return true;
@@ -988,6 +1133,18 @@ function act(a, el, e) {
       modal('Сбросить к стандартным?', what + ' в текущем профиле вернутся к стандартным значениям.', [['Отмена', ''], ['Сбросить', 'pri', function () { call('resetGroup', g); }]]);
       break;
     case 'newRemap': call('newRemap'); break;
+    case 'opt': optToggle(el); break;
+    case 'optRecommended': toast('Применяю…'); call('optRecommended'); break;
+    case 'optRevert':
+      modal('Вернуть как было?', 'Все настройки Windows, которые включал FlashMacro, вернутся к значениям до изменений.', [['Отмена', ''], ['Вернуть', 'pri', function () { toast('Возвращаю…'); call('optRevert'); }]]);
+      break;
+    case 'clean': $('cleanres').innerHTML = 'Чищу…'; call('clean'); break;
+    case 'procs': $('procres').innerHTML = 'Собираю список…'; call('procs'); break;
+    case 'kill':
+      var pid = el.getAttribute('data-pid');
+      modal('Закрыть программу?', '«' + name + '» будет закрыта. Несохранённые данные в ней пропадут.', [['Отмена', ''], ['Закрыть', 'danger', function () { call('killProc', pid); }]]);
+      break;
+    case 'elevate': call('elevate'); break;
     case 'delRemap': call('deleteSec', sec); break;
     case 'nav': showPage(el.getAttribute('data-page')); break;
     case 'macro': case 'sub':

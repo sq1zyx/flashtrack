@@ -124,6 +124,10 @@ Delay=30
 Enabled=0
 Interval=60
 
+[Optimize]
+AutoGame=0
+Lite=0
+
 [Crosshair]
 Enabled=0
 ShowOnStart=1
@@ -232,6 +236,15 @@ Pressed := Map()
 Stats := NewMap(), StatsVer := 0
 PROF_DEFAULT := "Основной"
 PrevWin := 0
+IFEO_KEY := "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions"
+KERNEL_KEY := "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\kernel"
+GFX_KEY := "HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
+LAYERS_KEY := "HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
+DVR_KEY1 := "HKCU\System\GameConfigStore"
+DVR_KEY2 := "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR"
+GAMEBAR_KEY := "HKCU\Software\Microsoft\GameBar"
+PLAN_ULT := "e9a42b02-d5df-448d-aa00-03f14749eb61", PLAN_HIGH := "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", PLAN_BAL := "381b4222-f694-41f0-9685-ff5bb260df2e"
+OptCache := Map(), GameRunning := false
 
 ; Состояние интерфейса
 THEME_ORDER := ["red", "blue", "purple", "emerald", "orange", "pink"]
@@ -257,6 +270,8 @@ InitHints()
 BuildUI()
 SetupTray()
 UpdateCrosshair()
+if Bool("Optimize", "AutoGame")
+    SetTimer(GameWatch, 3000)
 if !Bool("General", "StartHidden")
     ShowUI()
 Notify("FlashMacro запущен")
@@ -1039,7 +1054,7 @@ class Bridge {
             list.Push("Crosshair")
         else
             for sec in TPL
-                if !(sec ~= "i)^(General|Game|Crosshair)$")
+                if !(sec ~= "i)^(General|Game|Crosshair|Optimize)$")
                     list.Push(sec)
         ResetSections(list)
         Notify("Сброшено к стандартным")
@@ -1058,6 +1073,36 @@ class Bridge {
         if C.Has(sec) && (sec ~= "i)^Remap:")
             C.Delete(sec)
         Commit()
+        return 1
+    }
+    optToggle(id, on) => Json(OptApply(id, on ? true : false))
+    optRefresh() {
+        SetTimer(RefreshOpt, -10)
+        return 1
+    }
+    optRecommended() {
+        SetTimer(OptRecommended, -10)
+        return 1
+    }
+    optRevert() {
+        SetTimer(OptRevertAll, -10)
+        return 1
+    }
+    clean() {
+        SetTimer(CleanJunk, -10)
+        return 1
+    }
+    procs() {
+        SetTimer(ListHeavy, -10)
+        return 1
+    }
+    killProc(pid) {
+        ok := ProcessClose(pid)
+        SetTimer(ListHeavy, -400)
+        return ok ? 1 : 0
+    }
+    elevate() {
+        SetTimer(Elevate, -10)
         return 1
     }
     setPage(p) {
@@ -1184,6 +1229,9 @@ SwitchProfile(name) {
     if FileExist(ProfPath(name))
         ParseInto(FileRead(ProfPath(name), "UTF-8"), nc)
     nc["General"] := gen
+    for keep in ["Optimize", "OptBackup"]
+        if C.Has(keep)
+            nc[keep] := C[keep]
     C := nc
     SetVal("General", "Profile", name)
     Commit()
@@ -1361,7 +1409,8 @@ PushState() {
         caps[Norm(k)] := "menu"
     st := Map("cfg", C, "suspended", A_IsSuspended ? 1 : 0, "caps", caps, "used", usedBy, "binds", binds
         , "custom", custom, "active", active, "total", BUILTIN.Length + custom.Length
-        , "remaps", SecList("Remap:"), "profiles", ProfileList(), "profile", Get("General", "Profile", PROF_DEFAULT), "stats", Stats)
+        , "remaps", SecList("Remap:"), "profiles", ProfileList(), "profile", Get("General", "Profile", PROF_DEFAULT), "stats", Stats
+        , "opt", OptCache, "admin", A_IsAdmin ? 1 : 0)
     try Wnd.render(Json(st))
 }
 
@@ -1431,6 +1480,8 @@ FlashTick() {
 ShowUI(*) {
     global UIShown
     if !UI
+        BuildUI()
+    if !UI
         return
     UI.Opt(Bool("General", "MenuOnTop", true) ? "+AlwaysOnTop" : "-AlwaysOnTop")
     UI.Show("w" W " h" H)
@@ -1443,9 +1494,7 @@ ShowUI(*) {
 ; Клавиша меню: открыть поверх игры / вернуться в игру
 ToggleMenu(*) {
     global PrevWin
-    if !UI
-        return
-    if (UIShown && WinActive("ahk_id " UI.Hwnd)) {
+    if (UI && UIShown && WinActive("ahk_id " UI.Hwnd)) {
         UI.Hide()
         HideUI(true)
         if (PrevWin && WinExist("ahk_id " PrevWin))
@@ -1488,6 +1537,8 @@ HideUI(quiet := false) {
     UIShown := false
     SetTimer(FlashTick, 0)
     SetTimer(StatsTick, 0)
+    if Bool("Optimize", "Lite")
+        SetTimer(UnloadUI, -20000)
     if (!told && !quiet) {
         told := true
         Notify("FlashMacro работает в трее. Клик по иконке — открыть меню.", 2500)
@@ -1642,8 +1693,411 @@ InitHints() {
         , "AccentColor", "Свой цвет акцента меню."
         , "page.Remap", "Переназначение: одна клавиша нажимает другую, например боковая кнопка мыши = Shift."
         , "page.Configs", "Профили настроек: создать, переключить, дублировать, сохранить в файл, загрузить из файла, сбросить."
+        , "page.Optimize", "Оптимизация Windows и игры: приоритет, питание, ускорение мыши, Game DVR, очистка кэша, тяжёлые программы."
         , "page.Support", "Как начать, нужные настройки Fortnite и что делать, если не работает.")
         HintText[k] := v
+}
+
+; ───────────────────────── Оптимизация Windows ─────────────────────────
+; Каждый пункт можно включить и выключить. Перед изменением старое значение сохраняется
+; в [OptBackup], «Вернуть как было» откатывает только то, что включал FlashMacro.
+
+RegGet(key, name, def := "") {
+    try return RegRead(key, name)
+    return def
+}
+
+Bk(name, def := "") => Get("OptBackup", name, def)
+
+SetBk(name, v) {
+    SetVal("OptBackup", name, v)
+}
+
+; Выполнить консольную команду скрыто и вернуть её вывод
+ShellOut(cmd) {
+    tmp := A_Temp "\flashmacro_out.txt"
+    try FileDelete(tmp)
+    try {
+        RunWait(A_ComSpec ' /c ' cmd ' > "' tmp '" 2>&1', , "Hide")
+    } catch {
+        return ""
+    }
+    try return FileRead(tmp, "CP" DllCall("GetOEMCP", "uint"))
+    return ""
+}
+
+ActivePlan() {
+    out := ShellOut("powercfg /getactivescheme")
+    if RegExMatch(out, "i)([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\s*\((.*)\)", &m)
+        return {guid: m[1], name: Trim(m[2])}
+    return {guid: "", name: ""}
+}
+
+; Схема «Максимальная производительность» (создаётся один раз), иначе «Высокая производительность»
+FastPlan() {
+    g := Bk("PowerFast")
+    if (g != "" && InStr(ShellOut("powercfg /list"), g))
+        return g
+    out := ShellOut("powercfg /duplicatescheme " PLAN_ULT)
+    if RegExMatch(out, "i)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", &m) {
+        SetBk("PowerFast", m[0])
+        return m[0]
+    }
+    return PLAN_HIGH
+}
+
+FortnitePath() {
+    exe := Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe")
+    if (pid := ProcessExist(exe)) {
+        try {
+            p := ProcessGetPath(pid)
+            if (p != Bk("FortnitePath"))
+                SetBk("FortnitePath", p)
+            return p
+        }
+    }
+    p := Bk("FortnitePath")
+    if (p != "" && FileExist(p))
+        return p
+    dat := EnvGet("ProgramData") "\Epic\UnrealEngineLauncher\LauncherInstalled.dat"
+    if FileExist(dat) {
+        txt := FileRead(dat, "UTF-8")
+        if RegExMatch(txt, 's)\{[^{}]*"AppName"\s*:\s*"Fortnite"[^{}]*\}', &o) && RegExMatch(o[0], '"InstallLocation"\s*:\s*"([^"]+)"', &l) {
+            p := StrReplace(StrReplace(l[1], "\\", "\"), "/", "\") "\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe"
+            if FileExist(p)
+                return p
+        }
+    }
+    p := "C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe"
+    return FileExist(p) ? p : ""
+}
+
+MouseAccel() {
+    buf := Buffer(12, 0)
+    DllCall("SystemParametersInfo", "uint", 0x3, "uint", 0, "ptr", buf, "uint", 0)
+    return [NumGet(buf, 0, "int"), NumGet(buf, 4, "int"), NumGet(buf, 8, "int")]
+}
+
+SetMouseAccel(a) {
+    buf := Buffer(12, 0)
+    NumPut("int", a[1], "int", a[2], "int", a[3], buf)
+    DllCall("SystemParametersInfo", "uint", 0x4, "uint", 0, "ptr", buf, "uint", 3)
+}
+
+; Текущее состояние всех пунктов (читается из системы, а не из конфига)
+RefreshOpt(push := true) {
+    global OptCache
+    st := Map()
+    st["priority"] := RegGet(IFEO_KEY, "CpuPriorityClass", 0) = 3
+    plan := ActivePlan()
+    st["power"] := plan.guid != "" && (plan.guid = Bk("PowerFast") || plan.guid = PLAN_HIGH || plan.guid = PLAN_ULT
+        || (plan.name ~= "i)ultimate|максимальн|high perf|высок") > 0)
+    st["planName"] := plan.name
+    st["gamedvr"] := RegGet(DVR_KEY1, "GameDVR_Enabled", 1) = 0 && RegGet(DVR_KEY2, "AppCaptureEnabled", 1) = 0
+    st["timer"] := RegGet(KERNEL_KEY, "GlobalTimerResolutionRequests", 0) = 1
+    st["mouseaccel"] := MouseAccel()[3] = 0
+    st["hags"] := RegGet(GFX_KEY, "HwSchMode", 0) = 2
+    st["gamemode"] := RegGet(GAMEBAR_KEY, "AutoGameModeEnabled", 1) != 0
+    fp := FortnitePath()
+    st["fsoPath"] := fp
+    st["fso"] := fp != "" && InStr(RegGet(LAYERS_KEY, fp, ""), "DISABLEDXMAXIMIZEDWINDOWEDMODE") > 0
+    st["autogame"] := Bool("Optimize", "AutoGame")
+    st["lite"] := Bool("Optimize", "Lite")
+    st["gameRunning"] := GameRunning ? 1 : 0
+    OptCache := st
+    if push
+        PushState()
+}
+
+Touch(id, on) {
+    list := StrSplit(Bk("Touched"), ",", " ")
+    out := ""
+    for x in list
+        if (x != "" && x != id)
+            out .= x ","
+    if on
+        out .= id ","
+    SetBk("Touched", RTrim(out, ","))
+}
+
+; Включить/выключить пункт. Возвращает {ok, msg, need}
+OptApply(id, on, refresh := true) {
+    static adminIds := Map("priority", 1, "timer", 1, "hags", 1)
+    if adminIds.Has(id) && !A_IsAdmin
+        return {ok: 0, need: "admin", msg: "Нужны права администратора"}
+    msg := ""
+    try {
+        switch id {
+            case "priority":
+                if on {
+                    RegWrite(3, "REG_DWORD", IFEO_KEY, "CpuPriorityClass")
+                    try ProcessSetPriority("High", Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe"))
+                } else {
+                    try RegDelete(IFEO_KEY, "CpuPriorityClass")
+                }
+            case "power":
+                if on {
+                    cur := ActivePlan().guid
+                    if (cur != "" && cur != Bk("PowerFast") && cur != PLAN_HIGH)
+                        SetBk("PowerPrev", cur)
+                    g := FastPlan()
+                    ShellOut("powercfg /setactive " g)
+                    if (ActivePlan().guid != g)
+                        throw Error("Windows не дал включить эту схему питания (бывает на ноутбуках с режимом Modern Standby).")
+                } else {
+                    ShellOut("powercfg /setactive " Bk("PowerPrev", PLAN_BAL))
+                }
+            case "gamedvr":
+                if on {
+                    if (Bk("DvrPrev") = "")
+                        SetBk("DvrPrev", RegGet(DVR_KEY1, "GameDVR_Enabled", 1) "," RegGet(DVR_KEY2, "AppCaptureEnabled", 1))
+                    RegWrite(0, "REG_DWORD", DVR_KEY1, "GameDVR_Enabled")
+                    RegWrite(0, "REG_DWORD", DVR_KEY2, "AppCaptureEnabled")
+                } else {
+                    p := StrSplit(Bk("DvrPrev", "1,1"), ",")
+                    RegWrite(p[1] = "0" ? 1 : p[1], "REG_DWORD", DVR_KEY1, "GameDVR_Enabled")
+                    RegWrite(p.Length > 1 && p[2] != "0" ? p[2] : 1, "REG_DWORD", DVR_KEY2, "AppCaptureEnabled")
+                    SetBk("DvrPrev", "")
+                }
+            case "timer":
+                if on {
+                    RegWrite(1, "REG_DWORD", KERNEL_KEY, "GlobalTimerResolutionRequests")
+                } else {
+                    try RegDelete(KERNEL_KEY, "GlobalTimerResolutionRequests")
+                }
+                msg := "Изменение вступит в силу после перезагрузки ПК"
+            case "mouseaccel":
+                if on {
+                    a := MouseAccel()
+                    if (a[3] != 0)
+                        SetBk("MousePrev", a[1] "," a[2] "," a[3])
+                    SetMouseAccel([0, 0, 0])
+                } else {
+                    p := StrSplit(Bk("MousePrev", "6,10,1"), ",")
+                    SetMouseAccel([Integer(p[1]), Integer(p[2]), Integer(p[3])])
+                }
+            case "hags":
+                if on {
+                    if (Bk("HagsPrev") = "")
+                        SetBk("HagsPrev", RegGet(GFX_KEY, "HwSchMode", ""))
+                    RegWrite(2, "REG_DWORD", GFX_KEY, "HwSchMode")
+                } else {
+                    prev := Bk("HagsPrev")
+                    if (prev = "" || prev = "2") {
+                        RegWrite(1, "REG_DWORD", GFX_KEY, "HwSchMode")
+                    } else {
+                        RegWrite(Integer(prev), "REG_DWORD", GFX_KEY, "HwSchMode")
+                    }
+                    SetBk("HagsPrev", "")
+                }
+                msg := "Изменение вступит в силу после перезагрузки ПК"
+            case "gamemode":
+                RegWrite(on ? 1 : 0, "REG_DWORD", GAMEBAR_KEY, "AutoGameModeEnabled")
+                RegWrite(on ? 1 : 0, "REG_DWORD", GAMEBAR_KEY, "AllowAutoGameMode")
+            case "fso":
+                fp := FortnitePath()
+                if (fp = "")
+                    throw Error("Не нашёл Fortnite. Запусти игру один раз при включённом FlashMacro — путь запомнится.")
+                cur := Trim(RegExReplace(RegGet(LAYERS_KEY, fp, ""), "\s*DISABLEDXMAXIMIZEDWINDOWEDMODE"))
+                if on
+                    cur := (cur = "" ? "~" : cur) " DISABLEDXMAXIMIZEDWINDOWEDMODE"
+                if (cur = "" || cur = "~") {
+                    try RegDelete(LAYERS_KEY, fp)
+                } else {
+                    RegWrite(cur, "REG_SZ", LAYERS_KEY, fp)
+                }
+            case "autogame":
+                SetVal("Optimize", "AutoGame", on ? "1" : "0")
+                SetTimer(GameWatch, on ? 3000 : 0)
+                if !on && GameRunning
+                    GameLeave()
+            case "lite":
+                SetVal("Optimize", "Lite", on ? "1" : "0")
+            default:
+                throw Error("Неизвестный пункт: " id)
+        }
+    } catch Error as e {
+        return {ok: 0, msg: e.Message}
+    }
+    if !(id ~= "^(autogame|lite)$")
+        Touch(id, on)
+    SaveIni()
+    if refresh
+        RefreshOpt()
+    return {ok: 1, msg: msg}
+}
+
+OptRecommended() {
+    ids := ["power", "gamedvr", "mouseaccel", "gamemode", "fso", "autogame"]
+    if A_IsAdmin
+        ids.Push("priority")
+    bad := ""
+    for id in ids {
+        r := OptApply(id, true, false)
+        if !r.ok
+            bad .= (bad = "" ? "" : ", ") OptName(id)
+    }
+    RefreshOpt()
+    Notify(bad = "" ? "Рекомендуемые настройки применены" : "Применено, кроме: " bad)
+}
+
+OptRevertAll() {
+    skipped := ""
+    for id in StrSplit(Bk("Touched"), ",", " ") {
+        if (id = "")
+            continue
+        r := OptApply(id, false, false)
+        if !r.ok
+            skipped .= (skipped = "" ? "" : ", ") OptName(id)
+    }
+    if Bool("Optimize", "AutoGame")
+        OptApply("autogame", false, false)
+    RefreshOpt()
+    Notify(skipped = "" ? "Настройки Windows возвращены как были" : "Возвращено, кроме (нужны права администратора): " skipped)
+}
+
+OptName(id) {
+    static n := Map("priority", "приоритет", "power", "схема питания", "gamedvr", "Game DVR", "timer", "таймер", "mouseaccel", "ускорение мыши"
+        , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим FlashMacro")
+    return n.Has(id) ? n[id] : id
+}
+
+; Игровой режим FlashMacro: следит за запуском Fortnite
+GameWatch() {
+    global GameRunning
+    isRun := ProcessExist(Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe")) != 0
+    if (isRun = GameRunning)
+        return
+    if isRun
+        GameEnter()
+    else
+        GameLeave()
+}
+
+GameEnter() {
+    global GameRunning
+    GameRunning := true
+    exe := Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe")
+    FortnitePath()
+    if !OptCache.Get("power", 0) {
+        cur := ActivePlan().guid
+        if (cur != "") {
+            SetBk("AutoPrev", cur)
+            ShellOut("powercfg /setactive " FastPlan())
+            SetBk("AutoActive", "1")
+        }
+    }
+    try ProcessSetPriority("High", exe)
+    res := 0
+    DllCall("ntdll\NtSetTimerResolution", "uint", 5000, "int", 1, "uint*", &res)
+    SaveIni()
+    Notify("Игровой режим включён")
+    PushOptLater()
+}
+
+GameLeave() {
+    global GameRunning
+    GameRunning := false
+    if (Bk("AutoActive") = "1") {
+        ShellOut("powercfg /setactive " Bk("AutoPrev", PLAN_BAL))
+        SetBk("AutoActive", "")
+    }
+    res := 0
+    DllCall("ntdll\NtSetTimerResolution", "uint", 5000, "int", 0, "uint*", &res)
+    SaveIni()
+    Notify("Игровой режим выключен")
+    PushOptLater()
+}
+
+PushOptLater() {
+    if UIShown
+        SetTimer(RefreshOpt, -50)
+}
+
+; Очистка временных файлов и кэша шейдеров. Занятые файлы пропускаются.
+CleanJunk() {
+    la := EnvGet("LOCALAPPDATA")
+    dirs := [A_Temp, la "\D3DSCache", la "\NVIDIA\DXCache", la "\NVIDIA\GLCache", la "\AMD\DxCache", la "\AMD\DxcCache", la "\AMD\VkCache"]
+    if A_IsAdmin
+        dirs.Push(A_WinDir "\Temp")
+    freed := 0, files := 0, skipped := 0
+    for d in dirs {
+        if !DirExist(d)
+            continue
+        loop files d "\*", "FR" {
+            sz := A_LoopFileSize
+            try {
+                FileDelete(A_LoopFileFullPath)
+                freed += sz, files++
+            } catch {
+                skipped++
+            }
+        }
+        loop files d "\*", "D"
+            try DirDelete(A_LoopFileFullPath, true)
+    }
+    try Wnd.cleanDone(Json(Map("mb", Round(freed / 1048576, 1), "files", files, "skipped", skipped)))
+}
+
+; Самые тяжёлые фоновые программы (системные процессы и игра не показываются)
+ListHeavy() {
+    static skip := "i)^(system|idle|_total|registry|smss|csrss|wininit|services|lsass|lsaiso|winlogon|svchost|dwm|explorer|fontdrvhost|memory compression|secure system|audiodg|ctfmon|sihost|taskhostw|runtimebroker|msmpeng|nissrv|securityhealthservice|searchhost|searchindexer|startmenuexperiencehost|textinputhost|shellexperiencehost|spoolsv|wudfhost|dllhost|conhost|wmiprvse|autohotkey.*|fortniteclient.*|easyanticheat.*|epicgameslauncher|epicwebhelper)$"
+    cores := Max(Integer(EnvGet("NUMBER_OF_PROCESSORS") || 1), 1)
+    list := []
+    try {
+        for p in ComObjGet("winmgmts:").ExecQuery("SELECT Name, IDProcess, PercentProcessorTime, WorkingSetPrivate FROM Win32_PerfFormattedData_PerfProc_Process") {
+            name := RegExReplace(p.Name, "#\d+$")
+            if (p.IDProcess = 0 || name ~= skip)
+                continue
+            list.Push(Map("pid", p.IDProcess, "name", name, "cpu", Round(p.PercentProcessorTime / cores, 1), "mb", Round(p.WorkingSetPrivate / 1048576)))
+        }
+    }
+    if !list.Length {
+        try {
+            for p in ComObjGet("winmgmts:").ExecQuery("SELECT Name, ProcessId, WorkingSetSize FROM Win32_Process") {
+                name := RegExReplace(p.Name, "i)\.exe$")
+                if (p.ProcessId = 0 || name ~= skip)
+                    continue
+                list.Push(Map("pid", p.ProcessId, "name", name, "cpu", -1, "mb", Round(p.WorkingSetSize / 1048576)))
+            }
+        }
+    }
+    ; сортировка по памяти, затем по процессору
+    loop list.Length - 1 {
+        i := A_Index + 1
+        x := list[i], j := i - 1
+        while (j >= 1 && (list[j]["mb"] < x["mb"])) {
+            list[j + 1] := list[j]
+            j--
+        }
+        list[j + 1] := x
+    }
+    top := []
+    for x in list {
+        top.Push(x)
+        if (top.Length >= 14)
+            break
+    }
+    try Wnd.procs(Json(top))
+}
+
+Elevate() {
+    try {
+        Run('*RunAs "' A_AhkPath '" /restart "' A_ScriptFullPath '"')
+        ExitApp
+    } catch {
+        Notify("Запуск от имени администратора отменён")
+    }
+}
+
+; Лёгкий режим: меню выгружается из памяти, пока закрыто
+UnloadUI() {
+    global UI, WB, Wnd
+    if (UIShown || !UI || !Bool("Optimize", "Lite"))
+        return
+    UI.Destroy()
+    UI := 0, WB := 0, Wnd := 0
+    DllCall("psapi\EmptyWorkingSet", "ptr", DllCall("GetCurrentProcess", "ptr"))
 }
 
 ; ───────────────────────── Уведомления, трей, лог ─────────────────────────
