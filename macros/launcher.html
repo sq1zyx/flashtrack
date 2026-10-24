@@ -127,7 +127,7 @@ h3{margin:4px 0 10px;font-size:14px}
     <p id="sub" data-drag="1"></p>
   </div>
   <div id="body"></div>
-  <div id="foot"><span class="lnk" data-act="site" id="fsite"></span>·<span class="lnk" data-act="view" data-v="support" id="fsup"></span>·<span class="lnk" data-act="folder" id="ffold"></span>·<span id="fver"></span></div>
+  <div id="foot"></div>
 </div>
 <script>window.onerror = function (m, u, l) { document.title = 'JSERR ' + m + ' @' + l; };</script>
 <script>
@@ -258,8 +258,10 @@ function render(json) {
   var segs = $('lang').getElementsByTagName('span');
   for (i = 0; i < segs.length; i++) segs[i].className = segs[i].getAttribute('data-v') === lang ? 'on' : '';
   $('sub').innerHTML = esc(t('Макросы для Fortnite')) + ' · v' + esc(S.version);
-  $('fsite').innerHTML = t('Сайт'); $('ffold').innerHTML = t('Папка программы'); $('fsup').innerHTML = t('Поддержка'); $('fver').innerHTML = 'v' + esc(S.version);
-  $('fsite').style.display = S.api ? '' : 'none';
+  var f = [];
+  if (S.api) f.push('<span class="lnk" data-act="site">' + t('Сайт') + '</span>', '<span class="lnk" data-act="view" data-v="support">' + t('Поддержка') + '</span>');
+  f.push('<span class="lnk" data-act="folder">' + t('Папка программы') + '</span>', '<span>v' + esc(S.version) + '</span>');
+  $('foot').innerHTML = f.join(' · ');
 
   var v = curView(), h = (v === 'ready' || v === 'key' || v === 'wait' ? statusCard() : '') + mainPart();
   if (h !== lastHtml) {
