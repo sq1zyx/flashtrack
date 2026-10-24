@@ -287,6 +287,11 @@ DebugOn := false
 HoldMs := 5
 ClickHold := 5
 Pressed := Map()
+; Клавиши, которые программа сейчас держит зажатыми: клавиша → исходная кнопка переназначения ("" — держит макрос)
+Holding := Map(), Holding.CaseSense := "Off"
+; Модификаторы, которые программа когда-либо нажимала: только их сторож имеет право отпускать
+OwnMods := Map(), OwnMods.CaseSense := "Off"
+MODS := ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"]
 Stats := NewMap(), StatsVer := 0
 PROF_DEFAULT := "Основной"
 PrevWin := 0
@@ -343,6 +348,8 @@ if Bool("Optimize", "AutoGame")
     SetTimer(GameWatch, 3000)
 SetTimer(LicPeriodic, 6 * 3600 * 1000)
 OnError(ReportError)
+SetTimer(SafetyTick, 100)
+OnExit((*) => ReleaseAll())
 ; Сначала лаунчер: обновления, ключ, потом запуск макросов и меню
 StartLauncher()
 
@@ -504,6 +511,8 @@ Down(k) {
     if (k = "")
         return
     SendInput(IsWheel(k) ? "{Blind}{" k "}" : "{Blind}{" k " down}")
+    if !IsWheel(k)
+        Hold(k, "")
     if UIShown
         Pressed[Norm(k)] := {down: !IsWheel(k), t: A_TickCount}
     DebugLog(k " down")
@@ -513,9 +522,81 @@ Up(k) {
     if (k = "" || IsWheel(k))
         return
     SendInput "{Blind}{" k " up}"
+    Holding.Delete(k)
     if UIShown
         Pressed[Norm(k)] := {down: false, t: A_TickCount}
     DebugLog(k " up")
+}
+
+Hold(k, src) {
+    Holding[k] := src
+    if (mn := ModName(k)) != ""
+        OwnMods[mn] := true
+}
+; Модификатор → одно из имён MODS ("" — не модификатор). Shift/Ctrl/Alt без стороны нажимают левую клавишу.
+ModName(k) {
+    static names := Map("control", "LCtrl", "ctrl", "LCtrl", "lcontrol", "LCtrl", "lctrl", "LCtrl", "rcontrol", "RCtrl", "rctrl", "RCtrl"
+        , "shift", "LShift", "lshift", "LShift", "rshift", "RShift", "alt", "LAlt", "lalt", "LAlt", "ralt", "RAlt", "lwin", "LWin", "rwin", "RWin")
+    n := StrLower(GetKeyName(k))
+    return names.Has(n) ? names[n] : ""
+}
+
+; Можно ли сейчас слать нажатия: в игре (или вне меню, если «только в Fortnite» выключено) и макросы не на паузе
+GameActive() {
+    if A_IsSuspended
+        return false
+    if Bool("General", "OnlyInGame", true)
+        return !!WinActive("ahk_exe " Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe"))
+    return !(UI && WinActive("ahk_id " UI.Hwnd))
+}
+
+; Остановить все макросы и отпустить всё, что программа держит зажатым
+StopAll() {
+    global Placing
+    Placing := false
+    for m in Macros
+        if m.active {
+            m.active := false
+            SetTimer(m.timer, 0)
+        }
+    ReleaseAll()
+}
+ReleaseAll() {
+    for k in [Holding*]
+        SendInput("{Blind}{" k " up}")
+    Holding.Clear()
+    for k in MODS
+        if OwnMods.Has(k) && GetKeyState(k) && !GetKeyState(k, "P")
+            SendInput("{" k " up}")
+}
+
+; Сторож от «залипания» (раз в 100 мс):
+; - вышел из игры, открыл меню или поставил на паузу — всё останавливается и отпускается;
+; - кнопка переназначения отпущена, а клавиша всё ещё зажата — отпускаем;
+; - Ctrl/Alt/Shift/Win, нажатый программой, остался зажат без макроса — отпускаем.
+SafetyTick() {
+    static was := false
+    now := GameActive()
+    if (was && !now)
+        StopAll()
+    was := now
+    for k, src in Holding.Clone()
+        if (src != "" && !GetKeyState(src, "P")) {
+            SendInput("{Blind}{" k " up}")
+            Holding.Delete(k)
+        }
+    held := Map()
+    for k in Holding
+        held[ModName(k)] := true
+    for k in MODS
+        if OwnMods.Has(k) && !held.Has(k) && GetKeyState(k) && !GetKeyState(k, "P") && !MacroBusy()
+            SendInput("{" k " up}")
+}
+MacroBusy() {
+    for m in Macros
+        if m.active
+            return true
+    return A_TimeSincePriorHotkey != "" && A_TimeSincePriorHotkey < 400
 }
 
 Tap(k, hold := -1) {
@@ -576,6 +657,7 @@ RegRaw(ctx, name, fn, opts := "S0") {
 ApplyEngine() {
     global Registered, Used, Macros, DebugOn, HoldMs, ClickHold
     StopPlace()
+    ReleaseAll()
     for m in Macros
         if m.active
             SetTimer(m.timer, 0)
@@ -642,8 +724,8 @@ ApplyEngine() {
         from := Get(sec, "From"), to := Get(sec, "To")
         if (from = "" || to = "")
             continue
-        if Reg(ctx, from, RemapKey.Bind(to, "down"), "Remap → " KeyLabel(to))
-            RegRaw(ctx, (IsMouse(from) ? "*" : "$*") from " up", RemapKey.Bind(to, "up"))
+        if Reg(ctx, from, RemapKey.Bind(to, "down", from), "Remap → " KeyLabel(to))
+            RegRaw(ctx, (IsMouse(from) ? "*" : "$*") from " up", RemapKey.Bind(to, "up", from))
     }
 
     ; Пресеты и свои макросы: секции [Macro:Имя]
@@ -684,13 +766,17 @@ Counted(sec, fn, args*) {
     fn(args*)
 }
 
-RemapKey(to, dir, *) {
+RemapKey(to, dir, from, *) {
     if IsWheel(to) {
         if (dir = "down")
             SendInput "{Blind}{" to "}"
         return
     }
     SendInput "{Blind}{" to " " dir "}"
+    if (dir = "down")
+        Hold(to, from)
+    else
+        Holding.Delete(to)
 }
 
 ; Пока держишь — кликает «Выбор/выстрел» с заданным интервалом
@@ -699,7 +785,7 @@ RapidFire(trig, *) {
     loop {
         Tap(B("Select"))
         Wait(Num("RapidFire", "Delay", 30))
-    } until !Held(trig)
+    } until !Held(trig) || !GameActive()
 }
 
 ; Если долго нет ввода, подпрыгивает, чтобы игра не выкинула за бездействие
@@ -839,6 +925,8 @@ ParseSeq(s) {
 
 RunSeq(steps, speed) {
     for st in steps {
+        if !GameActive()
+            break
         switch st.op {
             case "wait": Wait(st.ms / speed)
             case "down": Down(st.key)
@@ -848,7 +936,15 @@ RunSeq(steps, speed) {
     }
 }
 
-RunOnce(m) => RunSeq(m.steps, m.speed)
+; Макрос в режиме «вкл/выкл» сам выключается, если вышел из игры
+RunOnce(m) {
+    if !GameActive() {
+        m.active := false
+        SetTimer(m.timer, 0)
+        return
+    }
+    RunSeq(m.steps, m.speed)
+}
 
 MacroPress(m, trig, *) {
     StopPlace()
@@ -857,7 +953,7 @@ MacroPress(m, trig, *) {
             loop {
                 RunSeq(m.steps, m.speed)
                 Wait(m.interval)
-            } until !Held(trig)
+            } until !Held(trig) || !GameActive()
         case "toggle":
             m.active := !m.active
             SetTimer m.timer, m.active ? Max(m.interval, 1) : 0
@@ -869,12 +965,7 @@ MacroPress(m, trig, *) {
 
 ToggleSuspend(*) {
     StopPlace()
-    for m in Macros {
-        if m.active {
-            m.active := false
-            SetTimer m.timer, 0
-        }
-    }
+    StopAll()
     Suspend(-1)
     if Bool("General", "Sound", true)
         SoundBeep(A_IsSuspended ? 520 : 880, 60)
@@ -1784,6 +1875,7 @@ ToggleMenu(*) {
         return
     }
     PrevWin := WinExist("A")
+    StopAll()
     ShowUI()
     try WinActivate("ahk_id " UI.Hwnd)
 }
