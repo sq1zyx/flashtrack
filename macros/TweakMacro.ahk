@@ -145,6 +145,21 @@ ConfirmBy=release
 EnterDelay=10
 ConfirmDelay=10
 
+[Prefire]
+Enabled=0
+Trigger=F2
+ConfirmBy=release
+EnterDelay=10
+ConfirmDelay=10
+; Пауза между подтверждением редакта и выстрелом: оружию нужно мгновение, чтобы вернуться в руки
+ShotDelay=25
+Shots=1
+ShotInterval=60
+; 1 = после выстрела сбросить редакт (закрыть проход обратно)
+ResetAfter=0
+ResetDelay=120
+ResetKey=RButton
+
 [InstantBuild]
 Enabled=0
 WallTrigger=z
@@ -208,14 +223,6 @@ Sequence={Wall}, 10, {Select}, 15, {Slot1}
 Speed=1
 Interval=10
 
-[Macro:Prefire]
-Enabled=0
-Trigger=F2
-Mode=once
-Sequence={Edit}, 10, {Select}, 10, {Edit}, 15, {Slot1}, 20, {Select}
-Speed=1
-Interval=10
-
 [Macro:SprintReset]
 Enabled=0
 Trigger=F3
@@ -229,14 +236,6 @@ Enabled=0
 Trigger=F4
 Mode=once
 Sequence=+{Sprint}, 20, {Jump}, 60, -{Sprint}
-Speed=1
-Interval=10
-
-[Macro:SimpleEdit]
-Enabled=0
-Trigger=F5
-Mode=once
-Sequence={Edit}, 10, {Select}, 10, {Edit}
 Speed=1
 Interval=10
 
@@ -256,20 +255,20 @@ C := NewMap()
 ParseInto(DEFAULT_INI, C)
 if FileExist(CFG)
     ParseInto(FileRead(CFG, "UTF-8"), C)
+MigrateCfg(C)
 FixSysKeys(true)
 SaveIni()
 
-PRESETS := ["WallRetake", "Prefire", "SprintReset", "Mantle", "SimpleEdit", "CrouchPeek"]
+PRESETS := ["WallRetake", "SprintReset", "Mantle", "CrouchPeek"]
 BUILTIN := [
     {sec: "DragEdit", name: "Drag edit"},
     {sec: "InfiniteEdit", name: "Infinite edit"},
     {sec: "InstantEdit", name: "Instant edit"},
+    {sec: "Prefire", name: "Prefire"},
     {sec: "InstantBuild", name: "Instant build", badge: "BUILD"},
     {sec: "Macro:WallRetake", name: "Wall retake"},
-    {sec: "Macro:Prefire", name: "Prefire"},
     {sec: "Macro:SprintReset", name: "Sprint reset"},
     {sec: "Macro:Mantle", name: "Mantle"},
-    {sec: "Macro:SimpleEdit", name: "Simple edit"},
     {sec: "Macro:CrouchPeek", name: "Crouch peek"},
     {sec: "Pickup", name: "Pick-up"},
     {sec: "RapidFire", name: "Rapid fire"},
@@ -443,6 +442,30 @@ SetVal(sec, key, v) {
     if !C.Has(sec)
         C[sec] := NewMap()
     C[sec][key] := v
+}
+
+; Старые конфиги: Prefire был набором нажатий, Simple edit повторял Instant edit
+MigrateCfg(cfg) {
+    if cfg.Has("Macro:Prefire") {
+        old := cfg["Macro:Prefire"]
+        if !cfg.Has("Prefire")
+            cfg["Prefire"] := NewMap()
+        for k in ["Enabled", "Trigger"]
+            if old.Has(k) && old[k] != ""
+                cfg["Prefire"][k] := old[k]
+        cfg.Delete("Macro:Prefire")
+    }
+    if cfg.Has("Macro:SimpleEdit") {
+        old := cfg["Macro:SimpleEdit"]
+        if !cfg.Has("InstantEdit")
+            cfg["InstantEdit"] := NewMap()
+        if (old.Has("Enabled") && old["Enabled"] = "1" && !(cfg["InstantEdit"].Has("Enabled") && cfg["InstantEdit"]["Enabled"] = "1")) {
+            cfg["InstantEdit"]["Enabled"] := "1"
+            if old.Has("Trigger") && old["Trigger"] != ""
+                cfg["InstantEdit"]["Trigger"] := old["Trigger"]
+        }
+        cfg.Delete("Macro:SimpleEdit")
+    }
 }
 
 BadSysKey(k) => RegExMatch(Trim(k), "i)(LButton|RButton|Wheel(Up|Down|Left|Right))$")
@@ -703,6 +726,10 @@ ApplyEngine() {
     }
     if Bool("InstantEdit", "Enabled")
         Reg(ctx, Get("InstantEdit", "Trigger"), Counted.Bind("InstantEdit", InstantEdit), "Instant edit")
+    if Bool("Prefire", "Enabled") {
+        t := Get("Prefire", "Trigger")
+        Reg(ctx, t, Counted.Bind("Prefire", Prefire.Bind(t)), "Prefire")
+    }
     if Bool("InstantBuild", "Enabled") {
         for piece in ["Wall", "Floor", "Stairs", "Cone"]
             Reg(ctx, Get("InstantBuild", piece "Trigger"), Counted.Bind("InstantBuild", Build.Bind(piece)), "Instant build")
@@ -854,6 +881,34 @@ DragEdit(trig, *) {
     Up(B("Select"))
     Confirm("DragEdit")
     AutoSprint()
+}
+
+; Prefire: держишь — редакт открыт и выбираются тайлы; отпустил — подтверждение и сразу выстрел.
+; После подтверждения Fortnite сам возвращает в руки оружие, которое было до редакта, поэтому слот не переключаем.
+Prefire(trig, *) {
+    StopPlace()
+    Tap(B("Edit"))
+    Wait(Num("Prefire", "EnterDelay", 10))
+    Down(B("Select"))
+    if !IsWheel(trig)
+        KeyWait trig
+    Up(B("Select"))
+    Confirm("Prefire")
+    Wait(Num("Prefire", "ShotDelay", 25))
+    n := Max(1, Round(Num("Prefire", "Shots", 1)))
+    loop n {
+        if !GameActive()
+            return
+        Tap(B("Select"))
+        if (A_Index < n)
+            Wait(Num("Prefire", "ShotInterval", 60))
+    }
+    if Bool("Prefire", "ResetAfter") {
+        Wait(Num("Prefire", "ResetDelay", 120))
+        Tap(B("Edit"))
+        Wait(Num("Prefire", "EnterDelay", 10))
+        Tap(Get("Prefire", "ResetKey", "RButton"))
+    }
 }
 
 InstantEdit(*) {
@@ -1487,6 +1542,7 @@ SwitchProfile(name) {
     ParseInto(DEFAULT_INI, nc)
     if FileExist(ProfPath(name))
         ParseInto(FileRead(ProfPath(name), "UTF-8"), nc)
+    MigrateCfg(nc)
     nc["General"] := gen
     for keep in ["Optimize", "OptBackup", "License", "Trainer"]
         if C.Has(keep)
@@ -1979,6 +2035,9 @@ InitForms() {
         , Fld("num", "FPS", "Твой FPS", {u: "fps"}), Fld("num", "FramesPerStep", "Кадров на один редакт", {u: "кадр."})
         , Fld("num", "StepDelay", "Шаг вручную (0 = по FPS)")]}
     FORMS["InstantEdit"] := {desc: "Одно нажатие — один редакт тайла под прицелом: вход, выбор, подтверждение.", fields: [en, tr, cb, ed, cd]}
+    FORMS["Prefire"] := {desc: "Держишь клавишу — редакт открыт и ты выбираешь тайлы, оружие уже наготове. Отпустил — редакт подтверждается и сразу выстрел через открытый проход. По желанию — сброс редакта после выстрела.", fields: [en, tr, cb, ed, cd
+        , Fld("num", "ShotDelay", "Пауза перед выстрелом"), Fld("num", "Shots", "Выстрелов", {u: "шт."}), Fld("num", "ShotInterval", "Между выстрелами")
+        , Fld("toggle", "ResetAfter", "Сбросить редакт после выстрела"), Fld("num", "ResetDelay", "Пауза перед сбросом"), Fld("key", "ResetKey", "Клавиша сброса редакта")]}
     FORMS["InstantBuild"] := {desc: "Нажал клавишу постройки — она сразу ставится. В непрерывном режиме ЛКМ остаётся зажатой, пока не нажмёшь редакт, смену оружия или спринт.", fields: [en
         , Fld("key", "WallTrigger", "Стена"), Fld("key", "FloorTrigger", "Пол"), Fld("key", "StairsTrigger", "Лестница")
         , Fld("key", "ConeTrigger", "Конус"), Fld("num", "PlaceDelay", "Задержка установки")
@@ -1989,10 +2048,8 @@ InitForms() {
     FORMS["AutoSprint"] := {desc: "После каждой постройки и редакта снова нажимает спринт.", fields: [en, Fld("num", "Delay", "Задержка после действия")]}
     FORMS["Competitive"] := {desc: "Для игры с выключенным «Авто-подтверждением редактирования»: макросы подтверждают редакт клавишей редактирования. Пока держишь клавишу peek, редакт остаётся открытым — можно смотреть сквозь конус.", fields: [en, Fld("key", "PeekKey", "Клавиша peek")]}
     pd := Map("WallRetake", "Ставит стену и сразу переключает на оружие из слота 1."
-        , "Prefire", "Открывает редакт, подтверждает, достаёт оружие из слота 1 и стреляет."
         , "SprintReset", "Сбрасывает спринт двойным нажатием клавиши спринта."
         , "Mantle", "Зажимает спринт и прыгает — чтобы залезть на уступ."
-        , "SimpleEdit", "Простой редакт: вход, выбор тайла, подтверждение."
         , "CrouchPeek", "Быстро приседает и встаёт, чтобы выглянуть из-за укрытия.")
     for p in PRESETS
         FORMS["Macro:" p] := {desc: pd[p], fields: MacroFields()}
@@ -2007,6 +2064,12 @@ InitHints() {
     for k, v in Map("Enabled", "Включает или выключает эту функцию. Изменения применяются сразу."
         , "Trigger", "Клавиша запуска. Кликни и нажми нужную клавишу или кнопку мыши. Esc — отмена, Backspace — очистить."
         , "ConfirmBy", "Как подтверждать редакт. «Отпусканием» — если в Fortnite включено «Подтверждать при отпускании». «Клавишей» — макрос сам нажмёт клавишу редактирования ещё раз."
+        , "ShotDelay", "Сколько ждать после подтверждения редакта перед выстрелом. Если выстрел не проходит — увеличь до 40–60 мс."
+        , "Shots", "Сколько раз выстрелить после открытия редакта."
+        , "ShotInterval", "Пауза между выстрелами, если их несколько. Для дробовика — около 60 мс, для автомата можно меньше."
+        , "ResetAfter", "После выстрела снова войти в редакт и сбросить его — проход закроется обратно."
+        , "ResetDelay", "Сколько ждать после выстрела перед сбросом редакта."
+        , "ResetKey", "Клавиша «Сбросить редактирование» из настроек Fortnite (по умолчанию — правая кнопка мыши)."
         , "EnterDelay", "Пауза после входа в режим редактирования, перед выбором тайла. Если редакт не срабатывает — увеличь до 15–20 мс."
         , "ConfirmDelay", "Пауза перед подтверждением редакта."
         , "FPS", "Твой FPS в игре. По нему считается темп спама редактов."
