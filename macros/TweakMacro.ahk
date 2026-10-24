@@ -334,6 +334,7 @@ Pay := {state: ""}
 Prices := Map("m1", 849, "m3", 1890, "life", 4790, "reset", 279)
 PayOn := 1
 HttpStatus := 0
+WinLog := []
 AdminStats := "", AdminSrv := ""
 PromoS := {state: ""}, TrialS := {state: ""}, TicketS := {state: ""}
 NewsRaw := "[]", TicketsRaw := "[]", TrialDays := 3, RefDays := [7, 3]
@@ -352,6 +353,7 @@ if Bool("Optimize", "AutoGame")
 SetTimer(LicPeriodic, 6 * 3600 * 1000)
 OnError(ReportError)
 SetTimer(SafetyTick, 100)
+SetTimer(GameAccessTick, 2000)
 OnExit((*) => ReleaseAll())
 ; Сначала лаунчер: обновления, ключ, потом запуск макросов и меню
 StartLauncher()
@@ -587,7 +589,7 @@ GameActive() {
     if A_IsSuspended
         return false
     if Bool("General", "OnlyInGame", true)
-        return !!WinActive("ahk_exe " Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe"))
+        return IsGameWin(WinExist("A"))
     return !(UI && WinActive("ahk_id " UI.Hwnd))
 }
 
@@ -616,7 +618,11 @@ ReleaseAll() {
 ; - кнопка переназначения отпущена, а клавиша всё ещё зажата — отпускаем;
 ; - Ctrl/Alt/Shift/Win, нажатый программой, остался зажат без макроса — отпускаем.
 SafetyTick() {
-    static was := false
+    static was := false, lastFg := 0
+    if (fg := WinExist("A")) != lastFg {
+        lastFg := fg
+        NoteWindow(fg)
+    }
     now := GameActive()
     if (was && !now)
         StopAll()
@@ -662,10 +668,31 @@ SetCtx(ctx) {
     else if (ctx = "*")
         HotIf(NotInMenu)
     else
-        HotIfWinActive("ahk_exe " ctx)
+        HotIf(InGame)
 }
 
 NotInMenu(*) => !(UI && WinActive("ahk_id " UI.Hwnd))
+InGame(*) => IsGameWin(WinExist("A"))
+
+; Окно игры: процесс из настроек; для Fortnite — любой FortniteClient*.exe или окно Unreal с «Fortnite» в заголовке
+; (у части игроков процесс называется иначе, и строгая проверка по имени отключала все макросы)
+IsGameWin(hwnd) {
+    static last := 0, res := false
+    if !hwnd
+        return false
+    if (hwnd = last)
+        return res
+    exe := "", cls := "", title := ""
+    try exe := WinGetProcessName("ahk_id " hwnd)
+    try cls := WinGetClass("ahk_id " hwnd)
+    try title := WinGetTitle("ahk_id " hwnd)
+    want := Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe")
+    res := (exe != "" && exe = want)
+    if !res && (want ~= "i)^Fortnite")
+        res := (exe ~= "i)^FortniteClient.*\.exe$") || (cls = "UnrealWindow" && InStr(title, "Fortnite"))
+    last := hwnd
+    return res
+}
 
 Reg(ctx, trig, fn, owner, opts := "S0") {
     if (trig = "")
@@ -836,7 +863,7 @@ RapidFire(trig, *) {
 ; Если долго нет ввода, подпрыгивает, чтобы игра не выкинула за бездействие
 AntiAFKTick() {
     global StatsVer
-    if A_IsSuspended || !WinActive("ahk_exe " Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe"))
+    if A_IsSuspended || !IsGameWin(WinExist("A"))
         return
     if (A_TimeIdlePhysical < Max(Num("AntiAFK", "Interval", 60), 10) * 1000)
         return
@@ -2544,13 +2571,100 @@ ListHeavy() {
     try Wnd.procs(Json(top))
 }
 
-Elevate() {
+Elevate(launch := false) {
     try {
-        Run('*RunAs "' A_AhkPath '" /restart "' A_ScriptFullPath '"')
+        arg := launch ? " /launch" : ""
+        Run(A_IsCompiled ? '*RunAs "' A_ScriptFullPath '"' arg : '*RunAs "' A_AhkPath '" /restart "' A_ScriptFullPath '"' arg)
         ExitApp
     } catch {
         Notify("Запуск от имени администратора отменён")
     }
+}
+
+; ───── доступ к игре ─────
+; Если Fortnite запущен от имени администратора, а TweakMacro — нет, Windows не пропускает ни перехват клавиш,
+; ни нажатия программы в игру: макросы молча не работают. Замечаем это и предлагаем перезапуск с правами.
+ProcElevated(pid) {
+    ; 1 — от администратора, 0 — нет, -1 — узнать не удалось
+    h := DllCall("OpenProcess", "uint", 0x1000, "int", 0, "uint", pid, "ptr")
+    if !h
+        return -1
+    tok := 0, el := 0, sz := 0
+    if !DllCall("advapi32\OpenProcessToken", "ptr", h, "uint", 0x8, "ptr*", &tok) {
+        DllCall("CloseHandle", "ptr", h)
+        return -1
+    }
+    ok := DllCall("advapi32\GetTokenInformation", "ptr", tok, "int", 20, "uint*", &el, "uint", 4, "uint*", &sz)
+    DllCall("CloseHandle", "ptr", tok), DllCall("CloseHandle", "ptr", h)
+    return ok ? (el ? 1 : 0) : -1
+}
+
+GameAccessTick() {
+    static asked := false
+    if (A_IsAdmin || asked || !Launched)
+        return
+    hwnd := WinExist("A")
+    if !IsGameWin(hwnd)
+        return
+    el := -1
+    try el := ProcElevated(WinGetPID("ahk_id " hwnd))
+    ; Хуки «слепые»: человек жмёт клавиши в игре, а программа их не видит — верный признак прав администратора у игры
+    ; A_TimeIdle — системный простой (виден всегда), A_TimeIdleKeyboard/Mouse — то, что видят наши хуки
+    blind := A_TimeIdle < 1500 && A_TimeIdleKeyboard > 8000 && A_TimeIdleMouse > 8000
+    if (el != 1 && !blind)
+        return
+    asked := true
+    r := MsgBox(Tr("Fortnite запущен от имени администратора, поэтому Windows не пропускает к нему макросы.`n`nПерезапустить TweakMacro с правами администратора?"), "TweakMacro", "YesNo Icon! 262144")
+    if (r = "Yes")
+        Elevate(true)
+}
+
+; Последние активные окна — для диагностики (какой процесс и класс у окна игры на этом ПК)
+NoteWindow(hwnd) {
+    global WinLog
+    info := ""
+    try info := WinGetProcessName("ahk_id " hwnd) " · " WinGetClass("ahk_id " hwnd) " · " SubStr(WinGetTitle("ahk_id " hwnd), 1, 40)
+    if (info = "" || (WinLog.Length && WinLog[WinLog.Length] = info))
+        return
+    WinLog.Push(info)
+    if (WinLog.Length > 8)
+        WinLog.RemoveAt(1)
+}
+
+; Отчёт для поддержки: копируется в буфер, его можно просто вставить в сообщение
+DiagText() {
+    s := "TweakMacro " APP_VERSION (A_IsCompiled ? " exe" : " script") (AdminCode() != "" ? " admin" : "") "`n"
+    s .= "Windows " A_OSVersion (A_Is64bitOS ? " x64" : " x86") " · программа от админа: " (A_IsAdmin ? "да" : "нет") "`n"
+    s .= "Раскладка: " Format("{:04X}", DllCall("GetKeyboardLayout", "uint", 0, "ptr") & 0xFFFF) "`n"
+    s .= "Лицензия: " Lic.state " · запущено: " (Launched ? "да" : "нет") " · пауза: " (A_IsSuspended ? "да" : "нет") "`n"
+    s .= "Только в Fortnite: " (Bool("General", "OnlyInGame", true) ? "да" : "нет") " · процесс: " Get("General", "GameExe") "`n"
+    try for p in ComObjGet("winmgmts:").ExecQuery("SELECT Name, ProcessId FROM Win32_Process WHERE Name LIKE 'Fortnite%' OR Name LIKE 'AutoHotkey%' OR Name LIKE 'TweakMacro%' OR Name LIKE 'EpicGames%'") {
+        el := ProcElevated(p.ProcessId)
+        s .= "Процесс: " p.Name " · от админа: " (el = 1 ? "да" : el = 0 ? "нет" : "?") "`n"
+    }
+    s .= "Окна: " (WinLog.Length ? "" : "—") "`n"
+    for w in WinLog
+        s .= "  " w "`n"
+    s .= "Простой хуков: клавиатура " A_TimeIdleKeyboard " мс, мышь " A_TimeIdleMouse " мс, физически " A_TimeIdlePhysical " мс`n"
+    s .= "Горячих клавиш: " Registered.Length "`n"
+    on := ""
+    for b in BUILTIN
+        if Bool(b.sec, "Enabled")
+            on .= b.name " [" Get(b.sec, "Trigger", Get(b.sec, "WallTrigger")) "], "
+    for sec in SecList("Macro:")
+        if !IsPreset(sec) && Bool(sec, "Enabled")
+            on .= SubStr(sec, 7) " [" Get(sec, "Trigger") "], "
+    s .= "Включены: " (on = "" ? "ничего" : RTrim(on, ", ")) "`n"
+    b := ""
+    if C.Has("Game")
+        for k, v in C["Game"]
+            b .= k "=" v " "
+    return s "Бинды: " b "`n"
+}
+
+CopyDiag(*) {
+    A_Clipboard := DiagText()
+    MsgBox(Tr("Диагностика скопирована. Вставь её (Ctrl+V) в сообщение разработчику."), "TweakMacro", "Iconi 262144")
 }
 
 ; Лёгкий режим: меню выгружается из памяти, пока закрыто
@@ -2614,6 +2728,7 @@ SetupTray() {
         t.Add(Tr("Прицел вкл/выкл"), ToggleCrosshair)
     }
     t.Add(Tr("Лаунчер"), (*) => ShowLauncher())
+    t.Add(Tr("Диагностика"), CopyDiag)
     t.Add()
     t.Add(Tr("Выход"), (*) => ExitApp())
     t.Default := Tr(Launched ? "Открыть меню" : "Лаунчер")
@@ -2914,7 +3029,11 @@ LauncherChecks() {
     LStep := "done"
     ResumePay()
     LPush()
-    if (Lic.ok && !Launched && Upd.state != "available" && Bool("License", "AutoLaunch"))
+    ; /launch — перезапуск с правами администратора из уже запущенной программы: сразу в игру
+    argLaunch := false
+    for a in A_Args
+        argLaunch := argLaunch || (a = "/launch")
+    if (Lic.ok && !Launched && Upd.state != "available" && (Bool("License", "AutoLaunch") || argLaunch))
         Launch(!Bool("General", "StartHidden"))
     else if (!LGShown && !Launched)
         ShowLauncher()
@@ -3339,6 +3458,10 @@ class LBridge {
         Run(A_ScriptDir)
         return 1
     }
+    diag() {
+        SetTimer(CopyDiag, -10)
+        return 1
+    }
     copy(text) {
         A_Clipboard := text
         return 1
@@ -3378,7 +3501,9 @@ Tr(msg) {
             , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
             , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
             , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
-            , "Привязка перенесена на этот ПК", "Binding moved to this PC"
+            , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Диагностика", "Diagnostics"
+            , "Диагностика скопирована. Вставь её (Ctrl+V) в сообщение разработчику.", "Diagnostics copied. Paste it (Ctrl+V) into a message to the developer."
+            , "Fortnite запущен от имени администратора, поэтому Windows не пропускает к нему макросы.`n`nПерезапустить TweakMacro с правами администратора?", "Fortnite is running as administrator, so Windows blocks macros from reaching it.`n`nRestart TweakMacro as administrator?"
             , "Эту функцию нельзя назначить на ЛКМ, ПКМ или колесо мыши", "This can't be bound to LMB, RMB or the mouse wheel"
             , "Клавиша вкл/выкл стояла на кнопке мыши — вернул стандартную", "The toggle key was on a mouse button, restored the default", "Код конфига скопирован", "Config code copied"
             , "Код не подошёл", "This code doesn't work", "Код не найден", "Code not found", "Пробный период включён", "Trial started"

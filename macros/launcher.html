@@ -156,6 +156,7 @@ function call(name, a, b, c) {
       case 'removeKey': return ahk.removeKey();
       case 'site': return ahk.site();
       case 'folder': return ahk.folder();
+      case 'diag': return ahk.diag();
       case 'copy': return ahk.copy(a);
       case 'close': return ahk.close();
       case 'min': return ahk.minimize();
@@ -192,7 +193,7 @@ var EN = {
   'Открыть оплату': 'Open payment', 'Отмена': 'Cancel', 'Ключ получен и активирован': 'Key received and activated',
   'Копировать': 'Copy', 'Скопировано': 'Copied', 'Сохрани ключ — он также отправлен на почту.': 'Save the key, it was also sent to your email.',
   'Перенос на этот ПК': 'Move to this PC',
-  'Назад': 'Back', 'Повторить': 'Retry',
+  'Назад': 'Back', 'Повторить': 'Retry', 'Диагностика': 'Diagnostics',
   'Попробовать бесплатно': 'Try for free', 'дня': 'days', 'дней': 'days', 'день': 'day', 'Включаю…': 'Starting…',
   'Пробный период на этом ПК уже был.': 'This PC has already used its trial.', 'Пробный период сейчас выключен.': 'The trial is turned off right now.',
   'Пробный': 'Trial', 'Промокод или код друга': 'Promo or friend code', 'Применить': 'Apply',
@@ -260,7 +261,7 @@ function render(json) {
   $('sub').innerHTML = esc(t('Макросы для Fortnite')) + ' · v' + esc(S.version);
   var f = [];
   if (S.api) f.push('<span class="lnk" data-act="site">' + t('Сайт') + '</span>', '<span class="lnk" data-act="view" data-v="support">' + t('Поддержка') + '</span>');
-  f.push('<span class="lnk" data-act="folder">' + t('Папка программы') + '</span>', '<span>v' + esc(S.version) + '</span>');
+  f.push('<span class="lnk" data-act="folder">' + t('Папка программы') + '</span>', '<span class="lnk" data-act="diag">' + t('Диагностика') + '</span>', '<span>v' + esc(S.version) + '</span>');
   $('foot').innerHTML = f.join(' · ');
 
   var v = curView(), h = (v === 'ready' || v === 'key' || v === 'wait' ? statusCard() : '') + mainPart();
@@ -437,6 +438,7 @@ function act(el) {
     case 'close': call('close'); break;
     case 'site': call('site'); break;
     case 'folder': call('folder'); break;
+    case 'diag': call('diag'); break;
     case 'update': call('update'); break;
     case 'launch': call('launch'); break;
     case 'recheck': call('recheck'); break;
