@@ -19,6 +19,8 @@ try:
 except ImportError:
     sys.exit("Нужна библиотека vpk: pip install vpk")
 
+import minify_import
+
 HERE = Path(__file__).resolve().parent
 DOTA_DIR_NAME = "dota 2 beta"
 
@@ -83,23 +85,48 @@ def build(dota, selected_ids, lang, dry_run=False, log=print):
     mods = [m for m in config["mods"] if m["id"] in selected_ids]
     if not mods:
         raise ValueError("Не выбрано ни одного мода")
+    local = [m for m in mods if "minify" not in m]
+    external = [m for m in mods if "minify" in m]
 
     pak_path = dota / "game" / "dota" / "pak01_dir.vpk"
     log(f"Читаю {pak_path} ...")
     pak = vpk.open(str(pak_path))
 
-    blank_path = next((c for c in config["blank_particle_candidates"] if c in pak), None)
-    if blank_path is None:
-        raise RuntimeError("Не нашёл пустой партикл в игре. Укажи свой в mods.json → blank_particle_candidates")
-    blank_data = pak.get_file(blank_path).read()
+    blanks = {}
+    if external:
+        minify_import.fetch([m["minify"] for m in external], log=log)
+        blanks = minify_import.blank_files()
 
-    matches = match_files(pak, mods)
-    total = 0
-    for mod in mods:
+    blank_path = next((c for c in config["blank_particle_candidates"] if c in pak), None)
+    if blank_path:
+        blank_data = pak.get_file(blank_path).read()
+    else:
+        if not blanks:
+            minify_import.fetch([], log=log)
+            blanks = minify_import.blank_files()
+        blank_data = blanks.get(".vpcf_c")
+        if blank_data is None:
+            raise RuntimeError("Не нашёл пустой партикл. Укажи свой в mods.json → blank_particle_candidates")
+
+    # {путь в паке: содержимое} для заглушек и {мод: папка files} для готовых файлов
+    stubs, copies, total = {}, [], 0
+    matches = match_files(pak, local)
+    for mod in local:
         files = [f for f in matches[mod["id"]] if f != blank_path]
-        matches[mod["id"]] = files
+        stubs.update(dict.fromkeys(files, blank_data))
         total += len(files)
         log(f"  {mod['name']}: {len(files)} файлов")
+    if external:
+        pak_paths = list(pak)
+        for mod in external:
+            files = minify_import.blacklist(mod["minify"], pak_paths, log=log)
+            stubs.update({f: blanks[Path(f).suffix] for f in files})
+            src = minify_import.files_dir(mod["minify"])
+            ready = [p for p in src.rglob("*") if p.is_file()] if src.is_dir() else []
+            if ready:
+                copies.append(src)
+            total += len(files) + len(ready)
+            log(f"  {mod['name']}: {len(files) + len(ready)} файлов")
     if total == 0:
         raise RuntimeError("Ни один файл не подошёл — возможно, Valve переименовала пути после патча")
     if dry_run:
@@ -108,11 +135,12 @@ def build(dota, selected_ids, lang, dry_run=False, log=print):
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        for files in matches.values():
-            for f in files:
-                out = tmp / f
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_bytes(blank_data)
+        for src in copies:
+            shutil.copytree(src, tmp, dirs_exist_ok=True)
+        for f, data in stubs.items():
+            out = tmp / f
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(data)
         target_dir = dota / "game" / f"dota_{lang}"
         target_dir.mkdir(exist_ok=True)
         target = target_dir / "pak01_dir.vpk"
@@ -184,7 +212,7 @@ def main():
     if args.uninstall:
         uninstall(dota, args.lang)
         return
-    ids = args.mods.split(",") if args.mods else [m["id"] for m in config["mods"]]
+    ids = args.mods.split(",") if args.mods else [m["id"] for m in config["mods"] if m.get("default", True)]
     try:
         build(dota, ids, args.lang, dry_run=args.dry_run)
     except (ValueError, RuntimeError) as e:

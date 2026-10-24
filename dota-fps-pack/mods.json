@@ -60,6 +60,38 @@
       "patterns": [
         "^particles/econ/events/.*high_five[^/]*\\.vpcf_c$"
       ]
+    },
+    {
+      "id": "dark_terrain",
+      "group": "terrain",
+      "minify": "Dark Terrain",
+      "default": false,
+      "name": "Тёмный ландшафт",
+      "description": "Серо-тёмные плитки вместо земли, тёмная вода, без тумана. Герои и спеллы лучше читаются. Нужен стандартный ландшафт."
+    },
+    {
+      "id": "remove_foliage",
+      "group": "terrain",
+      "minify": "Remove Foliage",
+      "default": false,
+      "name": "Без кустов и камней",
+      "description": "Убирает кусты, цветы, камни и прочий декор — остаются только плитки. Сильно разгружает видеокарту. Деревья остаются. Нужен стандартный ландшафт."
+    },
+    {
+      "id": "remove_river",
+      "group": "terrain",
+      "minify": "Remove River",
+      "default": false,
+      "name": "Без реки",
+      "description": "Убирает воду реки, брызги и звуки шагов по воде."
+    },
+    {
+      "id": "misc_optimization",
+      "group": "terrain",
+      "minify": "Misc Optimization",
+      "default": false,
+      "name": "Без эффектов зданий",
+      "description": "Убирает свечение зданий, фонтана и аванпостов, эффекты снарядов башен, глифа, щита Терзателя и чучел."
     }
   ]
 }

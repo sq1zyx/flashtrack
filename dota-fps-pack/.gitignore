@@ -2,3 +2,4 @@ scan.txt
 settings.json
 backup.json
 __pycache__/
+cache/

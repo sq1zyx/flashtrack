@@ -178,9 +178,9 @@ class ScrollFrame(tk.Frame):
                 self.canvas.unbind_all(seq)
 
 
-def card(parent, title, column, row=0, columnspan=1):
+def card(parent, title, column, row=0, columnspan=1, rowspan=1):
     outer = tk.Frame(parent, bg=BORDER, padx=1, pady=1)
-    outer.grid(row=row, column=column, columnspan=columnspan, sticky="nsew", padx=6, pady=6)
+    outer.grid(row=row, column=column, columnspan=columnspan, rowspan=rowspan, sticky="nsew", padx=6, pady=6)
     body = tk.Frame(outer, bg=CARD, padx=14, pady=10)
     body.pack(fill="both", expand=True)
     head = tk.Frame(body, bg=CARD)
@@ -372,17 +372,18 @@ class App:
     # вкладка «Визуал»
 
     def _page_visual(self, grid):
-        body = card(grid, "Партиклы", 0)
-        for mod in self.config["mods"]:
-            on = self.s["mods"].get(mod["id"], True)
-            Toggle(row(body, mod["name"], mod["description"]), on,
-                   lambda v, i=mod["id"]: self.s["mods"].__setitem__(i, v)).pack()
+        for title, group, col, r, span in (("Партиклы", None, 0, 0, 4), ("Ландшафт и карта · Minify", "terrain", 1, 1, 1)):
+            body = card(grid, title, col, row=r, rowspan=span)
+            for mod in self.config["mods"]:
+                if mod.get("group") != group:
+                    continue
+                on = self.s["mods"].get(mod["id"], mod.get("default", True))
+                Toggle(row(body, mod["name"], mod["description"]), on,
+                       lambda v, i=mod["id"]: self.s["mods"].__setitem__(i, v)).pack()
 
         body = card(grid, "Пак модов", 1)
         lang = row(body, "Язык игры", "Пак ставится в папку dota_<язык>, Дота запускается с -language <язык>.")
         Segmented(lang, [("russian", "RU"), ("english", "EN")], self.s["lang"], self.setting("lang")).pack()
-        row(body, "Плоский ландшафт", "Однотонная земля и простые деревья. Нужен scan.txt с твоего ПК.",
-            tag="скоро", tag_color=MUTED)
         btns = tk.Frame(body, bg=CARD)
         btns.pack(fill="x", pady=(10, 0))
         Button(btns, "Собрать и установить", lambda: self.build(False), primary=True).pack(side="left")
@@ -390,14 +391,16 @@ class App:
         Button(btns, "Удалить", lambda: self.run(lambda: build_pack.uninstall(
             self.dota, self.s["lang"], log=self.log))).pack(side="left")
 
-        body = card(grid, "Как это работает", 1, row=1)
+        body = card(grid, "Как это работает", 1, row=2)
         tk.Label(body, bg=CARD, fg=MUTED, font=(FONT, 9), justify="left", wraplength=320, text=(
             "Выбранные косметические эффекты заменяются пустыми. Эффекты способностей, радиусы и всё, "
-            "что влияет на игру, не трогаются.\n\n«Проверить» показывает, сколько файлов найдено для "
+            "что влияет на игру, не трогаются.\n\nМоды ландшафта скачиваются из открытого проекта Minify "
+            "(github.com/egezenn/dota2-minify, GPL-3.0) при сборке. Для них в инвентаре должен стоять "
+            "стандартный ландшафт, а в настройках видео выключена трава.\n\n«Проверить» показывает, сколько файлов найдено для "
             "каждого мода, ничего не меняя. После крупных патчей пак стоит пересобрать.")).pack(anchor="w")
 
     def build(self, dry):
-        ids = [m["id"] for m in self.config["mods"] if self.s["mods"].get(m["id"], True)]
+        ids = [m["id"] for m in self.config["mods"] if self.s["mods"].get(m["id"], m.get("default", True))]
         self.run(lambda: build_pack.build(self.dota, ids, self.s["lang"], dry_run=dry, log=self.log))
 
     # вкладка «Игра»
