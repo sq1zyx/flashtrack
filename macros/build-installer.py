@@ -30,6 +30,8 @@ try {
   Remove-Item (Join-Path $desk 'FlashMacro.lnk') -ErrorAction SilentlyContinue
   # Close a running copy so the .exe can be replaced; the script version is not needed any more
   Get-Process TweakMacro -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($dir + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue
+  # Old script versions run inside AutoHotkey and would fight the new exe for the same keys
+  Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'TweakMacro|FlashMacro' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Milliseconds 500
   Remove-Item (Join-Path $dir 'TweakMacro.ahk') -ErrorAction SilentlyContinue
 @@FILES@@

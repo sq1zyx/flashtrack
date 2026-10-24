@@ -5,6 +5,9 @@
 #SingleInstance Force
 #UseHook True
 #MaxThreadsPerHotkey 1
+; Работать должна одна копия: обычная, админская или старая версия-скрипт (TweakMacro.ahk / FlashMacro).
+; Две копии перехватывают одни и те же клавиши — и макросы перестают срабатывать.
+CloseOtherCopies()
 InstallKeybdHook
 InstallMouseHook
 SendMode "Input"
@@ -351,6 +354,20 @@ SetTimer(SafetyTick, 100)
 OnExit((*) => ReleaseAll())
 ; Сначала лаунчер: обновления, ключ, потом запуск макросов и меню
 StartLauncher()
+
+CloseOtherCopies() {
+    prev := A_DetectHiddenWindows
+    DetectHiddenWindows true
+    me := ProcessExist()
+    for hwnd in WinGetList("ahk_class AutoHotkey") {
+        try {
+            pid := WinGetPID(hwnd)
+            if (pid != me && RegExMatch(WinGetTitle(hwnd), "i)\\(TweakMacro|FlashMacro)\.(exe|ahk)\b"))
+                ProcessClose(pid)
+        }
+    }
+    DetectHiddenWindows prev
+}
 
 ; ───────────────────────── Конфиг ─────────────────────────
 
