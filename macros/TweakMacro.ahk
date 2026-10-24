@@ -17,7 +17,8 @@ SetWinDelay -1
 SetControlDelay -1
 A_MaxHotkeysPerInterval := 5000
 CoordMode "Mouse", "Screen"
-ProcessSetPriority "High"
+; «Выше среднего», а не «Высокий»: хуки клавиатуры и так быстрые, а высокий приоритет отнимал процессор у игры
+ProcessSetPriority "AboveNormal"
 
 ; Своя иконка и отдельная группа на панели задач
 ICON := A_ScriptDir "\icon.ico"
@@ -1908,7 +1909,8 @@ Json(v) {
 ; Подсветка клавиш, которые макрос нажимает прямо сейчас (только на Dashboard)
 FlashTick() {
     static last := ""
-    if (CurPage != "Dashboard" || !Wnd)
+    ; Подсветка нужна, только когда меню на экране и активно — в игре движок меню не должен перерисовываться
+    if (CurPage != "Dashboard" || !Wnd || !UI || !WinActive("ahk_id " UI.Hwnd))
         return
     now := A_TickCount, s := ""
     for n, p in Pressed.Clone() {
@@ -1955,7 +1957,7 @@ ToggleMenu(*) {
 
 StatsTick() {
     static last := -1
-    if (StatsVer != last && Wnd) {
+    if (StatsVer != last && Wnd && UI && WinActive("ahk_id " UI.Hwnd)) {
         last := StatsVer
         try Wnd.stats(Json(Stats))
     }
@@ -2975,12 +2977,17 @@ LPush() {
 
 ; Запуск макросов и меню
 Launch(show := true, *) {
-    global Launched, LGShown
+    global Launched, LGShown, LG, LWB, LWnd
     first := !Launched
     Launched := true
     if LG
         LG.Hide()
     LGShown := false
+    ; Лаунчер больше не нужен — выгружаем его движок из памяти (откроется заново из трея)
+    if LG {
+        LG.Destroy()
+        LG := 0, LWB := 0, LWnd := 0
+    }
     if first {
         ApplyEngine()
         UpdateCrosshair()

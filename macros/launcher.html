@@ -522,7 +522,7 @@ document.onkeydown = function (e) {
     if (e.preventDefault) e.preventDefault();
     return false;
   };
-  setInterval(upd, 250);
+  setInterval(function () { if (!document.hasFocus || document.hasFocus()) upd(); }, 400);
 })();
 document.oncontextmenu = function () { return false; };
 document.onselectstart = function (e) { e = e || window.event; var tg = e.target || e.srcElement; return tg.tagName === 'INPUT'; };

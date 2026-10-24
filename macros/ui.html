@@ -1294,17 +1294,26 @@ function fancyScroll(el) {
 }
 function sbUpdate(o) {
   var el = o.el, max = el.scrollHeight - el.clientHeight;
-  if (!el.offsetHeight || max <= 1) { o.bar.style.display = 'none'; return; }
+  if (!el.offsetHeight || max <= 1) { if (o.bar.style.display !== 'none') o.bar.style.display = 'none'; o.key = ''; return; }
   var r = el.getBoundingClientRect(), pad = 6, track = Math.round(r.bottom - r.top - pad * 2);
   var h = Math.max(32, Math.round(track * el.clientHeight / el.scrollHeight));
+  var left = Math.round(Math.min(r.right, document.documentElement.clientWidth) - 13), top = Math.round(r.top + pad), y = Math.round((track - h) * el.scrollTop / max);
+  // Стили трогаем, только если что-то изменилось — иначе движок перерисовывает окно впустую
+  var key = [left, top, track, h, y].join(',');
+  if (key === o.key && o.bar.style.display === 'block') return;
+  o.key = key;
   o.bar.style.display = 'block';
-  o.bar.style.left = Math.round(Math.min(r.right, document.documentElement.clientWidth) - 13) + 'px';
-  o.bar.style.top = Math.round(r.top + pad) + 'px';
+  o.bar.style.left = left + 'px';
+  o.bar.style.top = top + 'px';
   o.bar.style.height = track + 'px';
   o.th.style.height = h + 'px';
-  o.th.style.top = Math.round((track - h) * el.scrollTop / max) + 'px';
+  o.th.style.top = y + 'px';
 }
-setInterval(function () { for (var i = 0; i < SB.length; i++) sbUpdate(SB[i]); }, 250);
+// Пересчёт только пока окно меню активно: в фоне (во время игры) движок не трогает раскладку и не отнимает кадры у игры
+setInterval(function () {
+  if (document.hasFocus && !document.hasFocus()) return;
+  for (var i = 0; i < SB.length; i++) sbUpdate(SB[i]);
+}, 400);
 var licShown = false;
 function render(state) {
   S = JSON.parse(state);
