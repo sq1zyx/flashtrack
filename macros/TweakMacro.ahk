@@ -30,8 +30,13 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "3.2"
+APP_VERSION := "3.3"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
+; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
+; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
+ADMIN_HASH := "bbaec62573b32cda52c9fa300d136580d3db448eed3c0a323d4460217415f9c3"
+; После обновления .exe старая версия остаётся рядом под другим именем — удаляем её
+try FileDelete(A_ScriptDir "\TweakMacro.old.exe")
 
 ; ───────────────────────── Настройки по умолчанию ─────────────────────────
 ; Это же шаблон config.ini: порядок секций и ключей при сохранении берётся отсюда.
@@ -57,6 +62,8 @@ Base=dark
 AccentColor=E11D2E
 ; 1 = короткие уведомления внизу экрана
 ShowOSD=1
+; 1 = короткий звук при вкл/выкл макросов и прицела
+Sound=1
 ; Клавиша, открывающая меню поверх игры
 MenuKey=Insert
 MenuOnTop=1
@@ -79,6 +86,13 @@ PendingAt=
 PendingKind=
 ; Админ-код (ADM-...): все функции и вкладка Admin со статистикой подписок
 Admin=
+; Код для друзей и сколько человек купили по нему
+RefCode=
+RefCount=0
+
+[Trainer]
+BestCps=0
+BestReact=0
 ; 1 = не показывать лаунчер, сразу запускать, если ключ в порядке
 AutoLaunch=0
 ; Свой адрес сервера (необязательно, иначе LICENSE_API из TweakMacro.ahk)
@@ -303,12 +317,14 @@ Lic := LicFromCache()
 LastLang := Lang()
 Launched := false
 LG := 0, LWB := 0, LWnd := 0, LGShown := false, LStep := "update"
-Upd := {state: "", version: "", progress: 0, error: "", files: []}
+Upd := {state: "", version: "", progress: 0, error: "", files: [], changes: "[]"}
 Pay := {state: ""}
 Prices := Map("m1", 849, "m3", 1890, "life", 4790, "reset", 279)
 PayOn := 1
 HttpStatus := 0
-AdminStats := ""
+AdminStats := "", AdminSrv := ""
+PromoS := {state: ""}, TrialS := {state: ""}, TicketS := {state: ""}
+NewsRaw := "[]", TicketsRaw := "[]", TrialDays := 3, RefDays := [7, 3]
 CurPage := "Dashboard"
 FORMS := Map(), HintText := Map(), OsdG := 0, LogLines := [], ImportFound := Map()
 SEQ_HELP := "Последовательность через запятую: число — пауза в мс, X — нажать, +X — зажать, -X — отпустить, {Edit} — бинд со страницы Keybinds. Пример: {Wall}, 10, LButton, 15, {Slot1}"
@@ -322,6 +338,7 @@ SetupTray()
 if Bool("Optimize", "AutoGame")
     SetTimer(GameWatch, 3000)
 SetTimer(LicPeriodic, 6 * 3600 * 1000)
+OnError(ReportError)
 ; Сначала лаунчер: обновления, ключ, потом запуск макросов и меню
 StartLauncher()
 
@@ -830,6 +847,8 @@ ToggleSuspend(*) {
         }
     }
     Suspend(-1)
+    if Bool("General", "Sound", true)
+        SoundBeep(A_IsSuspended ? 520 : 880, 60)
     Notify(A_IsSuspended ? "Макросы выключены" : "Макросы включены")
     PushState()
     UpdateIndicator()
@@ -973,6 +992,8 @@ UpdateCrosshair() {
 ToggleCrosshair(*) {
     global XVisible
     XVisible := !XVisible
+    if Bool("General", "Sound", true)
+        SoundBeep(XVisible ? 760 : 440, 50)
     UpdateCrosshair()
 }
 
@@ -1098,6 +1119,36 @@ class Bridge {
     }
     importProfile() {
         SetTimer(ImportProfile, -10)
+        return 1
+    }
+    shareCode() {
+        SetTimer(ShareCode, -10)
+        return 1
+    }
+    importCode(code) {
+        SetTimer(ImportCode.Bind(code), -10)
+        return 1
+    }
+    cloudSave() {
+        SetTimer(CloudSave, -10)
+        return 1
+    }
+    cloudLoad() {
+        SetTimer(CloudLoad, -10)
+        return 1
+    }
+    adminApi(id, method, path, body := "") {
+        SetTimer(AdminApi.Bind(id, method, path, body), -10)
+        return 1
+    }
+    adminExport() {
+        SetTimer(AdminExport, -10)
+        return 1
+    }
+    adminSetApi(url) {
+        SetVal("License", "Api", RTrim(Trim(url), "/"))
+        SaveIni()
+        SetTimer(LicenseCheck, -10)
         return 1
     }
     resetSec(sec) {
@@ -1317,7 +1368,7 @@ SwitchProfile(name) {
     if FileExist(ProfPath(name))
         ParseInto(FileRead(ProfPath(name), "UTF-8"), nc)
     nc["General"] := gen
-    for keep in ["Optimize", "OptBackup", "License"]
+    for keep in ["Optimize", "OptBackup", "License", "Trainer"]
         if C.Has(keep)
             nc[keep] := C[keep]
     C := nc
@@ -1377,10 +1428,9 @@ ExportProfile(name) {
         return
     if !(path ~= "i)\.ini$")
         path .= ".ini"
-    if (name = Get("General", "Profile", PROF_DEFAULT))
-        SaveIni(path)
-    else
-        FileCopy(ProfPath(name), path, 1)
+    ; В файл не попадают ключ, админ-код и настройки Windows — его можно смело отдавать другу
+    text := (name = Get("General", "Profile", PROF_DEFAULT)) ? ProfileText() : (FileExist(ProfPath(name)) ? FileRead(ProfPath(name), "UTF-8") : "")
+    FileOpen(path, "w", "UTF-8-RAW").Write(StripPrivate(text))
     Notify("Профиль сохранён в файл")
 }
 
@@ -1392,9 +1442,120 @@ ImportProfile() {
     SplitPath(path, , , , &base)
     SaveCurrentProfile()
     n := UniqueProfile(CleanName(RegExReplace(base, "^TweakMacro - ")))
-    FileCopy(path, ProfPath(n))
+    FileOpen(ProfPath(n), "w", "UTF-8-RAW").Write(StripPrivate(FileRead(path, "UTF-8")))
     PushState()
     Notify("Импортирован профиль «" n "»")
+}
+
+; ───── обмен конфигами и облако ─────
+; Текст текущего профиля без личного: ключа, админ-кода, общих настроек и оптимизации Windows
+ProfileText() {
+    tmp := A_Temp "\tm-profile-" A_TickCount ".ini"
+    SaveIni(tmp)
+    t := FileRead(tmp, "UTF-8")
+    try FileDelete(tmp)
+    return StripPrivate(t)
+}
+StripPrivate(t) => Trim(RegExReplace(t, "msi)^\[(General|License|Optimize|OptBackup|Trainer)\]\R.*?(?=^\[|\z)"), "`r`n ") "`r`n"
+
+ImportProfileText(text, name) {
+    text := StripPrivate(text)
+    if !RegExMatch(text, "m)^\[\w") {
+        Notify("Код не подошёл")
+        return false
+    }
+    SaveCurrentProfile()
+    n := UniqueProfile(CleanName(name))
+    FileOpen(ProfPath(n), "w", "UTF-8-RAW").Write(text)
+    SwitchProfile(n)
+    Notify("Импортирован профиль «" n "»")
+    return true
+}
+
+; Код конфига: короткий CFG-XXXXXX через сервер, без сервера — длинная строка TM1:...
+ShareCode() {
+    text := ProfileText(), code := ""
+    if (LicApi() != "") {
+        res := Http("POST", LicApi() "/api/share", Json(Map("data", text)))
+        code := JsonVal(res, "code")
+    }
+    if (code = "")
+        code := "TM1:" B64Enc(text)
+    A_Clipboard := code
+    try Wnd.shareResult(code)
+    Notify("Код конфига скопирован")
+}
+ImportCode(code) {
+    code := Trim(code)
+    if RegExMatch(code, "i)^CFG-\w+$") {
+        if (LicApi() = "")
+            return Notify("Короткие коды работают, когда подключён сервер")
+        res := Http("GET", LicApi() "/api/share/" code)
+        data := JsonStr(res, "data")
+        if (data = "")
+            return Notify("Код не найден")
+        ImportProfileText(JsonUnesc(data), "Профиль " StrUpper(code))
+    } else if (SubStr(code, 1, 4) = "TM1:") {
+        ImportProfileText(B64Dec(SubStr(code, 5)), "Профиль по коду")
+    } else
+        Notify("Код не подошёл")
+}
+
+CloudSave() {
+    if (LicApi() = "" || Get("License", "Key") = "")
+        return Notify("Облако работает с активным ключом")
+    hw := HwInfo()
+    res := Http("POST", LicApi() "/api/cloud/save", Json(Map("key", Get("License", "Key"), "hwid", hw.hwid, "parts", hw.parts, "app", APP_VERSION, "data", ProfileText())))
+    Notify(InStr(res, '"ok":true') ? "Профиль сохранён в облако" : "Не получилось сохранить в облако")
+}
+CloudLoad() {
+    if (LicApi() = "" || Get("License", "Key") = "")
+        return Notify("Облако работает с активным ключом")
+    hw := HwInfo()
+    res := Http("POST", LicApi() "/api/cloud/load", Json(Map("key", Get("License", "Key"), "hwid", hw.hwid, "parts", hw.parts, "app", APP_VERSION)))
+    data := JsonStr(res, "data")
+    if (data = "")
+        return Notify(InStr(res, "empty") ? "В облаке пока ничего нет" : "Не получилось загрузить из облака")
+    ImportProfileText(JsonUnesc(data), "Облако")
+}
+
+; Строка JSON → обычный текст (переводы строк, кавычки, \uXXXX)
+JsonUnesc(v) {
+    v := StrReplace(v, "\r", "`r"), v := StrReplace(v, "\n", "`n"), v := StrReplace(v, "\t", "`t")
+    while RegExMatch(v, "\\u([0-9a-fA-F]{4})", &m)
+        v := StrReplace(v, m[0], Chr(Integer("0x" m[1])))
+    return v
+}
+
+B64Enc(text) {
+    buf := Buffer(StrPut(text, "UTF-8")), n := StrPut(text, buf, "UTF-8") - 1, size := 0
+    DllCall("crypt32\CryptBinaryToStringW", "ptr", buf, "uint", n, "uint", 0x40000001, "ptr", 0, "uint*", &size)
+    out := Buffer(size * 2)
+    DllCall("crypt32\CryptBinaryToStringW", "ptr", buf, "uint", n, "uint", 0x40000001, "ptr", out, "uint*", &size)
+    return StrGet(out, "UTF-16")
+}
+B64Dec(s) {
+    s := RegExReplace(s, "\s"), size := 0
+    if !DllCall("crypt32\CryptStringToBinaryW", "str", s, "uint", 0, "uint", 1, "ptr", 0, "uint*", &size, "ptr", 0, "ptr", 0)
+        return ""
+    buf := Buffer(size)
+    DllCall("crypt32\CryptStringToBinaryW", "str", s, "uint", 0, "uint", 1, "ptr", buf, "uint*", &size, "ptr", 0, "ptr", 0)
+    return StrGet(buf, size, "UTF-8")
+}
+
+; ───── отчёты об ошибках ─────
+; Ошибка программы уходит на сервер (видна во вкладке Admin), пользователь видит короткое уведомление.
+ReportError(e, mode) {
+    static sent := 0
+    if (LicApi() = "" || ++sent > 5)
+        return 0
+    extra := ""
+    try extra := String(e.Extra)
+    body := Json(Map("app", APP_VERSION (A_IsCompiled ? " exe" : ""), "hwid", HwInfo().short, "key", SubStr(Get("License", "Key"), 1, 7)
+        , "message", String(e.Message), "what", String(e.What), "line", String(e.Line), "extra", SubStr(extra, 1, 300) " | Windows " A_OSVersion))
+    SetTimer(() => Http("POST", LicApi() "/api/report", body), -10)
+    Notify("Произошла ошибка — отчёт отправлен разработчику")
+    return 1
 }
 
 ; Сброс секций к стандартным значениям (свои макросы и переназначения не трогаем)
@@ -2349,6 +2510,8 @@ Sha256Buf(buf, n) {
 LicSig() => Sha256("tm-cache-v1|" Get("License", "Admin") "|" Get("License", "Key") "|" Get("License", "Plan") "|" Get("License", "ExpiresTs") "|" Get("License", "LastOk") "|" HwInfo().hwid)
 
 LicFromCache() {
+    if (AdminCode() != "")
+        return {ok: 1, state: "admin"}
     if (LicApi() = "")
         return {ok: 1, state: "free"}
     adm := Get("License", "Admin") != ""
@@ -2385,26 +2548,47 @@ Http(method, url, body := "", token := "") {
 
 ; ───── админ-режим ─────
 ; Админ-код = ADMIN_TOKEN сервера. Открывает все функции без подписки и вкладку Admin.
+AdminCode() {
+    c := Get("License", "Admin")
+    if (c = "" && FileExist(A_ScriptDir "\admin.key"))
+        c := Trim(FileRead(A_ScriptDir "\admin.key", "UTF-8"), " `t`r`n")
+    return (c != "" && Sha256(c) = ADMIN_HASH) ? c : ""
+}
+
+; Админ-доступ проверяется по хэшу кода прямо в программе, поэтому работает и без сервера.
+; Сервер нужен только для статистики и управления ключами: AdminSrv — off / ok / unauthorized / offline.
 AdminCheck() {
-    global Lic, AdminStats
-    res := Http("GET", LicApi() "/api/admin/stats", "", Get("License", "Admin"))
-    if (HttpStatus = 200 && InStr(res, '"active"')) {
-        AdminStats := res
-        SetVal("License", "Plan", "admin")
-        SetVal("License", "ExpiresTs", "")
-        SetVal("License", "LastOk", A_NowUTC)
-        SetVal("License", "Sig", LicSig())
-        Lic := {ok: 1, state: "admin"}
-        try Wnd.adminData(res)
-    } else if (HttpStatus = 401) {
-        for k in ["Admin", "Plan", "LastOk", "Sig"]
-            SetVal("License", k, "")
-        Lic := {ok: 0, state: "invalid_key"}
-    } else {
-        c := LicFromCache()
-        Lic := c.ok ? {ok: 1, state: "admin"} : {ok: 0, state: "offline_expired"}
+    global Lic, AdminStats, AdminSrv
+    Lic := {ok: 1, state: "admin"}
+    if (LicApi() = "") {
+        AdminSrv := "off"
+        return
     }
-    SaveIni()
+    res := Http("GET", LicApi() "/api/admin/stats", "", AdminCode())
+    if (HttpStatus = 200 && InStr(res, '"active"')) {
+        AdminSrv := "ok", AdminStats := res
+        try Wnd.adminData(res)
+    } else
+        AdminSrv := HttpStatus = 401 ? "unauthorized" : "offline"
+}
+
+AdminApi(id, method, path, body) {
+    res := Http(method, LicApi() path, body, AdminCode())
+    try Wnd.adminResp(id, HttpStatus, res)
+}
+
+AdminExport() {
+    res := Http("GET", LicApi() "/api/admin/export.csv", "", AdminCode())
+    if (HttpStatus != 200)
+        return Notify("Не получилось выгрузить ключи")
+    path := A_Desktop "\TweakMacro-ключи-" FormatTime(, "yyyy-MM-dd") ".csv"
+    FileOpen(path, "w", "UTF-8").Write(LTrim(res, Chr(0xFEFF)))
+    Notify("Ключи сохранены на рабочий стол")
+    try Run('explorer.exe /select,"' path '"')
+}
+
+CurPageSet(p) {
+    try Wnd.showPage(p)
 }
 
 AdminRefresh() {
@@ -2432,10 +2616,10 @@ LicenseCheck(*) {
     global Lic
     wasOk := Lic.ok
     api := LicApi(), key := Get("License", "Key")
-    if (api = "") {
-        Lic := {ok: 1, state: "free"}
-    } else if (Get("License", "Admin") != "") {
+    if (AdminCode() != "") {
         AdminCheck()
+    } else if (api = "") {
+        Lic := {ok: 1, state: "free"}
     } else if (key = "") {
         Lic := {ok: 0, state: "nokey"}
     } else {
@@ -2450,6 +2634,8 @@ LicenseCheck(*) {
             SetVal("License", "ExpiresTs", (ex = "" || ex = "0") ? "" : DateAdd("19700101000000", Integer(ex), "Seconds"))
             SetVal("License", "LastOk", A_NowUTC)
             SetVal("License", "Sig", LicSig())
+            SetVal("License", "RefCode", JsonVal(res, "ref_code"))
+            SetVal("License", "RefCount", JsonVal(res, "ref_count"))
             Lic := {ok: 1, state: "active"}
         } else {
             err := JsonVal(res, "error")
@@ -2480,7 +2666,7 @@ LicState() {
     key := Get("License", "Key")
     return Map("ok", Lic.ok ? 1 : 0, "state", Lic.state, "plan", Get("License", "Plan"), "expires", exp
         , "key", StrLen(key) > 8 ? SubStr(key, 1, 8) "…" SubStr(key, -4) : key, "api", LicApi() != "" ? 1 : 0, "buy", BuyUrl() != "" ? 1 : 0
-        , "hwid", LicApi() != "" ? HwInfo().short : "")
+        , "hwid", LicApi() != "" ? HwInfo().short : "", "adminSrv", AdminSrv, "ref", Get("License", "RefCode"), "refCount", Get("License", "RefCount", "0"))
 }
 
 ; ───────────────────────── Лаунчер ─────────────────────────
@@ -2576,9 +2762,10 @@ LClose() {
 }
 
 LState() => Map("lang", Lang(), "version", APP_VERSION, "api", LicApi() != "" ? 1 : 0, "step", LStep
-    , "upd", Map("state", Upd.state, "version", Upd.version, "progress", Upd.progress, "error", Upd.error)
+    , "upd", Map("state", Upd.state, "version", Upd.version, "progress", Upd.progress, "error", Upd.error, "changes", Upd.changes)
     , "lic", LicState(), "pay", Pay, "launched", Launched ? 1 : 0, "auto", Bool("License", "AutoLaunch") ? 1 : 0
-    , "email", Get("License", "Email"), "prices", Prices, "payOn", PayOn)
+    , "email", Get("License", "Email"), "prices", Prices, "payOn", PayOn, "promo", PromoS, "trial", TrialS, "trialDays", TrialDays
+    , "refDays", RefDays, "news", NewsRaw, "ticket", TicketS, "tickets", TicketsRaw, "compiled", A_IsCompiled ? 1 : 0)
 
 LPush() {
     if LWnd
@@ -2605,7 +2792,7 @@ Launch(show := true, *) {
 
 ; ───── обновления ─────
 CheckUpdate() {
-    global Upd, PayOn
+    global Upd, PayOn, NewsRaw, TrialDays, RefDays
     Upd.state := "checking", Upd.error := ""
     LPush()
     api := LicApi()
@@ -2615,9 +2802,12 @@ CheckUpdate() {
     } else {
         files := [], pos := 1
         while (pos := RegExMatch(res, '\{"name":"([\w.-]+)","size":(\d+),"sha256":"([0-9a-f]{64})"\}', &m, pos)) {
-            files.Push({name: m[1], sha: m[3]})
+            ; Собранной программе нужен новый .exe, скрипту — новый .ahk
+            if (m[1] != (A_IsCompiled ? "TweakMacro.ahk" : "TweakMacro.exe"))
+                files.Push({name: m[1], sha: m[3]})
             pos += m.Len
         }
+        Upd.changes := RegExMatch(res, '"changes":(\[[^\]]*\])', &m) ? m[1] : "[]"
         Upd.version := JsonVal(res, "version"), Upd.files := files
         Upd.state := (files.Length && VerCompare(Upd.version, APP_VERSION) > 0) ? "available" : "latest"
     }
@@ -2630,6 +2820,13 @@ CheckUpdate() {
         Prices["reset"] := Integer(m[1])
     if RegExMatch(pl, '"enabled":(true|false)', &m)
         PayOn := m[1] = "true" ? 1 : 0
+    if RegExMatch(pl, '"trial_days":(\d+)', &m)
+        TrialDays := Integer(m[1])
+    if RegExMatch(pl, '"ref_bonus_days":(\d+),"ref_friend_days":(\d+)', &m)
+        RefDays := [Integer(m[1]), Integer(m[2])]
+    res := Http("GET", api "/api/news")
+    if RegExMatch(res, '"items":(\[.*\])', &m)
+        NewsRaw := m[1]
 }
 
 ; Скачиваем только изменённые файлы, сверяем SHA-256 и перезапускаемся
@@ -2651,8 +2848,12 @@ DoUpdate() {
             Upd.progress := Round(i * 100 / todo.Length)
             LPush()
         }
-        for f in todo
+        for f in todo {
+            ; Запущенный .exe нельзя перезаписать, но можно переименовать — старый удалится при следующем запуске
+            if (f.name = "TweakMacro.exe" && A_IsCompiled)
+                FileMove(A_ScriptFullPath, A_ScriptDir "\TweakMacro.old.exe", 1)
             FileMove(dir "\" f.name, A_ScriptDir "\" f.name, 1)
+        }
     } catch {
         try DirDelete(dir, 1)
         Upd.state := "available", Upd.error := "download"
@@ -2660,13 +2861,17 @@ DoUpdate() {
         return
     }
     try DirDelete(dir, 1)
+    if A_IsCompiled {
+        Run('"' A_ScriptDir '\TweakMacro.exe"')
+        ExitApp
+    }
     Reload()
 }
 
 ; ───── покупка с автовыдачей ключа ─────
 ; Платёж открывается в браузере, а программа сама спрашивает сервер, пока заказ не оплачен,
 ; забирает ключ и активирует его. Сервер сразу привязывает ключ к этому ПК.
-LBuy(plan, email) {
+LBuy(plan, email, promo := "") {
     global Pay
     kind := plan = "reset" ? "reset" : "buy"
     Pay := {state: "creating", kind: kind}
@@ -2675,13 +2880,15 @@ LBuy(plan, email) {
     SaveIni()
     hw := HwInfo()
     body := Map("plan", plan, "email", email, "lang", Lang(), "hwid", hw.hwid, "parts", hw.parts)
+    if (promo != "")
+        body["promo"] := promo
     if (Get("License", "Key") != "" && Lic.state != "invalid_key")
         body["renew_key"] := Get("License", "Key")
     res := Http("POST", LicApi() "/api/checkout", Json(body))
     url := JsonStr(res, "url"), ref := JsonVal(res, "ref")
     if (url = "" || ref = "") {
         err := JsonVal(res, "error")
-        Pay := {state: "error", kind: kind, error: res = "" ? "network" : (err != "" ? err : "payment_error")}
+        Pay := {state: "error", kind: kind, error: res = "" ? "network" : (err != "" ? (err = "bad_promo" ? "bad_promo" : err) : "payment_error")}
         LPush()
         return
     }
@@ -2756,11 +2963,21 @@ CancelPay() {
 ; ───── ключ и перенос ─────
 LActivate(key) {
     global Lic
-    ; Админ-код вместо ключа включает админ-режим
-    isAdmin := SubStr(key, 1, 4) = "ADM-"
-    SetVal("License", isAdmin ? "Admin" : "Key", key)
-    if !isAdmin
-        SetVal("License", "Admin", "")
+    ; Админ-код вместо ключа включает админ-режим (проверяется по хэшу)
+    if (SubStr(key, 1, 4) = "ADM-") {
+        if (Sha256(key) != ADMIN_HASH) {
+            Lic := {ok: 0, state: "invalid_key"}
+            PushState()
+            LPush()
+            return
+        }
+        SetVal("License", "Admin", key)
+        SaveIni()
+        LicenseCheck()
+        return
+    }
+    SetVal("License", "Key", key)
+    SetVal("License", "Admin", "")
     SetVal("License", "LastOk", "")
     SetVal("License", "Sig", "")
     SaveIni()
@@ -2768,6 +2985,66 @@ LActivate(key) {
     PushState()
     LPush()
     LicenseCheck()
+}
+
+; Пробный период: один раз на ПК
+LTrial() {
+    global TrialS
+    TrialS := {state: "working"}
+    LPush()
+    hw := HwInfo()
+    res := Http("POST", LicApi() "/api/trial", Json(Map("hwid", hw.hwid, "parts", hw.parts, "app", APP_VERSION)))
+    key := JsonVal(res, "key")
+    if (key = "") {
+        TrialS := {state: "error", error: res = "" ? "network" : JsonVal(res, "error")}
+        LPush()
+        return
+    }
+    TrialS := {state: ""}
+    SetVal("License", "Key", key)
+    SetVal("License", "LastOk", "")
+    SetVal("License", "Sig", "")
+    SaveIni()
+    LicenseCheck()
+    Notify("Пробный период включён")
+}
+
+; Проверка промокода или кода друга перед оплатой
+LPromo(code, plan) {
+    global PromoS
+    code := StrUpper(Trim(code))
+    if (code = "") {
+        PromoS := {state: ""}
+        return LPush()
+    }
+    PromoS := {state: "checking", code: code, plan: plan}
+    LPush()
+    res := Http("POST", LicApi() "/api/promo/check", Json(Map("code", code, "plan", plan, "key", Get("License", "Key"))))
+    if (JsonVal(res, "valid") = "true")
+        PromoS := {state: "ok", code: code, plan: plan, kind: JsonVal(res, "kind"), value: JsonVal(res, "value") + 0, amount: JsonVal(res, "amount") + 0, base: JsonVal(res, "base") + 0}
+    else
+        PromoS := {state: "error", code: code, plan: plan, error: res = "" ? "network" : JsonVal(res, "error")}
+    LPush()
+}
+
+; Поддержка: тикет уходит владельцу, ответы видны здесь же
+LTicket(text, email) {
+    global TicketS
+    TicketS := {state: "sending"}
+    LPush()
+    if (email != "")
+        SetVal("License", "Email", email), SaveIni()
+    hw := HwInfo()
+    res := Http("POST", LicApi() "/api/ticket", Json(Map("key", Get("License", "Key"), "hwid", hw.hwid, "email", email, "text", text, "app", APP_VERSION)))
+    TicketS := JsonVal(res, "id") != "" ? {state: "sent"} : {state: "error"}
+    LTickets()
+}
+LTickets() {
+    global TicketsRaw
+    res := Http("POST", LicApi() "/api/tickets/list", Json(Map("hwid", HwInfo().hwid)))
+    if RegExMatch(res, '"items":(\[.*\])', &m)
+        TicketsRaw := m[1]
+    LPush()
 }
 
 JsonStr(text, name) {
@@ -2782,8 +3059,28 @@ class LBridge {
         SetTimer(LActivate.Bind(StrUpper(Trim(key))), -10)
         return 1
     }
-    buy(plan, email) {
-        SetTimer(LBuy.Bind(plan, email), -10)
+    buy(plan, email, promo := "") {
+        SetTimer(LBuy.Bind(plan, email, promo), -10)
+        return 1
+    }
+    trial() {
+        SetTimer(LTrial, -10)
+        return 1
+    }
+    promo(code, plan) {
+        SetTimer(LPromo.Bind(code, plan), -10)
+        return 1
+    }
+    ticket(text, email) {
+        SetTimer(LTicket.Bind(text, email), -10)
+        return 1
+    }
+    tickets() {
+        SetTimer(LTickets, -10)
+        return 1
+    }
+    openAdmin() {
+        SetTimer(() => (Launch(true), CurPageSet("Admin")), -10)
         return 1
     }
     cancelPay() {
@@ -2873,7 +3170,13 @@ Tr(msg) {
             , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
             , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
             , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
-            , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
+            , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Код конфига скопирован", "Config code copied"
+            , "Код не подошёл", "This code doesn't work", "Код не найден", "Code not found", "Пробный период включён", "Trial started"
+            , "Короткие коды работают, когда подключён сервер", "Short codes need the server", "Облако работает с активным ключом", "Cloud needs an active key"
+            , "Профиль сохранён в облако", "Profile saved to the cloud", "Не получилось сохранить в облако", "Could not save to the cloud"
+            , "В облаке пока ничего нет", "Nothing in the cloud yet", "Не получилось загрузить из облака", "Could not load from the cloud"
+            , "Ключи сохранены на рабочий стол", "Keys saved to the desktop", "Не получилось выгрузить ключи", "Could not export keys"
+            , "Произошла ошибка — отчёт отправлен разработчику", "Something went wrong, a report was sent to the developer", "Макросы вкл/выкл", "Macros on/off", "Прицел вкл/выкл", "Crosshair on/off", "Выход", "Exit")
         pats := [["^Профиль: (.*)$", "Profile: $1"], ["^Создан профиль «(.*)»$", "Profile “$1” created"]
             , ["^Профиль «(.*)» удалён$", "Profile “$1” deleted"], ["^Импортирован профиль «(.*)»$", "Profile “$1” imported"]
             , ["^Применено, кроме: (.*)$", "Applied, except: $1"], ["^Возвращено, кроме \(нужны права администратора\): (.*)$", "Restored, except (admin rights needed): $1"]
