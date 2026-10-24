@@ -31,6 +31,7 @@ python build_pack.py --cli                           # собрать все м�
 python build_pack.py --mods no_weather,no_courier_fx # только выбранные
 python build_pack.py --dry-run                       # посчитать файлы, ничего не записывать
 python build_pack.py --uninstall
+python build_pack.py --scan                          # список файлов ландшафта → scan.txt
 ```
 
 После крупных патчей пак лучше пересобрать: Valve иногда переименовывает файлы или ломает загрузку кастомных VPK.

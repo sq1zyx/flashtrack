@@ -135,6 +135,23 @@ def uninstall(dota, lang, log=print):
         shutil.rmtree(target_dir)
 
 
+SCAN_KEYWORDS = ("terrain", "tree", "grass", "ground", "cliff", "water", "river", "rock", "dirt", "blend")
+
+
+def scan(dota, out_path, log=print):
+    """Сохраняет список файлов ландшафта и деревьев — по нему подбираются пути для замены."""
+    pak = vpk.open(str(dota / "game" / "dota" / "pak01_dir.vpk"))
+    lines = []
+    for path in sorted(pak):
+        low = path.lower()
+        if low.startswith("maps/") or any(k in low for k in SCAN_KEYWORDS):
+            lines.append(f"{path}\t{pak.get_file_meta(path)['file_length']}")
+    tools = dota / "game" / "bin" / "win64" / "resourcecompiler.exe"
+    header = [f"resourcecompiler: {'есть' if tools.is_file() else 'нет'}", f"files: {len(lines)}", ""]
+    Path(out_path).write_text("\n".join(header + lines), encoding="utf-8")
+    log(f"Найдено {len(lines)} файлов, список сохранён в {out_path}")
+
+
 def run_gui(dota, lang):
     import tkinter as tk
     from tkinter import filedialog, messagebox
@@ -201,6 +218,7 @@ def main():
     parser.add_argument("--list", action="store_true", help="показать список модов")
     parser.add_argument("--dry-run", action="store_true", help="только посчитать файлы, ничего не записывать")
     parser.add_argument("--uninstall", action="store_true", help="удалить установленный пак")
+    parser.add_argument("--scan", action="store_true", help="сохранить список файлов ландшафта в scan.txt")
     parser.add_argument("--cli", action="store_true", help="без окна, сразу собрать")
     args = parser.parse_args()
 
@@ -216,6 +234,9 @@ def main():
     if dota is None:
         sys.exit(f"Не нашёл Dota 2, укажи путь: --dota \"D:\\SteamLibrary\\steamapps\\common\\{DOTA_DIR_NAME}\"")
 
+    if args.scan:
+        scan(dota, HERE / "scan.txt")
+        return
     if args.uninstall:
         uninstall(dota, args.lang)
         return
