@@ -152,63 +152,6 @@ def scan(dota, out_path, log=print):
     log(f"Найдено {len(lines)} файлов, список сохранён в {out_path}")
 
 
-def run_gui(dota, lang):
-    import tkinter as tk
-    from tkinter import filedialog, messagebox
-
-    config = load_config()
-    win = tk.Tk()
-    win.title("Dota FPS Pack")
-    win.geometry("520x520")
-
-    dota_var = tk.StringVar(value=str(dota) if dota else "")
-    lang_var = tk.StringVar(value=lang)
-
-    top = tk.Frame(win, padx=10, pady=10)
-    top.pack(fill="x")
-    tk.Label(top, text="Папка Dota 2:").grid(row=0, column=0, sticky="w")
-    tk.Entry(top, textvariable=dota_var, width=40).grid(row=0, column=1)
-    tk.Button(top, text="…", command=lambda: dota_var.set(filedialog.askdirectory() or dota_var.get())).grid(row=0, column=2)
-    tk.Label(top, text="Язык (-language):").grid(row=1, column=0, sticky="w")
-    tk.Entry(top, textvariable=lang_var, width=15).grid(row=1, column=1, sticky="w")
-
-    checks = {}
-    box = tk.LabelFrame(win, text="Моды", padx=10, pady=5)
-    box.pack(fill="x", padx=10)
-    for mod in config["mods"]:
-        var = tk.BooleanVar(value=True)
-        checks[mod["id"]] = var
-        tk.Checkbutton(box, text=f"{mod['name']} — {mod['description']}", variable=var,
-                       wraplength=460, justify="left", anchor="w").pack(fill="x")
-
-    out = tk.Text(win, height=10)
-    out.pack(fill="both", expand=True, padx=10, pady=5)
-
-    def log(msg):
-        out.insert("end", msg + "\n")
-        out.see("end")
-        win.update()
-
-    def action(fn):
-        path = Path(dota_var.get())
-        if not (path / "game" / "dota" / "pak01_dir.vpk").is_file():
-            messagebox.showerror("Ошибка", f"Не похоже на папку «{DOTA_DIR_NAME}»")
-            return
-        try:
-            fn(path)
-        except Exception as e:
-            log(f"Ошибка: {e}")
-
-    buttons = tk.Frame(win, pady=5)
-    buttons.pack()
-    selected = lambda: [k for k, v in checks.items() if v.get()]
-    tk.Button(buttons, text="Собрать и установить",
-              command=lambda: action(lambda p: build(p, selected(), lang_var.get(), log=log))).pack(side="left", padx=5)
-    tk.Button(buttons, text="Удалить пак",
-              command=lambda: action(lambda p: uninstall(p, lang_var.get(), log=log))).pack(side="left", padx=5)
-    win.mainloop()
-
-
 def main():
     config = load_config()
     parser = argparse.ArgumentParser(description="Сборщик FPS-пака для Dota 2")
@@ -229,7 +172,8 @@ def main():
 
     dota = args.dota or find_dota()
     if len(sys.argv) == 1:
-        run_gui(dota, args.lang)
+        import gui
+        gui.main(dota)
         return
     if dota is None:
         sys.exit(f"Не нашёл Dota 2, укажи путь: --dota \"D:\\SteamLibrary\\steamapps\\common\\{DOTA_DIR_NAME}\"")

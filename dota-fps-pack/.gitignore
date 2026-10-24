@@ -1,1 +1,4 @@
 scan.txt
+settings.json
+backup.json
+__pycache__/

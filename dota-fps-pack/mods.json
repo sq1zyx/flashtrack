@@ -8,31 +8,58 @@
       "id": "no_weather",
       "name": "Без погоды",
       "description": "Убирает косметическую погоду (снег, дождь, пепел и т.п.).",
-      "patterns": ["^particles/rain_fx/"]
+      "patterns": [
+        "^particles/rain_fx/"
+      ]
     },
     {
       "id": "no_courier_fx",
       "name": "Без эффектов курьеров",
       "description": "Убирает шлейфы и ауры косметических курьеров.",
-      "patterns": ["^particles/econ/courier/"]
+      "patterns": [
+        "^particles/econ/courier/"
+      ]
     },
     {
       "id": "no_ward_fx",
       "name": "Без эффектов вардов",
       "description": "Убирает свечение и частицы косметических вардов (сами варды остаются).",
-      "patterns": ["^particles/econ/wards/"]
+      "patterns": [
+        "^particles/econ/wards/"
+      ]
     },
     {
       "id": "no_item_ambient",
       "name": "Без ambient-эффектов шмота",
       "description": "Убирает постоянное свечение косметики героев. Эффекты способностей не трогаются.",
-      "patterns": ["^particles/econ/items/[^/]+/[^/]+/[^/]*ambient[^/]*\\.vpcf_c$"]
+      "patterns": [
+        "^particles/econ/items/[^/]+/[^/]+/[^/]*ambient[^/]*\\.vpcf_c$"
+      ]
     },
     {
       "id": "no_map_ambient",
       "name": "Без декоративных эффектов карты",
       "description": "Убирает декоративные частицы окружения (светлячки, пыль, листья).",
-      "patterns": ["^particles/world_environmental_fx/", "^particles/ambient/"]
+      "patterns": [
+        "^particles/world_environmental_fx/",
+        "^particles/ambient/"
+      ]
+    },
+    {
+      "id": "no_emblem_fx",
+      "name": "Без эмблем ивентов",
+      "description": "Убирает светящиеся эмблемы боевого пропуска и ивентов вокруг героев.",
+      "patterns": [
+        "^particles/econ/events/.*emblem[^/]*\\.vpcf_c$"
+      ]
+    },
+    {
+      "id": "no_high_five",
+      "name": "Без «дай пять»",
+      "description": "Убирает косметические эффекты жеста «дай пять».",
+      "patterns": [
+        "^particles/econ/events/.*high_five[^/]*\\.vpcf_c$"
+      ]
     }
   ]
 }
