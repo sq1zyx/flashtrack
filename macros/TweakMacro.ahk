@@ -71,6 +71,8 @@ AccentColor=E11D2E
 ShowOSD=1
 ; 1 = короткий звук при вкл/выкл макросов и прицела
 Sound=1
+; 1 = предложить перезапуск от администратора, если Fortnite запущен с правами администратора
+AskAdmin=1
 ; Клавиша, открывающая меню поверх игры
 MenuKey=Insert
 MenuOnTop=1
@@ -334,7 +336,7 @@ Pay := {state: ""}
 Prices := Map("m1", 849, "m3", 1890, "life", 4790, "reset", 279)
 PayOn := 1
 HttpStatus := 0
-WinLog := []
+WinLog := [], LastSendTick := 0
 AdminStats := "", AdminSrv := ""
 PromoS := {state: ""}, TrialS := {state: ""}, TicketS := {state: ""}
 NewsRaw := "[]", TicketsRaw := "[]", TrialDays := 3, RefDays := [7, 3]
@@ -553,6 +555,7 @@ Norm(k) {
 Down(k) {
     if (k = "")
         return
+    global LastSendTick := A_TickCount
     SendInput(IsWheel(k) ? "{Blind}{" k "}" : "{Blind}{" k " down}")
     if !IsWheel(k)
         Hold(k, "")
@@ -844,6 +847,7 @@ RemapKey(to, dir, from, *) {
             SendInput "{Blind}{" to "}"
         return
     }
+    global LastSendTick := A_TickCount
     SendInput "{Blind}{" to " " dir "}"
     if (dir = "down")
         Hold(to, from)
@@ -1768,14 +1772,22 @@ B64Dec(s) {
 ; Ошибка программы уходит на сервер (видна во вкладке Admin), пользователь видит короткое уведомление.
 ReportError(e, mode) {
     static sent := 0
-    if (LicApi() = "" || ++sent > 5)
-        return 0
     extra := ""
     try extra := String(e.Extra)
-    body := Json(Map("app", APP_VERSION (A_IsCompiled ? " exe" : ""), "hwid", HwInfo().short, "key", SubStr(Get("License", "Key"), 1, 7)
-        , "message", String(e.Message), "what", String(e.What), "line", String(e.Line), "extra", SubStr(extra, 1, 300) " | Windows " A_OSVersion))
-    SetTimer(() => Http("POST", LicApi() "/api/report", body), -10)
-    Notify("Произошла ошибка — отчёт отправлен разработчику")
+    ; Вместо стандартного окна ошибки AutoHotkey (непонятного игроку) — запись в errors.log и короткое уведомление
+    line := FormatTime(, "yyyy-MM-dd HH:mm:ss") " v" APP_VERSION " · " String(e.Message) " · " String(e.What) " · строка " String(e.Line) (extra != "" ? " · " SubStr(extra, 1, 200) : "")
+    try {
+        f := A_ScriptDir "\errors.log"
+        if FileExist(f) && FileGetSize(f) > 200000
+            FileDelete(f)
+        FileAppend(line "`n", f, "UTF-8")
+    }
+    if (LicApi() != "" && ++sent <= 5) {
+        body := Json(Map("app", APP_VERSION (A_IsCompiled ? " exe" : ""), "hwid", HwInfo().short, "key", SubStr(Get("License", "Key"), 1, 7)
+            , "message", String(e.Message), "what", String(e.What), "line", String(e.Line), "extra", SubStr(extra, 1, 300) " | Windows " A_OSVersion))
+        SetTimer(() => Http("POST", LicApi() "/api/report", body), -10)
+    }
+    Notify("Что-то пошло не так — подробности в «Диагностике» (меню в трее)")
     return 1
 }
 
@@ -2153,6 +2165,8 @@ InitHints() {
         , "KeyHoldMs", "Сколько миллисекунд макрос держит клавишу клавиатуры при одиночном нажатии."
         , "ClickHoldMs", "Сколько миллисекунд макрос держит кнопку мыши при одиночном клике."
         , "StartHidden", "Запускать TweakMacro свёрнутым в трей, без открытия меню."
+        , "AskAdmin", "Если Fortnite запущен с правами администратора, а TweakMacro — нет, Windows не пропускает макросы в игру. Тогда программа один раз предложит перезапуститься с правами."
+        , "Sound", "Короткий звук при включении и выключении макросов и прицела."
         , "ShowOSD", "Показывать короткие уведомления внизу экрана, например «Макросы выключены»."
         , "Theme", "Цвет акцента меню — применяется сразу."
         , "Base", "Оттенок фона меню — применяется сразу."
@@ -2600,21 +2614,32 @@ ProcElevated(pid) {
 }
 
 GameAccessTick() {
-    static asked := false
-    if (A_IsAdmin || asked || !Launched)
+    static hits := 0
+    if (A_IsAdmin || !Launched || !Bool("General", "AskAdmin", true))
         return
     hwnd := WinExist("A")
-    if !IsGameWin(hwnd)
+    if !IsGameWin(hwnd) {
+        hits := 0
         return
+    }
     el := -1
     try el := ProcElevated(WinGetPID("ahk_id " hwnd))
-    ; Хуки «слепые»: человек жмёт клавиши в игре, а программа их не видит — верный признак прав администратора у игры
-    ; A_TimeIdle — системный простой (виден всегда), A_TimeIdleKeyboard/Mouse — то, что видят наши хуки
-    blind := A_TimeIdle < 1500 && A_TimeIdleKeyboard > 8000 && A_TimeIdleMouse > 8000
-    if (el != 1 && !blind)
+    if (el = 0) {                   ; игра точно запущена без прав администратора — всё в порядке
+        hits := 0
         return
-    asked := true
-    r := MsgBox(Tr("Fortnite запущен от имени администратора, поэтому Windows не пропускает к нему макросы.`n`nПерезапустить TweakMacro с правами администратора?"), "TweakMacro", "YesNo Icon! 262144")
+    }
+    ; Хуки «слепые»: человек жмёт клавиши в игре (A_TimeIdle — системный простой), а наши хуки ничего не видят.
+    ; Собственные нажатия программы (Anti-AFK, макросы) тоже сбрасывают A_TimeIdle, поэтому в эти секунды не проверяем.
+    calm := A_TickCount - LastSendTick > 4000 && !MacroBusy()
+    blind := calm && A_TimeIdle < 1500 && A_TimeIdleKeyboard > 10000 && A_TimeIdleMouse > 10000
+    hits := (el = 1 || blind) ? hits + 1 : 0
+    if (hits < 3)                   ; признак должен держаться 6 секунд подряд
+        return
+    hits := 0
+    ; Спрашиваем один раз; вернуть вопрос — Settings → «Предлагать запуск от администратора»
+    SetVal("General", "AskAdmin", 0)
+    SaveIni()
+    r := MsgBox(Tr("Похоже, Fortnite запущен с правами администратора, а TweakMacro — без них. В таком случае Windows не пропускает макросы в игру.`n`nПерезапустить TweakMacro с правами администратора? Настройки сохранятся."), "TweakMacro — макросы не доходят до игры", "YesNo Iconi 262144")
     if (r = "Yes")
         Elevate(true)
 }
@@ -2659,7 +2684,15 @@ DiagText() {
     if C.Has("Game")
         for k, v in C["Game"]
             b .= k "=" v " "
-    return s "Бинды: " b "`n"
+    s .= "Бинды: " b "`n"
+    ; Последние ошибки программы
+    if FileExist(A_ScriptDir "\errors.log") {
+        lines := StrSplit(Trim(FileRead(A_ScriptDir "\errors.log", "UTF-8"), "`r`n"), "`n")
+        s .= "Ошибки:`n"
+        loop Min(5, lines.Length)
+            s .= "  " lines[lines.Length - Min(5, lines.Length) + A_Index] "`n"
+    }
+    return s
 }
 
 CopyDiag(*) {
@@ -3503,7 +3536,8 @@ Tr(msg) {
             , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
             , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Диагностика", "Diagnostics"
             , "Диагностика скопирована. Вставь её (Ctrl+V) в сообщение разработчику.", "Diagnostics copied. Paste it (Ctrl+V) into a message to the developer."
-            , "Fortnite запущен от имени администратора, поэтому Windows не пропускает к нему макросы.`n`nПерезапустить TweakMacro с правами администратора?", "Fortnite is running as administrator, so Windows blocks macros from reaching it.`n`nRestart TweakMacro as administrator?"
+            , "Похоже, Fortnite запущен с правами администратора, а TweakMacro — без них. В таком случае Windows не пропускает макросы в игру.`n`nПерезапустить TweakMacro с правами администратора? Настройки сохранятся.", "It looks like Fortnite runs as administrator and TweakMacro doesn't. In that case Windows blocks macros from reaching the game.`n`nRestart TweakMacro as administrator? Your settings are kept."
+            , "Что-то пошло не так — подробности в «Диагностике» (меню в трее)", "Something went wrong, see Diagnostics in the tray menu"
             , "Эту функцию нельзя назначить на ЛКМ, ПКМ или колесо мыши", "This can't be bound to LMB, RMB or the mouse wheel"
             , "Клавиша вкл/выкл стояла на кнопке мыши — вернул стандартную", "The toggle key was on a mouse button, restored the default", "Код конфига скопирован", "Config code copied"
             , "Код не подошёл", "This code doesn't work", "Код не найден", "Code not found", "Пробный период включён", "Trial started"
