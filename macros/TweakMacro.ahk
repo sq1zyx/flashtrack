@@ -35,6 +35,9 @@ LIC_GRACE_H := 72      ; сколько часов программа работ
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
 ADMIN_HASH := "bbaec62573b32cda52c9fa300d136580d3db448eed3c0a323d4460217415f9c3"
+; Служебные клавиши и их значения по умолчанию. На ЛКМ/ПКМ/колесо их назначать нельзя:
+; горячая клавиша забирает клик себе, и мышь перестаёт работать в игре и в меню.
+SYS_KEYS := Map("General.SuspendKey", "PgDn", "General.MenuKey", "Insert", "Crosshair.ToggleKey", "F9")
 ; После обновления .exe старая версия остаётся рядом под другим именем — удаляем её
 try FileDelete(A_ScriptDir "\TweakMacro.old.exe")
 
@@ -253,6 +256,7 @@ C := NewMap()
 ParseInto(DEFAULT_INI, C)
 if FileExist(CFG)
     ParseInto(FileRead(CFG, "UTF-8"), C)
+FixSysKeys(true)
 SaveIni()
 
 PRESETS := ["WallRetake", "Prefire", "SprintReset", "Mantle", "SimpleEdit", "CrouchPeek"]
@@ -425,9 +429,32 @@ Get(sec, key, def := "") {
 SetVal(sec, key, v) {
     if (sec = "")
         return
+    if (SYS_KEYS.Has(sec "." key) && BadSysKey(v)) {
+        Notify("Эту функцию нельзя назначить на ЛКМ, ПКМ или колесо мыши")
+        return
+    }
     if !C.Has(sec)
         C[sec] := NewMap()
     C[sec][key] := v
+}
+
+BadSysKey(k) => RegExMatch(Trim(k), "i)(LButton|RButton|Wheel(Up|Down|Left|Right))$")
+
+; Если служебная клавиша всё же оказалась на кнопке мыши (старый конфиг, профиль, файл от друга) — возвращаем стандартную
+FixSysKeys(quiet := false) {
+    fixed := false
+    for id, def in SYS_KEYS {
+        sk := StrSplit(id, ".")
+        if BadSysKey(Get(sk[1], sk[2])) {
+            if !C.Has(sk[1])
+                C[sk[1]] := NewMap()
+            C[sk[1]][sk[2]] := def
+            fixed := true
+        }
+    }
+    if (fixed && !quiet)
+        SaveIni()
+    return fixed
 }
 
 Num(sec, key, def) {
@@ -569,6 +596,8 @@ ApplyEngine() {
         return
 
     ; Глобальные клавиши
+    if FixSysKeys()
+        Notify("Клавиша вкл/выкл стояла на кнопке мыши — вернул стандартную")
     Reg("", Get("General", "SuspendKey"), ToggleSuspend, "Macros toggle", "S")
     Reg("", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
     if Bool("Crosshair", "Enabled")
@@ -3170,7 +3199,9 @@ Tr(msg) {
             , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
             , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
             , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
-            , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Код конфига скопирован", "Config code copied"
+            , "Привязка перенесена на этот ПК", "Binding moved to this PC"
+            , "Эту функцию нельзя назначить на ЛКМ, ПКМ или колесо мыши", "This can't be bound to LMB, RMB or the mouse wheel"
+            , "Клавиша вкл/выкл стояла на кнопке мыши — вернул стандартную", "The toggle key was on a mouse button, restored the default", "Код конфига скопирован", "Config code copied"
             , "Код не подошёл", "This code doesn't work", "Код не найден", "Code not found", "Пробный период включён", "Trial started"
             , "Короткие коды работают, когда подключён сервер", "Short codes need the server", "Облако работает с активным ключом", "Cloud needs an active key"
             , "Профиль сохранён в облако", "Profile saved to the cloud", "Не получилось сохранить в облако", "Could not save to the cloud"
