@@ -32,7 +32,13 @@ const CFG = {
   dbFile: env('DB_FILE', path.join(__dirname, 'data.sqlite')),
   siteDir: env('SITE_DIR', path.join(__dirname, '..', 'tweakmacro-site')),
   downloadFile: env('DOWNLOAD_FILE', path.join(__dirname, '..', 'macros', 'install-TweakMacro.bat')),
-  appDir: env('APP_DIR', path.join(__dirname, '..', 'macros'))
+  appDir: env('APP_DIR', path.join(__dirname, '..', 'macros')),
+  trialDays: Math.max(0, +env('TRIAL_DAYS', '3')),
+  refBonusDays: Math.max(0, +env('REF_BONUS_DAYS', '7')),
+  refFriendDays: Math.max(0, +env('REF_FRIEND_DAYS', '3')),
+  tgToken: env('TELEGRAM_BOT_TOKEN'),
+  tgOwners: env('TELEGRAM_OWNER_IDS').split(',').map(x => x.trim()).filter(Boolean),
+  tgApi: env('TELEGRAM_API', 'https://api.telegram.org').replace(/\/$/, '')
 };
 
 // ───── тарифы (цены в рублях) ─────
@@ -60,10 +66,26 @@ CREATE TABLE IF NOT EXISTS orders (
   email TEXT, lang TEXT, status TEXT NOT NULL DEFAULT 'pending', license_key TEXT, created_at INTEGER, paid_at INTEGER);
 CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, at INTEGER);
 CREATE INDEX IF NOT EXISTS lic_sub ON licenses(sub_id);
+CREATE TABLE IF NOT EXISTS promos (
+  code TEXT PRIMARY KEY, kind TEXT NOT NULL, value INTEGER NOT NULL, max_uses INTEGER DEFAULT 0, used INTEGER DEFAULT 0,
+  expires_at INTEGER, active INTEGER DEFAULT 1, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS trials (hwid TEXT, parts TEXT, key TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS errors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER, last_at INTEGER, count INTEGER DEFAULT 1,
+  app TEXT, hwid TEXT, key TEXT, message TEXT, what TEXT, line TEXT, extra TEXT);
+CREATE TABLE IF NOT EXISTS tickets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT, hwid TEXT, email TEXT, text TEXT, app TEXT,
+  created_at INTEGER, answer TEXT, answered_at INTEGER);
+CREATE TABLE IF NOT EXISTS shares (code TEXT PRIMARY KEY, data TEXT, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS cloud (key TEXT PRIMARY KEY, data TEXT, updated_at INTEGER);
+CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
 `);
 // Колонки, добавленные позже: дописываем в старую базу, если их нет
 for (const [table, col, def] of [['devices', 'parts', 'TEXT'], ['orders', 'hwid', 'TEXT'], ['orders', 'parts', 'TEXT'],
-  ['orders', 'source', 'TEXT'], ['orders', 'renew_key', 'TEXT'], ['licenses', 'last_transfer', 'INTEGER'], ['licenses', 'transfers', 'INTEGER DEFAULT 0']]) {
+  ['orders', 'source', 'TEXT'], ['orders', 'renew_key', 'TEXT'], ['licenses', 'last_transfer', 'INTEGER'], ['licenses', 'transfers', 'INTEGER DEFAULT 0'],
+  ['licenses', 'ref_code', 'TEXT'], ['licenses', 'referred_by', 'TEXT'], ['orders', 'promo', 'TEXT'], ['orders', 'ref_code', 'TEXT'],
+  ['orders', 'base_amount', 'INTEGER'], ['orders', 'bonus_days', 'INTEGER DEFAULT 0']]) {
   if (!db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
 }
 
@@ -77,6 +99,67 @@ function newKey() {
   return 'TM-' + s.match(/.{4}/g).join('-');
 }
 const normKey = k => String(k || '').trim().toUpperCase();
+function randCode(prefix, n) {
+  const b = crypto.randomBytes(n);
+  let s = '';
+  for (let i = 0; i < n; i++) s += KEY_ABC[b[i] % KEY_ABC.length];
+  return prefix + s;
+}
+const kvGet = k => { const r = db.prepare('SELECT v FROM kv WHERE k = ?').get(k); return r ? r.v : null; };
+const kvSet = (k, v) => db.prepare('INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)').run(k, String(v));
+
+// Уведомления владельцу в Telegram (бот подключается в bot.js); без бота — просто в лог
+let notify = text => console.log('[notify]', text.replace(/<[^>]+>/g, ''));
+const setNotifier = fn => { notify = fn; };
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const maskEmail = e => e ? String(e).replace(/^(.{2})[^@]*/, '$1***') : '—';
+const fmtDate = ms => ms ? new Date(ms).toISOString().slice(0, 10).split('-').reverse().join('.') : 'без срока';
+
+// Код для друзей: у каждого ключа свой, создаётся при первой проверке
+function refCodeFor(key) {
+  const l = db.prepare('SELECT ref_code FROM licenses WHERE key = ?').get(key);
+  if (!l) return null;
+  if (l.ref_code) return l.ref_code;
+  let code;
+  do code = randCode('R-', 6); while (db.prepare('SELECT 1 FROM licenses WHERE ref_code = ?').get(code));
+  db.prepare('UPDATE licenses SET ref_code = ? WHERE key = ?').run(code, key);
+  return code;
+}
+const refCount = code => db.prepare("SELECT COUNT(*) AS n FROM orders WHERE ref_code = ? AND status = 'paid'").get(code).n;
+
+// Добавить дни к ключу (вечный не трогаем)
+function addDays(key, days) {
+  const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
+  if (!l || !days) return l;
+  if (l.plan === 'life' && !l.expires_at) return l;
+  const exp = Math.max(now(), l.expires_at || now()) + days * DAY;
+  db.prepare('UPDATE licenses SET expires_at = ? WHERE key = ?').run(exp, key);
+  return { ...l, expires_at: exp };
+}
+
+// Промокод или код друга → цена и бонусы. ownKey — ключ покупателя, чтобы нельзя было ввести свой код друга.
+function resolveCode(codeRaw, planId, ownKey) {
+  const code = String(codeRaw || '').trim().toUpperCase();
+  const base = planId === 'reset' ? HWID_RESET.rub : PLANS[planId] ? PLANS[planId].rub : 0;
+  const r = { base, amount: base, bonusDays: 0, promo: null, refCode: null };
+  if (!code) return r;
+  if (planId === 'reset') return { ...r, error: 'not_for_reset' };
+  const p = db.prepare('SELECT * FROM promos WHERE code = ?').get(code);
+  if (p) {
+    if (!p.active) return { ...r, error: 'not_found' };
+    if (p.expires_at && p.expires_at < now()) return { ...r, error: 'expired' };
+    if (p.max_uses && p.used >= p.max_uses) return { ...r, error: 'used_up' };
+    if (p.kind === 'percent') r.amount = Math.max(1, Math.round(base * (100 - p.value) / 100));
+    else r.bonusDays = p.value;
+    return { ...r, promo: code, kind: p.kind, value: p.value };
+  }
+  const owner = db.prepare("SELECT key FROM licenses WHERE ref_code = ? AND status = 'active'").get(code);
+  if (owner) {
+    if (ownKey && normKey(ownKey) === owner.key) return { ...r, error: 'own_code' };
+    return { ...r, refCode: code, kind: 'ref', value: CFG.refFriendDays, bonusDays: CFG.refFriendDays };
+  }
+  return { ...r, error: 'not_found' };
+}
 
 // ───── привязка к ПК ─────
 // Программа присылает общий отпечаток hwid и хэши отдельных частей железа:
@@ -144,9 +227,28 @@ function markPaid(ref, extra = {}) {
       paid(o.renew_key);
     })();
     console.log(`[hwid-reset] ${ref} → ${o.renew_key}`);
+    notify(`🔄 <b>Сброс HWID</b> · ${o.amount} ₽\nКлюч: <code>${o.renew_key}</code>\nПочта: ${esc(maskEmail(o.email))}${o.provider === 'dev' ? '\n<i>тестовая оплата</i>' : ''}`);
     return o.renew_key;
   }
   const plan = PLANS[o.plan];
+  const afterPaid = key => {
+    if (o.bonus_days) addDays(key, o.bonus_days);
+    if (o.promo) db.prepare('UPDATE promos SET used = used + 1 WHERE code = ?').run(o.promo);
+    let refLine = '';
+    if (o.ref_code) {
+      const owner = db.prepare('SELECT key FROM licenses WHERE ref_code = ?').get(o.ref_code);
+      if (owner && owner.key !== key) {
+        addDays(owner.key, CFG.refBonusDays);
+        db.prepare('UPDATE licenses SET referred_by = COALESCE(referred_by, ?) WHERE key = ?').run(o.ref_code, key);
+        refLine = `\nПо коду друга ${o.ref_code}: другу +${CFG.refBonusDays} дн.`;
+      }
+    }
+    const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
+    notify(`💰 <b>Продажа</b> · ${esc(plan.name.ru.replace('TweakMacro — ', ''))} · <b>${o.amount} ₽</b>` +
+      (o.base_amount && o.base_amount !== o.amount ? ` (без скидки ${o.base_amount} ₽)` : '') +
+      `\nКлюч: <code>${key}</code>${o.renew_key ? ' (продление)' : ''}\nПочта: ${esc(maskEmail(o.email))}\nДо: ${fmtDate(l && l.expires_at)}` +
+      (o.promo ? `\nПромокод: ${o.promo}` : '') + refLine + (o.provider === 'dev' ? '\n<i>тестовая оплата</i>' : ''));
+  };
   // Продление из лаунчера: тот же ключ, срок добавляется к оставшемуся
   const old = o.renew_key && db.prepare("SELECT * FROM licenses WHERE key = ? AND status = 'active'").get(o.renew_key);
   if (old) {
@@ -156,6 +258,7 @@ function markPaid(ref, extra = {}) {
         .run(old.plan === 'life' ? 'life' : o.plan, old.plan === 'life' ? null : exp, o.email, old.key);
       paid(old.key);
     })();
+    afterPaid(old.key);
     sendKeyMail(o.email, old.key, o.plan, o.lang).catch(e => console.error('mail:', e.message));
     console.log(`[renew-paid] ${ref} ${o.plan} → ${old.key}`);
     return old.key;
@@ -168,6 +271,7 @@ function markPaid(ref, extra = {}) {
     // Куплено из лаунчера — ключ сразу привязывается к этому ПК
     if (o.hwid) bindDevice(key, o.hwid, normParts(JSON.parse(o.parts || '{}')), 'checkout');
   })();
+  afterPaid(key);
   sendKeyMail(o.email, key, o.plan, o.lang).catch(e => console.error('mail:', e.message));
   console.log(`[paid] ${ref} ${o.plan} → ${key}`);
   return key;
@@ -206,14 +310,17 @@ async function ykRequest(method, url, body, idemKey) {
   return data;
 }
 
-async function createCheckout({ planId, email, lang, hwid = '', parts = {}, source = 'site', renewKey = null }) {
+async function createCheckout({ planId, email, lang, hwid = '', parts = {}, source = 'site', renewKey = null, price }) {
   const plan = planId === 'reset' ? HWID_RESET : PLANS[planId];
+  price = price || { base: plan.rub, amount: plan.rub, bonusDays: 0 };
   const ref = crypto.randomUUID();
   const success = `${CFG.site}/success.html?ref=${ref}`;
   const name = plan.name[lang === 'en' ? 'en' : 'ru'];
-  const insert = provider => db.prepare(`INSERT INTO orders (ref, provider, plan, currency, amount, email, lang, created_at, hwid, parts, source, renew_key)
-                                         VALUES (?, ?, ?, 'rub', ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(ref, provider, planId, plan.rub, email, lang, now(), hwid || null, JSON.stringify(parts), source, renewKey);
+  const insert = provider => db.prepare(`INSERT INTO orders (ref, provider, plan, currency, amount, email, lang, created_at, hwid, parts, source, renew_key,
+                                           promo, ref_code, base_amount, bonus_days)
+                                         VALUES (?, ?, ?, 'rub', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(ref, provider, planId, price.amount, email, lang, now(), hwid || null, JSON.stringify(parts), source, renewKey,
+      price.promo || null, price.refCode || null, price.base, price.bonusDays || 0);
 
   if (CFG.devPay) {
     insert('dev');
@@ -221,7 +328,7 @@ async function createCheckout({ planId, email, lang, hwid = '', parts = {}, sour
   }
   if (!ykOn) throw Object.assign(new Error('Оплата ещё не подключена'), { code: 'not_configured' });
   insert('yookassa');
-  const value = plan.rub.toFixed(2);
+  const value = price.amount.toFixed(2);
   const p = await ykRequest('POST', '/payments', {
     amount: { value, currency: 'RUB' },
     capture: true,
@@ -257,7 +364,9 @@ function limit(max) {
 }
 setInterval(() => { const t = now(); for (const [k, h] of hits) if (t - h.t > 120000) hits.delete(k); }, 60000).unref();
 
-app.use(express.json({ limit: '20kb' }));
+// Облако и обмен конфигами принимают до 80 КБ, остальное API — до 20 КБ
+const jsonSmall = express.json({ limit: '20kb' }), jsonBig = express.json({ limit: '80kb' });
+app.use((req, res, next) => (/^\/api\/(cloud|share)/.test(req.path) ? jsonBig : jsonSmall)(req, res, next));
 app.use('/api', (req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -284,12 +393,15 @@ app.get('/api/plans', (req, res) => {
   res.json({
     plans: Object.fromEntries(Object.entries(PLANS).map(([id, p]) => [id, { rub: p.rub }])),
     reset: HWID_RESET.rub,
+    trial_days: CFG.trialDays,
+    ref_bonus_days: CFG.refBonusDays,
+    ref_friend_days: CFG.refFriendDays,
     enabled: ykOn || CFG.devPay
   });
 });
 
 app.post('/api/checkout', limit(20), async (req, res) => {
-  const { plan, email, lang, hwid, parts, renew_key } = req.body || {};
+  const { plan, email, lang, hwid, parts, renew_key, promo } = req.body || {};
   if (!PLANS[plan] && plan !== 'reset') return res.status(400).json({ error: 'bad_plan' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || ''))) return res.status(400).json({ error: 'bad_email' });
   const key = renew_key ? normKey(renew_key) : null;
@@ -297,9 +409,11 @@ app.post('/api/checkout', limit(20), async (req, res) => {
   // Сброс привязки покупается только для существующего ключа. Из лаунчера ключ сразу переезжает на этот ПК,
   // с сайта — привязка просто снимается, и ключ привяжется к первому ПК, где его активируют
   if (plan === 'reset' && (!lic || lic.status !== 'active')) return res.status(400).json({ error: 'invalid_key' });
+  const price = resolveCode(promo, plan, lic ? key : null);
+  if (promo && price.error) return res.status(400).json({ error: 'bad_promo', reason: price.error });
   try {
     const r = await createCheckout({ planId: plan, email: String(email).trim().toLowerCase(), lang: lang === 'en' ? 'en' : 'ru',
-      hwid: normHwid(hwid), parts: normParts(parts), source: hwid ? 'app' : 'site', renewKey: lic ? key : null });
+      hwid: normHwid(hwid), parts: normParts(parts), source: hwid ? 'app' : 'site', renewKey: lic ? key : null, price });
     res.json(r);
   } catch (e) {
     console.error('checkout:', e.message);
@@ -322,12 +436,110 @@ app.post('/api/license/activate', limit(30), (req, res) => {
   if (!key || !hwid) return res.status(400).json({ valid: false, error: 'bad_request' });
   const r = checkDevice(key, hwid, normParts(b.parts), b.app);
   if (!r.ok) return res.json({ valid: false, error: r.error, ...(r.license ? licenseView(r.license) : {}) });
-  res.json({ valid: true, ...licenseView(r.license) });
+  const code = r.license.plan === 'trial' ? '' : refCodeFor(key);
+  res.json({ valid: true, ...licenseView(r.license), ref_code: code, ref_count: code ? refCount(code) : 0 });
+});
+
+// Проверка промокода или кода друга перед оплатой
+app.post('/api/promo/check', limit(30), (req, res) => {
+  const b = req.body || {};
+  if (!PLANS[b.plan] && b.plan !== 'reset') return res.status(400).json({ valid: false, error: 'bad_plan' });
+  const r = resolveCode(b.code, b.plan, b.key);
+  if (r.error) return res.json({ valid: false, error: r.error });
+  res.json({ valid: true, kind: r.kind, value: r.value, base: r.base, amount: r.amount, bonus_days: r.bonusDays });
+});
+
+// Пробный период: один раз на ПК (узнаём ПК так же, как при привязке ключа — 2 совпадения из 4)
+app.post('/api/trial', limit(5), (req, res) => {
+  const b = req.body || {}, hwid = normHwid(b.hwid), parts = normParts(b.parts);
+  if (!hwid) return res.status(400).json({ error: 'bad_request' });
+  if (!CFG.trialDays) return res.json({ error: 'trial_off' });
+  const used = db.prepare('SELECT * FROM trials').all().some(t => t.hwid === hwid || sameParts(parts, JSON.parse(t.parts || '{}')) >= 2);
+  if (used) return res.json({ error: 'trial_used' });
+  const key = newKey(), exp = now() + CFG.trialDays * DAY;
+  db.transaction(() => {
+    db.prepare("INSERT INTO licenses (key, email, plan, expires_at, provider, created_at) VALUES (?, '', 'trial', ?, 'trial', ?)").run(key, exp, now());
+    bindDevice(key, hwid, parts, b.app);
+    db.prepare('INSERT INTO trials (hwid, parts, key, created_at) VALUES (?, ?, ?, ?)').run(hwid, JSON.stringify(parts), key, now());
+  })();
+  notify(`🎁 <b>Пробный период</b> на ${CFG.trialDays} дн.\nКлюч: <code>${key}</code>`);
+  res.json({ key, plan: 'trial', expires: new Date(exp).toISOString(), expires_unix: Math.floor(exp / 1000) });
+});
+
+// Новости для лаунчера
+app.get('/api/news', limit(60), (req, res) => {
+  res.json({ items: db.prepare('SELECT id, text, created_at AS at FROM news ORDER BY id DESC LIMIT 5').all() });
+});
+
+// Отчёт об ошибке из программы. Одинаковые ошибки склеиваются, владельцу — не чаще раза в час на ошибку.
+app.post('/api/report', limit(10), (req, res) => {
+  const b = req.body || {}, cut = (v, n) => String(v == null ? '' : v).slice(0, n);
+  const msg = cut(b.message, 500), line = cut(b.line, 40), what = cut(b.what, 120);
+  if (!msg) return res.status(400).json({ error: 'bad_request' });
+  const same = db.prepare('SELECT * FROM errors WHERE message = ? AND line = ? AND app = ? ORDER BY id DESC LIMIT 1').get(msg, line, cut(b.app, 20));
+  if (same && now() - same.last_at < DAY) {
+    db.prepare('UPDATE errors SET count = count + 1, last_at = ? WHERE id = ?').run(now(), same.id);
+    if (now() - same.last_at > 3600000) notify(`🐞 Ошибка повторилась (${same.count + 1} раз): ${esc(msg)}`);
+  } else {
+    const r = db.prepare('INSERT INTO errors (at, last_at, app, hwid, key, message, what, line, extra) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(now(), now(), cut(b.app, 20), cut(b.hwid, 20), cut(b.key, 40), msg, what, line, cut(b.extra, 500));
+    notify(`🐞 <b>Ошибка в программе</b> #${r.lastInsertRowid}\n${esc(msg)}\n<code>${esc(what)}</code> строка ${esc(line)} · v${esc(cut(b.app, 20))}`);
+  }
+  res.json({ ok: true });
+});
+
+// Тикеты поддержки: пишутся из лаунчера, отвечаешь в Telegram (ответом на сообщение бота)
+app.post('/api/ticket', limit(5), (req, res) => {
+  const b = req.body || {}, text = String(b.text || '').trim().slice(0, 2000);
+  if (text.length < 3) return res.status(400).json({ error: 'empty' });
+  const r = db.prepare('INSERT INTO tickets (key, hwid, email, text, app, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(normKey(b.key).slice(0, 40), normHwid(b.hwid), String(b.email || '').slice(0, 120), text, String(b.app || '').slice(0, 20), now());
+  const id = r.lastInsertRowid;
+  notify(`💬 <b>Тикет #${id}</b>\n${esc(text)}\n\nКлюч: <code>${esc(normKey(b.key) || '—')}</code> · почта: ${esc(b.email || '—')} · v${esc(b.app || '')}\n<i>Ответь на это сообщение, чтобы ответить пользователю.</i>`);
+  res.json({ id });
+});
+app.post('/api/tickets/list', limit(30), (req, res) => {
+  const b = req.body || {}, hwid = normHwid(b.hwid);
+  if (!hwid) return res.status(400).json({ error: 'bad_request' });
+  res.json({ items: db.prepare('SELECT id, text, created_at AS at, answer, answered_at FROM tickets WHERE hwid = ? ORDER BY id DESC LIMIT 20').all(hwid) });
+});
+
+// Облачные профили: настройки хранятся по ключу, доступны только с привязанного ПК
+app.post('/api/cloud/:op', limit(20), (req, res) => {
+  const b = req.body || {}, key = normKey(b.key), hwid = normHwid(b.hwid);
+  if (!key || !hwid) return res.status(400).json({ error: 'bad_request' });
+  const r = checkDevice(key, hwid, normParts(b.parts), b.app);
+  if (!r.ok) return res.json({ error: r.error });
+  if (req.params.op === 'save') {
+    const data = String(b.data || '');
+    if (!data || data.length > 64000) return res.status(400).json({ error: 'too_big' });
+    db.prepare('INSERT OR REPLACE INTO cloud (key, data, updated_at) VALUES (?, ?, ?)').run(key, data, now());
+    return res.json({ ok: true, at: now() });
+  }
+  if (req.params.op === 'load') {
+    const c = db.prepare('SELECT data, updated_at FROM cloud WHERE key = ?').get(key);
+    return c ? res.json({ data: c.data, at: c.updated_at }) : res.json({ error: 'empty' });
+  }
+  res.status(404).end();
+});
+
+// Обмен конфигами коротким кодом CFG-XXXXXX
+app.post('/api/share', limit(10), (req, res) => {
+  const data = String((req.body || {}).data || '');
+  if (!data || data.length > 64000) return res.status(400).json({ error: 'too_big' });
+  let code;
+  do code = randCode('CFG-', 6); while (db.prepare('SELECT 1 FROM shares WHERE code = ?').get(code));
+  db.prepare('INSERT INTO shares (code, data, created_at) VALUES (?, ?, ?)').run(code, data, now());
+  res.json({ code });
+});
+app.get('/api/share/:code', limit(30), (req, res) => {
+  const s = db.prepare('SELECT data FROM shares WHERE code = ?').get(normKey(req.params.code));
+  s ? res.json({ data: s.data }) : res.status(404).json({ error: 'not_found' });
 });
 
 // ───── обновления программы ─────
 // Лаунчер сравнивает версию и хэши файлов и скачивает только изменённые.
-const APP_FILES = ['TweakMacro.ahk', 'ui.html', 'launcher.html', 'icon.ico'];
+const APP_FILES = ['TweakMacro.exe', 'TweakMacro.ahk', 'ui.html', 'launcher.html', 'icon.ico'];
 let manifestCache = null;
 function manifest() {
   const files = APP_FILES.map(name => {
@@ -338,8 +550,16 @@ function manifest() {
   if (manifestCache && manifestCache.stamp === stamp) return manifestCache.data;
   const main = files.find(x => x.name === 'TweakMacro.ahk');
   const m = main && fs.readFileSync(main.f, 'utf8').match(/^APP_VERSION := "([\d.]+)"/m);
+  // Что нового: пункты из CHANGELOG.md под заголовком текущей версии
+  let changes = [];
+  const cl = path.join(CFG.appDir, 'CHANGELOG.md');
+  if (m && fs.existsSync(cl)) {
+    const sec = fs.readFileSync(cl, 'utf8').split(/^## /m).find(x => x.startsWith(m[1]));
+    if (sec) changes = sec.split(/\r?\n/).filter(x => /^\s*[-*] /.test(x)).map(x => x.replace(/^\s*[-*] /, '').trim()).slice(0, 8);
+  }
   const data = {
     version: m ? m[1] : '0',
+    changes,
     files: files.map(x => ({ name: x.name, size: x.st.size, sha256: crypto.createHash('sha256').update(fs.readFileSync(x.f)).digest('hex') }))
   };
   manifestCache = { stamp, data };
@@ -354,7 +574,123 @@ app.get('/app/:name', limit(60), (req, res) => {
   res.sendFile(f);
 });
 
-// ───── админка (Authorization: Bearer ADMIN_TOKEN) ─────
+// ───── админка ─────
+// Одни и те же действия доступны из программы (вкладка Admin, заголовок Authorization: Bearer ADMIN_TOKEN) и из Telegram-бота.
+const PLAN_NAME = { m1: '1 месяц', m3: '3 месяца', life: 'навсегда', trial: 'пробный' };
+const A = {
+  stats() {
+    const t = now(), one = (sql, ...a) => db.prepare(sql).get(...a);
+    const activeWhere = "status = 'active' AND (expires_at IS NULL OR expires_at > ?)";
+    const byPlan = {};
+    for (const r of db.prepare(`SELECT plan, COUNT(*) AS n FROM licenses WHERE ${activeWhere} GROUP BY plan`).all(t)) byPlan[r.plan] = r.n;
+    const sum = (from, plan) => one(`SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS n FROM orders WHERE status = 'paid' AND currency = 'rub' AND provider != 'dev' AND paid_at >= ?${plan ? ' AND plan = ?' : ''}`, from, ...(plan ? [plan] : []));
+    const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+    const daily = [];
+    for (let i = 29; i >= 0; i--) {
+      const from = day0.getTime() - i * DAY, r = one("SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS n FROM orders WHERE status = 'paid' AND provider != 'dev' AND paid_at >= ? AND paid_at < ?", from, from + DAY);
+      daily.push({ day: new Date(from).toISOString().slice(0, 10), sum: r.s, n: r.n });
+    }
+    return {
+      active: one(`SELECT COUNT(*) AS n FROM licenses WHERE ${activeWhere} AND plan != 'trial'`, t).n,
+      people: one(`SELECT COUNT(DISTINCT COALESCE(NULLIF(email, ''), key)) AS n FROM licenses WHERE ${activeWhere} AND plan != 'trial'`, t).n,
+      trials: byPlan.trial || 0,
+      by_plan: { m1: byPlan.m1 || 0, m3: byPlan.m3 || 0, life: byPlan.life || 0 },
+      expired: one("SELECT COUNT(*) AS n FROM licenses WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?", t).n,
+      revoked: one("SELECT COUNT(*) AS n FROM licenses WHERE status = 'revoked'").n,
+      total: one('SELECT COUNT(*) AS n FROM licenses').n,
+      new7: one("SELECT COUNT(*) AS n FROM licenses WHERE created_at >= ? AND plan != 'trial'", t - 7 * DAY).n,
+      new30: one("SELECT COUNT(*) AS n FROM licenses WHERE created_at >= ? AND plan != 'trial'", t - 30 * DAY).n,
+      expiring7: one(`SELECT COUNT(*) AS n FROM licenses WHERE ${activeWhere} AND expires_at IS NOT NULL AND expires_at < ? AND plan != 'trial'`, t, t + 7 * DAY).n,
+      online24: one('SELECT COUNT(DISTINCT key) AS n FROM devices WHERE last_seen >= ?', t - DAY).n,
+      revenue_today: sum(day0.getTime()).s,
+      revenue7: sum(t - 7 * DAY).s,
+      revenue30: sum(t - 30 * DAY).s,
+      revenue: sum(0).s,
+      sales30: sum(t - 30 * DAY).n,
+      resets30: sum(t - 30 * DAY, 'reset').n,
+      referrals: one("SELECT COUNT(*) AS n FROM orders WHERE status = 'paid' AND ref_code IS NOT NULL").n,
+      tickets_open: one('SELECT COUNT(*) AS n FROM tickets WHERE answer IS NULL').n,
+      errors24: one('SELECT COALESCE(SUM(count), 0) AS n FROM errors WHERE last_at >= ?', t - DAY).n,
+      daily,
+      recent: A.search('')
+    };
+  },
+  search(q) {
+    q = String(q || '').trim();
+    const like = '%' + q + '%';
+    return db.prepare(`SELECT l.key, l.email, l.plan, l.status, l.expires_at, l.created_at, l.provider, l.ref_code,
+                         (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices,
+                         (SELECT MAX(last_seen) FROM devices d WHERE d.key = l.key) AS last_seen
+                       FROM licenses l ${q ? 'WHERE l.key LIKE ? OR l.email LIKE ? OR l.ref_code LIKE ?' : ''}
+                       ORDER BY l.created_at DESC LIMIT 100`).all(...(q ? [like, like, like] : []));
+  },
+  info(key) {
+    key = normKey(key);
+    const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
+    if (!l) return null;
+    return { ...l, devices: db.prepare('SELECT hwid, parts, first_seen, last_seen, app FROM devices WHERE key = ?').all(key),
+      ref_count: l.ref_code ? refCount(l.ref_code) : 0,
+      paid: db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM orders WHERE license_key = ? AND status = 'paid' AND provider != 'dev'").get(key).s };
+  },
+  create(plan, email, days) {
+    if (!PLANS[plan] && plan !== 'trial') return null;
+    const key = newKey(), d = days ? +days : plan === 'trial' ? CFG.trialDays : PLANS[plan].days;
+    db.prepare('INSERT INTO licenses (key, email, plan, expires_at, provider, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(key, String(email || ''), plan, d ? now() + d * DAY : null, 'manual', now());
+    return key;
+  },
+  extend(key, days) {
+    days = Math.round(+days);
+    if (!days) return null;
+    const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(normKey(key));
+    if (!l) return null;
+    if (l.plan === 'life' && !l.expires_at) return l;
+    const exp = Math.max(now(), l.expires_at || now()) + days * DAY;
+    db.prepare("UPDATE licenses SET expires_at = ?, status = 'active' WHERE key = ?").run(exp, l.key);
+    return { ...l, expires_at: exp };
+  },
+  reset: key => db.prepare('DELETE FROM devices WHERE key = ?').run(normKey(key)).changes,
+  revoke: key => db.prepare("UPDATE licenses SET status = 'revoked' WHERE key = ?").run(normKey(key)).changes,
+  unrevoke: key => db.prepare("UPDATE licenses SET status = 'active' WHERE key = ?").run(normKey(key)).changes,
+  promos: () => db.prepare('SELECT * FROM promos ORDER BY created_at DESC').all(),
+  // kind: percent (скидка %) или days (бонусные дни); daysValid — сколько дней код действует (0 — бессрочно)
+  promoCreate(code, kind, value, maxUses, daysValid) {
+    code = String(code || '').trim().toUpperCase();
+    value = Math.round(+value);
+    if (!/^[A-Z0-9_-]{3,24}$/.test(code) || /^(R|CFG|TM)-/.test(code)) return { error: 'bad_code' };
+    if (kind !== 'percent' && kind !== 'days') return { error: 'bad_kind' };
+    if (!(value > 0) || (kind === 'percent' && value > 95) || value > 3650) return { error: 'bad_value' };
+    if (db.prepare('SELECT 1 FROM promos WHERE code = ?').get(code)) return { error: 'exists' };
+    db.prepare('INSERT INTO promos (code, kind, value, max_uses, used, expires_at, active, created_at) VALUES (?, ?, ?, ?, 0, ?, 1, ?)')
+      .run(code, kind, value, Math.max(0, Math.round(+maxUses || 0)), +daysValid > 0 ? now() + daysValid * DAY : null, now());
+    return { ok: true, code };
+  },
+  promoOff: code => db.prepare('UPDATE promos SET active = 0 WHERE code = ?').run(String(code || '').trim().toUpperCase()).changes,
+  news: () => db.prepare('SELECT id, text, created_at FROM news ORDER BY id DESC LIMIT 20').all(),
+  newsAdd(text) {
+    text = String(text || '').trim().slice(0, 1000);
+    return text ? db.prepare('INSERT INTO news (text, created_at) VALUES (?, ?)').run(text, now()).lastInsertRowid : null;
+  },
+  newsDel: id => db.prepare('DELETE FROM news WHERE id = ?').run(+id).changes,
+  errors: () => db.prepare('SELECT * FROM errors ORDER BY last_at DESC LIMIT 30').all(),
+  tickets: (all) => db.prepare(`SELECT * FROM tickets ${all ? '' : 'WHERE answer IS NULL'} ORDER BY id DESC LIMIT 30`).all(),
+  answer(id, text) {
+    text = String(text || '').trim().slice(0, 2000);
+    if (!text) return 0;
+    return db.prepare('UPDATE tickets SET answer = ?, answered_at = ? WHERE id = ?').run(text, now(), +id).changes;
+  },
+  csv() {
+    const rows = db.prepare(`SELECT l.key, l.email, l.plan, l.status, l.expires_at, l.created_at, l.provider, l.ref_code,
+                               (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices,
+                               (SELECT COALESCE(SUM(amount), 0) FROM orders o WHERE o.license_key = l.key AND o.status = 'paid' AND o.provider != 'dev') AS paid
+                             FROM licenses l ORDER BY l.created_at DESC`).all();
+    const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const d = ms => ms ? new Date(ms).toISOString().slice(0, 10) : '';
+    return '﻿key;email;plan;status;expires;created;source;ref_code;devices;paid_rub\r\n' +
+      rows.map(r => [r.key, r.email, r.plan, r.status, d(r.expires_at), d(r.created_at), r.provider, r.ref_code, r.devices, r.paid].map(q).join(';')).join('\r\n');
+  }
+};
+
 function admin(req, res, next) {
   const t = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!CFG.adminToken || CFG.adminToken === 'change-me-to-long-random-string' ||
@@ -362,58 +698,31 @@ function admin(req, res, next) {
     return res.status(401).json({ error: 'unauthorized' });
   next();
 }
+const B = req => req.body || {};
+app.get('/api/admin/stats', admin, (req, res) => res.json(A.stats()));
+app.get('/api/admin/licenses', admin, (req, res) => res.json(A.search(req.query.q)));
+app.get('/api/admin/licenses/:key', admin, (req, res) => { const i = A.info(req.params.key); i ? res.json(i) : res.status(404).json({ error: 'not_found' }); });
 app.post('/api/admin/licenses', admin, (req, res) => {
-  const { plan = 'life', email = '', days } = req.body || {};
-  if (!PLANS[plan]) return res.status(400).json({ error: 'bad_plan' });
-  const key = newKey(), d = days ? +days : PLANS[plan].days;
-  db.prepare('INSERT INTO licenses (key, email, plan, expires_at, provider, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(key, email, plan, d ? now() + d * DAY : null, 'manual', now());
-  res.json({ key });
+  const key = A.create(B(req).plan || 'life', B(req).email, B(req).days);
+  key ? res.json({ key }) : res.status(400).json({ error: 'bad_plan' });
 });
-app.get('/api/admin/licenses', admin, (req, res) => {
-  res.json(db.prepare(`SELECT l.*, (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices
-                       FROM licenses l ORDER BY created_at DESC LIMIT 500`).all());
-});
-// Сводка для админ-вкладки программы
-app.get('/api/admin/stats', admin, (req, res) => {
-  const t = now(), one = (sql, ...a) => db.prepare(sql).get(...a);
-  const activeWhere = "status = 'active' AND (expires_at IS NULL OR expires_at > ?)";
-  const byPlan = {};
-  for (const r of db.prepare(`SELECT plan, COUNT(*) AS n FROM licenses WHERE ${activeWhere} GROUP BY plan`).all(t)) byPlan[r.plan] = r.n;
-  const sum = (from, plan) => one(`SELECT COALESCE(SUM(amount), 0) AS s, COUNT(*) AS n FROM orders WHERE status = 'paid' AND currency = 'rub' AND provider != 'dev' AND paid_at >= ?${plan ? ' AND plan = ?' : ''}`, from, ...(plan ? [plan] : []));
-  res.json({
-    active: one(`SELECT COUNT(*) AS n FROM licenses WHERE ${activeWhere}`, t).n,
-    people: one(`SELECT COUNT(DISTINCT COALESCE(NULLIF(email, ''), key)) AS n FROM licenses WHERE ${activeWhere}`, t).n,
-    by_plan: { m1: byPlan.m1 || 0, m3: byPlan.m3 || 0, life: byPlan.life || 0 },
-    expired: one("SELECT COUNT(*) AS n FROM licenses WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ?", t).n,
-    revoked: one("SELECT COUNT(*) AS n FROM licenses WHERE status = 'revoked'").n,
-    total: one('SELECT COUNT(*) AS n FROM licenses').n,
-    new7: one('SELECT COUNT(*) AS n FROM licenses WHERE created_at >= ?', t - 7 * DAY).n,
-    new30: one('SELECT COUNT(*) AS n FROM licenses WHERE created_at >= ?', t - 30 * DAY).n,
-    expiring7: one(`SELECT COUNT(*) AS n FROM licenses WHERE ${activeWhere} AND expires_at IS NOT NULL AND expires_at < ?`, t, t + 7 * DAY).n,
-    online24: one('SELECT COUNT(DISTINCT key) AS n FROM devices WHERE last_seen >= ?', t - DAY).n,
-    revenue30: sum(t - 30 * DAY).s,
-    revenue: sum(0).s,
-    resets30: sum(t - 30 * DAY, 'reset').n,
-    recent: db.prepare(`SELECT l.key, l.email, l.plan, l.status, l.expires_at, l.created_at, l.provider,
-                          (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices,
-                          (SELECT MAX(last_seen) FROM devices d WHERE d.key = l.key) AS last_seen
-                        FROM licenses l ORDER BY l.created_at DESC LIMIT 100`).all()
-  });
-});
-app.get('/api/admin/licenses/:key', admin, (req, res) => {
-  const key = normKey(req.params.key);
-  const l = db.prepare('SELECT * FROM licenses WHERE key = ?').get(key);
-  if (!l) return res.status(404).json({ error: 'not_found' });
-  res.json({ ...l, devices: db.prepare('SELECT hwid, parts, first_seen, last_seen, app FROM devices WHERE key = ?').all(key) });
-});
-app.post('/api/admin/reset-device', admin, (req, res) => {
-  const r = db.prepare('DELETE FROM devices WHERE key = ?').run(normKey(req.body && req.body.key));
-  res.json({ removed: r.changes });
-});
-app.post('/api/admin/revoke', admin, (req, res) => {
-  const r = db.prepare("UPDATE licenses SET status = 'revoked' WHERE key = ?").run(normKey(req.body && req.body.key));
-  res.json({ updated: r.changes });
+app.post('/api/admin/extend', admin, (req, res) => { const l = A.extend(B(req).key, B(req).days); l ? res.json({ ok: true, expires_at: l.expires_at }) : res.status(400).json({ error: 'bad_request' }); });
+app.post('/api/admin/reset-device', admin, (req, res) => res.json({ removed: A.reset(B(req).key) }));
+app.post('/api/admin/revoke', admin, (req, res) => res.json({ updated: A.revoke(B(req).key) }));
+app.post('/api/admin/unrevoke', admin, (req, res) => res.json({ updated: A.unrevoke(B(req).key) }));
+app.get('/api/admin/promos', admin, (req, res) => res.json(A.promos()));
+app.post('/api/admin/promos', admin, (req, res) => { const r = A.promoCreate(B(req).code, B(req).kind, B(req).value, B(req).max_uses, B(req).days_valid); res.status(r.error ? 400 : 200).json(r); });
+app.post('/api/admin/promos/off', admin, (req, res) => res.json({ updated: A.promoOff(B(req).code) }));
+app.get('/api/admin/news', admin, (req, res) => res.json(A.news()));
+app.post('/api/admin/news', admin, (req, res) => { const id = A.newsAdd(B(req).text); id ? res.json({ id }) : res.status(400).json({ error: 'empty' }); });
+app.post('/api/admin/news/delete', admin, (req, res) => res.json({ removed: A.newsDel(B(req).id) }));
+app.get('/api/admin/errors', admin, (req, res) => res.json(A.errors()));
+app.get('/api/admin/tickets', admin, (req, res) => res.json(A.tickets(req.query.all === '1')));
+app.post('/api/admin/tickets/answer', admin, (req, res) => res.json({ updated: A.answer(B(req).id, B(req).text) }));
+app.get('/api/admin/export.csv', admin, (req, res) => {
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="tweakmacro-keys.csv"');
+  res.send(A.csv());
 });
 
 // ───── тестовая оплата (DEV_FAKE_PAY=1) ─────
@@ -448,4 +757,4 @@ if (require.main === module) {
     console.log(`  ЮKassa: ${ykOn ? 'вкл' : 'выкл'}, письма: ${CFG.resendKey ? 'вкл' : 'выкл'}, тест-оплата: ${CFG.devPay ? 'ВКЛ' : 'выкл'}`);
   });
 }
-module.exports = { app, db, markPaid, PLANS };
+module.exports = { app, db, markPaid, PLANS, A, CFG, kvGet, kvSet, setNotifier };
