@@ -183,6 +183,12 @@ PeekKey=RButton
 [AutoSprint]
 Enabled=0
 Delay=10
+; После каких действий снова нажимать спринт
+AfterWall=1
+AfterFloor=1
+AfterStairs=1
+AfterCone=1
+AfterEdit=1
 
 [Pickup]
 Enabled=0
@@ -287,7 +293,7 @@ BUILTIN := [
 Registered := []
 Used := Map()
 Macros := []
-Placing := false
+Placing := false, LastPiece := "Wall"
 DebugOn := false
 HoldMs := 5
 ClickHold := 5
@@ -876,11 +882,12 @@ AntiAFKTick() {
     StatsVer++
 }
 
-AutoSprint() {
-    if Bool("AutoSprint", "Enabled") {
-        Wait(Num("AutoSprint", "Delay", 10))
-        Tap(B("Sprint"))
-    }
+; Снова нажать спринт после действия: kind — Wall/Floor/Stairs/Cone или Edit (выбирается в настройках Auto sprint)
+AutoSprint(kind) {
+    if !Bool("AutoSprint", "Enabled") || !Bool("AutoSprint", "After" kind, true) || !GameActive()
+        return
+    Wait(Num("AutoSprint", "Delay", 10))
+    Tap(B("Sprint"))
 }
 
 StopPlace() {
@@ -891,9 +898,13 @@ StopPlace() {
     }
 }
 
+; Непрерывная стройка закончилась (отпустил ЛКМ) — спринт по последней постройке
 PlaceReleased(*) {
     global Placing
+    was := Placing
     Placing := false
+    if was
+        AutoSprint(LastPiece)
 }
 
 ; Competitive Mode: авто-подтверждение выключено, подтверждаем клавишей.
@@ -929,7 +940,7 @@ DragEdit(trig, *) {
         KeyWait trig
     Up(B("Select"))
     Confirm("DragEdit")
-    AutoSprint()
+    AutoSprint("Edit")
 }
 
 ; Prefire: держишь — редакт открыт и выбираются тайлы; отпустил — подтверждение и сразу выстрел.
@@ -963,7 +974,7 @@ Prefire(trig, *) {
 InstantEdit(*) {
     StopPlace()
     EditCycle("InstantEdit")
-    AutoSprint()
+    AutoSprint("Edit")
 }
 
 ; Пока держишь — повторяет одиночные редакты с частотой, привязанной к FPS
@@ -975,12 +986,13 @@ InfiniteEdit(trig, *) {
     loop {
         EditCycle("InfiniteEdit")
         Wait(step)
-    } until !Held(trig)
-    AutoSprint()
+    } until !Held(trig) || !GameActive()
+    AutoSprint("Edit")
 }
 
 Build(piece, *) {
-    global Placing
+    global Placing, LastPiece
+    LastPiece := piece
     Tap(B(piece))
     if Placing                      ; ЛКМ уже зажата — достаточно сменить постройку
         return
@@ -990,7 +1002,7 @@ Build(piece, *) {
         Placing := true
     } else {
         Tap(B("Select"))
-        AutoSprint()
+        AutoSprint(piece)
     }
 }
 
@@ -999,7 +1011,7 @@ Pickup(trig, *) {
     loop {
         Tap(B("Interact"))
         Wait(Num("Pickup", "Delay", 20))
-    } until !Held(trig)
+    } until !Held(trig) || !GameActive()
 }
 
 ; Последовательность: "{Edit}, 10, LButton, +{Sprint}, 50, -{Sprint}"
@@ -2103,7 +2115,9 @@ InitForms() {
     FORMS["Pickup"] := {desc: "Пока держишь клавишу — спамит «Взаимодействие», чтобы быстро подбирать лут.", fields: [en, tr, Fld("num", "Delay", "Интервал")]}
     FORMS["RapidFire"] := {desc: "Пока держишь клавишу — быстро кликает «Выбор/выстрел» с заданным интервалом.", fields: [en, tr, Fld("num", "Delay", "Интервал кликов")]}
     FORMS["AntiAFK"] := {desc: "Если долго не трогать клавиатуру и мышь, персонаж изредка подпрыгивает, чтобы игра не выкинула за бездействие. Работает только в окне Fortnite.", fields: [en, Fld("num", "Interval", "Прыгать после бездействия", {u: "сек"})]}
-    FORMS["AutoSprint"] := {desc: "После каждой постройки и редакта снова нажимает спринт.", fields: [en, Fld("num", "Delay", "Задержка после действия")]}
+    FORMS["AutoSprint"] := {desc: "После постройки или редакта макрос снова нажимает спринт, чтобы не терять скорость. Выбери, после каких действий это нужно.", fields: [en
+        , Fld("toggle", "AfterWall", "После стены"), Fld("toggle", "AfterFloor", "После пола"), Fld("toggle", "AfterStairs", "После лестницы")
+        , Fld("toggle", "AfterCone", "После конуса"), Fld("toggle", "AfterEdit", "После редакта"), Fld("num", "Delay", "Задержка после действия")]}
     FORMS["Competitive"] := {desc: "Для игры с выключенным «Авто-подтверждением редактирования»: макросы подтверждают редакт клавишей редактирования. Пока держишь клавишу peek, редакт остаётся открытым — можно смотреть сквозь конус.", fields: [en, Fld("key", "PeekKey", "Клавиша peek")]}
     pd := Map("WallRetake", "Ставит стену и сразу переключает на оружие из слота 1."
         , "SprintReset", "Сбрасывает спринт двойным нажатием клавиши спринта."
@@ -2122,6 +2136,11 @@ InitHints() {
     for k, v in Map("Enabled", "Включает или выключает эту функцию. Изменения применяются сразу."
         , "Trigger", "Клавиша запуска. Кликни и нажми нужную клавишу или кнопку мыши. Esc — отмена, Backspace — очистить."
         , "ConfirmBy", "Как подтверждать редакт. «Отпусканием» — если в Fortnite включено «Подтверждать при отпускании». «Клавишей» — макрос сам нажмёт клавишу редактирования ещё раз."
+        , "AfterWall", "Нажимать спринт после стены из Instant build."
+        , "AfterFloor", "Нажимать спринт после пола из Instant build."
+        , "AfterStairs", "Нажимать спринт после лестницы из Instant build."
+        , "AfterCone", "Нажимать спринт после конуса из Instant build."
+        , "AfterEdit", "Нажимать спринт после Drag edit, Instant edit и Infinite edit."
         , "ShotDelay", "Сколько ждать после подтверждения редакта перед выстрелом. Если выстрел не проходит — увеличь до 40–60 мс."
         , "Shots", "Сколько раз выстрелить после открытия редакта."
         , "ShotInterval", "Пауза между выстрелами, если их несколько. Для дробовика — около 60 мс, для автомата можно меньше."
