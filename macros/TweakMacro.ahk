@@ -76,8 +76,14 @@ AskAdmin=1
 ; Клавиша, открывающая меню поверх игры
 MenuKey=Insert
 MenuOnTop=1
-; 1 = точка-индикатор в углу экрана (зелёная — макросы работают)
-Indicator=0
+; 1 = водяной знак в углу экрана: TWEAKMACRO, статус макросов, профиль и время
+Indicator=1
+; Угол: tl, tr, bl, br
+WatermarkPos=tl
+; 1 = показывать только поверх Fortnite
+WatermarkOnlyGame=1
+; 1 = при первом запуске меню показывает быструю настройку
+FirstRun=1
 Profile=Основной
 
 [License]
@@ -361,6 +367,7 @@ if Bool("Optimize", "AutoGame")
 SetTimer(LicPeriodic, 6 * 3600 * 1000)
 OnError(ReportError)
 SetTimer(SafetyTick, 100)
+SetTimer(UpdateIndicator, 1000)
 SetTimer(GameAccessTick, 2000)
 OnExit((*) => ReleaseAll())
 ; Сначала лаунчер: обновления, ключ, потом запуск макросов и меню
@@ -2015,20 +2022,54 @@ StatsTick() {
 }
 
 ; Точка-индикатор в углу экрана: зелёная — макросы работают, серая — пауза
-UpdateIndicator() {
-    static ig := 0
-    if !Bool("General", "Indicator") {
-        if ig
-            ig.Hide()
+; Водяной знак в углу экрана: TWEAKMACRO | ● ON | профиль | время. Сквозь него проходят клики.
+; Перестраивается только когда меняется текст (раз в минуту из-за часов), поэтому игре не мешает.
+UpdateIndicator(*) {
+    static g := 0, key := ""
+    on := Bool("General", "Indicator", true) && Launched
+    if on && Bool("General", "WatermarkOnlyGame", true)
+        on := IsGameWin(WinExist("A"))
+    if !on {
+        if g
+            g.Hide()
+        key := ""
         return
     }
-    if !ig {
-        ig := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
-        ig.Show("x10 y10 w12 h12 NA")
-        RoundWin(ig, 12, 12, 12)
-    }
-    ig.BackColor := A_IsSuspended ? "6B6B76" : "22C55E"
-    ig.Show("x10 y10 w12 h12 NA")
+    status := A_IsSuspended ? "PAUSE" : "ON", prof := Get("General", "Profile", PROF_DEFAULT), pos := Get("General", "WatermarkPos", "tl")
+    k := status "|" prof "|" FormatTime(, "HH:mm") "|" pos "|" CLR.accent
+    if (k = key)
+        return
+    key := k
+    if g
+        g.Destroy()
+    d := A_ScreenDPI / 96
+    g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
+    g.BackColor := "0E0E12"
+    g.MarginX := Round(12 * d), g.MarginY := Round(6 * d)
+    g.SetFont("s9 w700 cFFFFFF", "Segoe UI")
+    g.AddText("", "TWEAK")
+    g.SetFont("s9 w700 c" CLR.accent)
+    g.AddText("x+0 yp", "MACRO")
+    g.SetFont("s9 w400 c3A3A46")
+    g.AddText("x+9 yp", "|")
+    g.SetFont("s9 w700 c" (A_IsSuspended ? "8C8C99" : "22C55E"))
+    g.AddText("x+9 yp", "● " status)
+    g.SetFont("s9 w400 c3A3A46")
+    g.AddText("x+9 yp", "|")
+    g.SetFont("s9 w600 cC9C9D3")
+    g.AddText("x+9 yp", prof)
+    g.SetFont("s9 w400 c3A3A46")
+    g.AddText("x+9 yp", "|")
+    g.SetFont("s9 w600 cC9C9D3")
+    g.AddText("x+9 yp", FormatTime(, "HH:mm"))
+    g.Show("Hide AutoSize")
+    g.GetPos(, , &w, &h)
+    m := Round(12 * d)
+    x := InStr(pos, "r") ? A_ScreenWidth - w - m : m
+    y := InStr(pos, "b") ? A_ScreenHeight - h - m - Round(40 * d) : m
+    RoundWin(g, w, h, Round(12 * d))
+    WinSetTransparent(235, g)
+    g.Show(Format("x{} y{} NA", x, y))
 }
 
 HideUI(quiet := false) {
@@ -2199,7 +2240,9 @@ InitHints() {
         , "AntiAFK.Interval", "Через сколько секунд без нажатий персонаж подпрыгнет (минимум 10)."
         , "MenuKey", "Клавиша, которая открывает это меню поверх игры и закрывает его обратно. Игра должна быть в режиме «Оконный полноэкранный»."
         , "MenuOnTop", "Меню всегда поверх других окон, в том числе поверх Fortnite."
-        , "Indicator", "Маленькая точка в левом верхнем углу экрана: зелёная — макросы работают, серая — на паузе."
+        , "Indicator", "Плашка в углу экрана: TWEAKMACRO, статус макросов (ON — работают, PAUSE — на паузе), активный профиль и время. Клики проходят сквозь неё."
+        , "WatermarkPos", "В каком углу экрана показывать водяной знак."
+        , "WatermarkOnlyGame", "Показывать водяной знак только поверх Fortnite, а на рабочем столе прятать."
         , "Radius", "Радиус кольца для стилей с кругом."
         , "Opacity", "Непрозрачность прицела: 100 — полностью видимый."
         , "Outline", "Тёмная обводка вокруг прицела — его видно и на светлом фоне."
@@ -2212,6 +2255,7 @@ InitHints() {
         , "Language", "Язык меню и уведомлений."
         , "page.License", "Подписка, ключ и продление."
         , "page.Admin", "Админ-панель: сколько людей с подпиской, выручка, выдача и отзыв ключей."
+        , "page.Trainer", "Тренажёр: скорость кликов и реакция, с рекордами."
         , "page.Optimize", "Оптимизация Windows и игры: приоритет, питание, ускорение мыши, Game DVR, очистка кэша, тяжёлые программы."
         , "page.Support", "Как начать, нужные настройки Fortnite и что делать, если не работает.")
         HintText[k] := v
