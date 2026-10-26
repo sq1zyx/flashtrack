@@ -38,12 +38,19 @@ svg{overflow:hidden}
 .wb svg{width:15px;height:15px}
 
 /* ── боковое меню ── */
-#side{position:absolute;left:0;top:58px;bottom:0;width:214px;box-sizing:border-box;padding:14px 12px 12px;border-right:1px solid @line@;display:flex;flex-direction:column}
-.navh{font-size:9.5px;font-weight:700;letter-spacing:.18em;color:@muted@;margin:12px 12px 5px;opacity:.75}
+/* меню-шторка: узкая полоса с иконками, при наведении выезжает с названиями поверх страницы */
+#side{position:absolute;left:0;top:58px;bottom:0;width:66px;box-sizing:border-box;padding:14px 12px 12px;border-right:1px solid @line@;display:flex;flex-direction:column;
+  overflow:hidden;z-index:30;background:@bg@;transition:width .28s cubic-bezier(.22,1,.36,1),box-shadow .28s}
+#side:hover{width:226px;box-shadow:18px 0 40px rgba(0,0,0,.45)}
+#side .nl,#side .navh span,#side .sver{opacity:0;transition:opacity .18s}
+#side:hover .nl,#side:hover .navh span,#side:hover .sver{opacity:1;transition:opacity .25s .08s}
+.navh{position:relative;height:12px;line-height:12px;white-space:nowrap;font-size:9.5px;font-weight:700;letter-spacing:.18em;color:@muted@;margin:12px 12px 5px;opacity:.75}
+.navh:after{content:"";position:absolute;left:2px;top:6px;width:14px;height:1px;background:@line2@;transition:opacity .18s}
+#side:hover .navh:after{opacity:0}
 .navh:first-child{margin-top:0}
-.sver{margin-top:auto;padding:8px 12px 0;font-size:10.5px;color:@muted@;opacity:.6}
-.nav{position:relative;display:flex;align-items:center;height:33px;padding:0 12px;border-radius:12px;color:@muted@;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:3px;transition:background .15s,color .15s}
-.nav svg{width:18px;height:18px;margin-right:12px}
+.sver{margin-top:auto;padding:8px 12px 0;font-size:10.5px;color:@muted@;white-space:nowrap}
+.nav{position:relative;display:flex;align-items:center;white-space:nowrap;height:33px;padding:0 12px;border-radius:12px;color:@muted@;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:3px;transition:background .15s,color .15s}
+.nav svg{width:18px;height:18px;margin-right:12px;flex:none}
 .nav:hover{background:@key@;color:@text@}
 .nav.sel{background:@a14@;color:@text@}
 .nav.sel svg{color:@accent@}
@@ -53,7 +60,7 @@ svg{overflow:hidden}
 .sfoot b{color:@text@;font-weight:600}
 
 /* ── контент ── */
-#content{position:absolute;left:214px;right:-20px;top:58px;bottom:0;overflow-y:scroll;overflow-x:hidden;padding:20px 27px 24px 24px;box-sizing:border-box}
+#content{position:absolute;left:66px;right:-20px;top:58px;bottom:0;overflow-y:scroll;overflow-x:hidden;padding:20px 27px 24px 24px;box-sizing:border-box}
 .page{display:none}
 .page.show{display:block;animation:pin .22s ease-out}
 @keyframes pin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -736,12 +743,12 @@ var SIDE = [['МАКРОСЫ', ['Dashboard', 'Macros', 'Custom', 'Keybinds', 'Re
 function buildSide() {
   var h = '';
   for (var g = 0; g < SIDE.length; g++) {
-    h += '<div class="navh">' + t(SIDE[g][0]) + '</div>';
+    h += '<div class="navh"><span>' + t(SIDE[g][0]) + '</span></div>';
     for (var i = 0; i < SIDE[g][1].length; i++) h += navItem(SIDE[g][1][i]);
   }
   $('side').innerHTML = h + '<div class="sver">TweakMacro ' + esc(M.version) + '</div>';
 }
-function navItem(p) { return '<div class="nav" id="nav-' + p + '" data-act="nav" data-page="' + p + '" data-tip="' + esc(M.hints['page.' + p] || '') + '">' + ico(p) + p + '</div>'; }
+function navItem(p) { return '<div class="nav" id="nav-' + p + '" data-act="nav" data-page="' + p + '" data-tip="' + esc(M.hints['page.' + p] || '') + '">' + ico(p) + '<span class="nl">' + p + '</span></div>'; }
 
 function buildDashboard() {
   var lg = [['Trigger', M.accentHint, 'Клавиши, которые запускают включённые макросы.'], ['Pressed by a macro', '#ffffff', 'Вспыхивает, когда макрос нажимает клавишу прямо сейчас.'],
