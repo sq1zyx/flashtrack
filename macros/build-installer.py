@@ -20,7 +20,7 @@ exit /b
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 try {
-  Write-Host '[1/2] Copying @@NAME@@ to Desktop...'
+  Write-Host '[1/2] Copying @@NAME@@ v@@VER@@ to Desktop...'
   $desk = [Environment]::GetFolderPath('Desktop')
   $dir = Join-Path $desk '@@NAME@@'
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -64,7 +64,7 @@ try {
   Write-Host '[2/2] Starting @@NAME@@...'
   Start-Process $exe -WorkingDirectory $dir
   Write-Host ''
-  Write-Host 'DONE. Desktop: folder @@NAME@@ + shortcut @@NAME@@ (also in Start menu).' -ForegroundColor Green
+  Write-Host 'DONE. @@NAME@@ v@@VER@@ installed. Desktop: folder @@NAME@@ + shortcut @@NAME@@ (also in Start menu).' -ForegroundColor Green
   Write-Host 'The launcher is open. Your config.ini (if any) was kept.'
 } catch {
   Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
@@ -100,7 +100,8 @@ def build(name, extra, out_path):
     for fname, data in extra.items():
         b64 = base64.b64encode(data).decode()
         lines.append(f"  [IO.File]::WriteAllBytes((Join-Path $dir '{fname}'), [Convert]::FromBase64String('{b64}'))")
-    out = TPL.replace('@@NAME@@', name).replace('@@FILES@@', '\n'.join(lines) + '\n').replace('\n', '\r\n')
+    ver = re.search(r'^APP_VERSION := "([^"]+)"', open(os.path.join(HERE, 'TweakMacro.ahk'), encoding='utf-8').read(), re.M).group(1)
+    out = TPL.replace('@@NAME@@', name).replace('@@VER@@', ver).replace('@@FILES@@', '\n'.join(lines) + '\n').replace('\n', '\r\n')
     open(out_path, 'w', encoding='utf-8', newline='').write(out)
     print(os.path.basename(out_path) + ':', len(out), 'bytes')
 
