@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.2"
+APP_VERSION := "4.3"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -2246,7 +2246,8 @@ MetaJson() {
         kb.Push(r)
     }
     return Json(Map("builtin", BUILTIN, "forms", FORMS, "macroFields", MacroFields(), "hints", HintText
-        , "themes", THEMES, "themeOrder", THEME_ORDER, "bases", BASES, "kb", kb, "version", "v" APP_VERSION))
+        , "themes", THEMES, "themeOrder", THEME_ORDER, "bases", BASES, "kb", kb, "version", "v" APP_VERSION
+        , "general", C.Has("General") ? C["General"] : Map()))   ; тема и фон нужны сразу, иначе меню мелькает красным
 }
 
 Json(v) {
@@ -2523,30 +2524,39 @@ MenuClip(pw, ph, k) {
     rgn := DllCall("CreateRoundRectRgn", "int", x, "int", y, "int", x + w + 1, "int", y + h + 1, "int", rad, "int", rad, "ptr")
     DllCall("SetWindowRgn", "ptr", UI.Hwnd, "ptr", rgn, "int", 1)
 }
-; Открытие как у оверлеев (~0,12 с): меню раскрывается из точки в центре, сразу проявляясь; страница всплывает
+; Анимация по реальному времени: fn(k) получает долю 0…1, кадры идут так часто, как успевает система.
+; timeBeginPeriod(1) делает Sleep точным до 1 мс — без него шаг ~16 мс и движение дёргается.
+Animate(ms, fn) {
+    DllCall("winmm\timeBeginPeriod", "uint", 1)
+    DllCall("QueryPerformanceFrequency", "int64*", &f := 0)
+    DllCall("QueryPerformanceCounter", "int64*", &t0 := 0)
+    loop {
+        DllCall("QueryPerformanceCounter", "int64*", &t := 0)
+        k := Min(1, (t - t0) * 1000 / f / ms)
+        fn(k)
+        if (k >= 1)
+            break
+        Sleep 4
+    }
+    DllCall("winmm\timeEndPeriod", "uint", 1)
+}
+; Открытие как у оверлеев (~0,2 с): меню раскрывается из точки в центре и проявляется; страница всплывает
 MenuOpenAnim() {
     try {
         UI.GetPos(, , &pw, &ph)
         MenuClip(pw, ph, 0)
-        WinSetTransparent(255, UI)
+        WinSetTransparent(0, UI)
         Wnd.menuIn()
-        loop 8 {
-            k := 1 - (1 - A_Index / 8) ** 3
-            MenuClip(pw, ph, k)
-            Sleep 10
-        }
+        Animate(200, (k) => (e := 1 - (1 - k) ** 3, MenuClip(pw, ph, e), WinSetTransparent(Round(255 * Min(1, k * 1.8)), UI)))
         WinSetTransparent("Off", UI)
     }
     try MenuShape()
 }
-; Закрытие — обратно в точку
+; Закрытие — обратно в точку с затуханием
 MenuCloseAnim() {
     try {
         UI.GetPos(, , &pw, &ph)
-        for k in [0.8, 0.55, 0.3, 0.1] {
-            MenuClip(pw, ph, k)
-            Sleep 10
-        }
+        Animate(130, (k) => (e := 1 - k * k, MenuClip(pw, ph, e), WinSetTransparent(Round(255 * e), UI)))
     }
     UI.Hide()
     try WinSetTransparent("Off", UI)

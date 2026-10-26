@@ -533,7 +533,8 @@ function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').
 function lc(s) { return String(s).toLowerCase(); }
 function isOn(v) { v = lc(v); return v === '1' || v === 'true' || v === 'on' || v === 'yes'; }
 function cv(sec, key, def) {
-  var c = S && S.cfg[sec];
+  // до первого состояния берём общие настройки из описания, чтобы тема была правильной с первого кадра
+  var c = S ? S.cfg[sec] : (sec === 'General' && M && M.general);
   if (c) for (var k in c) if (lc(k) === lc(key) && c[k] !== '') return c[k];
   return def === undefined ? '' : def;
 }
