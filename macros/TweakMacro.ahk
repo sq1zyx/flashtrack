@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.0"
+APP_VERSION := "4.1"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -2276,6 +2276,7 @@ FlashTick() {
 
 ShowUI(*) {
     global UIShown, UI
+    g := WinExist("A")                  ; запоминаем до создания окна меню: оно может забрать активность
     if !UI
         BuildUI()
     if !UI
@@ -2288,20 +2289,38 @@ ShowUI(*) {
         if !UI
             return
     }
-    UI.Opt(Bool("General", "MenuOnTop", true) ? "+AlwaysOnTop" : "-AlwaysOnTop")
     first := !UIShown
     mw := Round(W * BuiltScale), mh := Round(H * BuiltScale)
-    ; плавное появление: окно проявляется из прозрачного, страница чуть «всплывает»
-    if first
-        try WinSetTransparent(0, UI)
-    UI.Show("w" mw " h" mh)
-    ; скруглённые углы: на Windows 11 их рисует система, на Windows 10 — обрезаем окно
-    if (VerCompare(A_OSVersion, "10.0.22000") < 0) {
-        UI.GetPos(, , &pw, &ph)
-        RoundWin(UI, pw, ph, Round(18 * DPI))
+    ; Открыли поверх Fortnite — меню всегда над игрой и по центру её окна (на том же мониторе)
+    pos := ""
+    overGame := g && IsGameWin(g)
+    UI.Opt(overGame || Bool("General", "MenuOnTop", true) ? "+AlwaysOnTop" : "-AlwaysOnTop")
+    if overGame {
+        try {
+            WinGetPos(&gx, &gy, &gw, &gh, "ahk_id " g)
+            pw := Round(mw * DPI), ph := Round(mh * DPI)
+            px := Round(gx + (gw - pw) / 2), py := Round(gy + (gh - ph) / 2)
+            ; не выходить за край монитора, на котором игра
+            mon := 1
+            loop MonitorGetCount() {
+                MonitorGet(A_Index, &l, &t, &rr, &bb)
+                if (gx + gw // 2 >= l && gx + gw // 2 < rr && gy + gh // 2 >= t && gy + gh // 2 < bb)
+                    mon := A_Index
+            }
+            MonitorGetWorkArea(mon, &l, &t, &rr, &bb)
+            px := Max(l, Min(px, rr - pw)), py := Max(t, Min(py, bb - ph))
+            pos := " x" px " y" py
+        }
     }
+    ; окно сначала невидимо и сжато в точку — дальше MenuOpenAnim раскрывает его
+    if first {
+        try WinSetTransparent(0, UI)
+    }
+    UI.Show("w" mw " h" mh pos)
     if first
         MenuOpenAnim()
+    else
+        MenuShape()
     UIShown := true
     PushState()
     SetTimer(FlashTick, 40)
@@ -2463,31 +2482,49 @@ MenuGuard() {
 }
 
 ; Клавиша меню: открыть поверх игры / вернуться в игру
-; Быстрое открытие (~0,1 с): окно проявляется и въезжает на 16 px снизу с замедлением в конце, страница всплывает
+; Итоговая форма окна: на Windows 11 углы скругляет система, на Windows 10 — обрезаем окно сами
+MenuShape() {
+    UI.GetPos(, , &pw, &ph)
+    if (VerCompare(A_OSVersion, "10.0.22000") < 0)
+        RoundWin(UI, pw, ph, Round(18 * DPI))
+    else
+        DllCall("SetWindowRgn", "ptr", UI.Hwnd, "ptr", 0, "int", 1)
+}
+; Окно как скруглённый прямоугольник размера k (0…1) от полного, по центру
+MenuClip(pw, ph, k) {
+    w := Max(6, Round(pw * k)), h := Max(6, Round(ph * k)), rad := Round(Min(w, h) * (1 - k) + 18 * DPI * k)
+    x := (pw - w) // 2, y := (ph - h) // 2
+    rgn := DllCall("CreateRoundRectRgn", "int", x, "int", y, "int", x + w + 1, "int", y + h + 1, "int", rad, "int", rad, "ptr")
+    DllCall("SetWindowRgn", "ptr", UI.Hwnd, "ptr", rgn, "int", 1)
+}
+; Открытие как у оверлеев (~0,12 с): меню раскрывается из точки в центре, сразу проявляясь; страница всплывает
 MenuOpenAnim() {
     try {
-        UI.GetPos(&x, &y)
-        dy := Round(16 * DPI)
-        WinMove(x, y + dy, , , UI)
+        UI.GetPos(, , &pw, &ph)
+        MenuClip(pw, ph, 0)
+        WinSetTransparent(255, UI)
         Wnd.menuIn()
-        loop 7 {
-            k := 1 - (1 - A_Index / 7) ** 3
-            WinSetTransparent(Round(255 * k), UI)
-            WinMove(x, y + Round(dy * (1 - k)), , , UI)
+        loop 8 {
+            k := 1 - (1 - A_Index / 8) ** 3
+            MenuClip(pw, ph, k)
             Sleep 10
         }
-        WinMove(x, y, , , UI)
         WinSetTransparent("Off", UI)
     }
+    try MenuShape()
 }
-; Быстрое закрытие: короткое затухание вместо резкого исчезновения
+; Закрытие — обратно в точку
 MenuCloseAnim() {
     try {
-        for a in [190, 120, 50]
-            WinSetTransparent(a, UI), Sleep(10)
+        UI.GetPos(, , &pw, &ph)
+        for k in [0.8, 0.55, 0.3, 0.1] {
+            MenuClip(pw, ph, k)
+            Sleep 10
+        }
     }
     UI.Hide()
     try WinSetTransparent("Off", UI)
+    try MenuShape()
 }
 
 ToggleMenu(*) {
