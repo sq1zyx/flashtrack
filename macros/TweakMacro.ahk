@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.7"
+APP_VERSION := "4.8"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -183,7 +183,7 @@ FramesPerStep=3
 Enabled=0
 Trigger=XButton2
 ConfirmBy=release
-EnterDelay=10
+EnterDelay=25
 ConfirmDelay=10
 
 [Prefire]
@@ -577,8 +577,9 @@ MigrateCfg(cfg) {
             if (StrLen(val) = 1 && val ~= "i)[а-яё]" && (sec = "Game" || key ~= "i)(Trigger|Key|From|To)$"))
                 kv[key] := LatinKey(val)
     ; старая задержка входа драг-эдита (10 мс) слишком короткая: выбор успевал нажаться до редакта и стрелял
-    if cfg.Has("DragEdit") && cfg["DragEdit"].Has("EnterDelay") && Integer("0" cfg["DragEdit"]["EnterDelay"]) < 20
-        cfg["DragEdit"]["EnterDelay"] := "25"
+    for sec in ["DragEdit", "InstantEdit", "InfiniteEdit"]
+        if cfg.Has(sec) && cfg[sec].Has("EnterDelay") && Integer("0" cfg[sec]["EnterDelay"]) < 20
+            cfg[sec]["EnterDelay"] := "25"
     if cfg.Has("Macro:Prefire") {
         old := cfg["Macro:Prefire"]
         if !cfg.Has("Prefire")
@@ -1046,10 +1047,12 @@ Confirm(sec) {
 }
 
 ; Одно редактирование: войти в редактирование → выбрать тайл → подтвердить
+; Вход в редакт — выбор клетки под прицелом — подтверждение.
+; Игре нужен хотя бы кадр, чтобы открыть редакт и заметить клик, поэтому паузы не короче 20 и 16 мс.
 EditCycle(sec) {
     Tap(B("Edit"))
-    Wait(Num(sec, "EnterDelay", 10))
-    Tap(B("Select"))
+    Wait(Max(20, Num(sec, "EnterDelay", 25)))
+    Tap(B("Select"), Max(16, ClickHold))
     Confirm(sec)
 }
 
@@ -1218,7 +1221,7 @@ EditPreset(n, *) {
     } else {
         for t in path {
             go(t)
-            Tap(B("Select"))
+            Tap(B("Select"), Max(16, ClickHold))
             Wait(pause)
         }
     }
@@ -1245,7 +1248,8 @@ EditAssistTick() {
         d := GetKeyState(k, "P"), was := prev.Get(k, false), prev[k] := d
         return d && !was
     }
-    if edge(B("Edit"))
+    ; клавишу «Редактировать» могут занимать макросы (Drag edit и др.): тогда выделяют они, а не ты
+    if edge(B("Edit")) && !EditKeyIsMacro()
         open := !open, last := A_TickCount
     for k in ["Pickaxe", "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Wall", "Floor", "Stairs", "Cone"]
         if edge(B(k))
@@ -1263,6 +1267,13 @@ EditAssistTick() {
     ; нажал «Редактировать», но так и не выделял — скорее всего, редакт не открылся
     if (open && !sel && A_TickCount - last > 2000)
         open := false
+}
+EditKeyIsMacro() {
+    ek := StrLower(B("Edit"))
+    for sec in ["DragEdit", "InstantEdit", "InfiniteEdit", "Prefire"]
+        if Bool(sec, "Enabled") && StrLower(Get(sec, "Trigger")) = ek
+            return true
+    return false
 }
 ; SlowHook() — стоит ли хук, SlowHook(true/false) — поставить/снять
 SlowHook(on := "") {
@@ -2124,8 +2135,9 @@ TuneDelays(fps) {
         SetVal(sec, "EnterDelay", step)
         SetVal(sec, "ConfirmDelay", step)
     }
-    ; драг-эдиту нужен запас: если выбор нажать раньше, чем откроется редакт, получится выстрел
-    SetVal("DragEdit", "EnterDelay", Max(20, step * 2))
+    ; редактам нужен запас: если выбор нажать раньше, чем откроется редакт, получится выстрел или ничего
+    for sec in ["DragEdit", "InstantEdit", "InfiniteEdit"]
+        SetVal(sec, "EnterDelay", Max(20, step * 2))
     SetVal("InfiniteEdit", "FPS", fps)
     SetVal("InfiniteEdit", "StepDelay", 0)
     SetVal("InstantBuild", "PlaceDelay", step)

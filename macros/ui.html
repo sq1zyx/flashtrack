@@ -420,23 +420,27 @@ svg{overflow:hidden}
 .eb .ef{flex:1;min-width:0;margin-right:12px}
 .eb .ef .in{width:100%;margin-bottom:8px}
 /* сетка как в редакте Fortnite: синие полупрозрачные клетки, выбранные — яркие */
-.egw{position:relative;width:132px;height:132px;flex:none;display:flex;align-items:center;justify-content:center}
-.eg{position:relative;display:flex;flex-wrap:wrap;width:123px;padding:3px;box-sizing:border-box;background:rgba(70,150,255,.1);border:1.5px solid rgba(190,225,255,.85);box-shadow:0 0 16px rgba(80,170,255,.45),inset 0 0 14px rgba(80,170,255,.25)}
-.eg b{width:38px;height:38px;box-sizing:border-box;background:rgba(140,205,255,.22);border:1px solid rgba(210,235,255,.7);cursor:pointer;transition:background .12s,box-shadow .12s,border-color .12s}
-.eg b:hover{background:rgba(185,228,255,.42);border-color:#fff}
-.eg b.on{background:rgba(40,125,255,.72);border-color:#E6F3FF;box-shadow:inset 0 0 10px rgba(255,255,255,.45),0 0 10px rgba(60,150,255,.9)}
+.egw{position:relative;width:136px;height:136px;flex:none;display:flex;align-items:center;justify-content:center}
+.eg{position:relative;display:flex;flex-wrap:wrap;width:130px;padding:2px;box-sizing:border-box;filter:drop-shadow(0 0 8px rgba(80,160,255,.35))}
+/* клетки как в игре: синее стекло с мазками краски, тонкая белая обводка и щели между клетками */
+.eg b{width:38px;height:38px;margin:2px;box-sizing:border-box;cursor:pointer;border:1px solid rgba(235,245,255,.85);
+  background:linear-gradient(162deg,rgba(255,255,255,0) 0,rgba(255,255,255,0) 30%,rgba(170,215,255,.45) 31%,rgba(170,215,255,.45) 34%,rgba(255,255,255,0) 35%,rgba(255,255,255,0) 64%,rgba(150,205,255,.4) 65%,rgba(150,205,255,.4) 68%,rgba(255,255,255,0) 69%),
+    repeating-linear-gradient(180deg,rgba(38,98,190,.62) 0,rgba(38,98,190,.62) 9px,rgba(52,140,240,.78) 9px,rgba(52,140,240,.78) 12px);
+  transition:opacity .12s,box-shadow .12s,border-color .12s}
+.eg b:hover{border-color:#fff;box-shadow:0 0 8px rgba(255,255,255,.7)}
+/* выбранная клетка — её уберут: почти прозрачная, остаётся яркий контур */
+.eg b.on{background:rgba(120,190,255,.12);border:1.5px solid #fff;box-shadow:0 0 10px rgba(120,200,255,.9),inset 0 0 8px rgba(160,215,255,.6)}
 .eg.g2 b{width:57px;height:57px}
 /* наклон как в игре: пол и конус видишь сверху, лестницу — под углом */
 .eg.floor{transform:perspective(380px) rotateX(50deg)}
-.eg.stairs{transform:perspective(380px) rotateX(34deg)}
-.eg.stairs b{background-image:repeating-linear-gradient(180deg,rgba(255,255,255,0) 0,rgba(255,255,255,0) 7px,rgba(220,240,255,.35) 7px,rgba(220,240,255,.35) 8px)}
+.eg.stairs{transform:perspective(320px) rotateX(38deg)}
+.eg.stairs b{width:56px;height:62px}
 .eg.cone{transform:perspective(380px) rotateX(46deg)}
-.eg.cone:before{content:"";position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;background:linear-gradient(45deg,rgba(0,0,0,0) 49.3%,rgba(220,240,255,.65) 49.7%,rgba(220,240,255,.65) 50.3%,rgba(0,0,0,0) 50.7%),linear-gradient(-45deg,rgba(0,0,0,0) 49.3%,rgba(220,240,255,.65) 49.7%,rgba(220,240,255,.65) 50.3%,rgba(0,0,0,0) 50.7%)}
-/* прицел по центру экрана, как в игре */
-.exh{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;pointer-events:none}
-.exh:before,.exh:after{content:"";position:absolute;background:#fff;box-shadow:0 0 3px rgba(0,0,0,.8)}
-.exh:before{left:6px;top:0;width:2px;height:14px}
-.exh:after{left:0;top:6px;width:14px;height:2px}
+.eg.cone:before{content:"";position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;background:linear-gradient(45deg,rgba(0,0,0,0) 49.3%,rgba(235,245,255,.7) 49.7%,rgba(235,245,255,.7) 50.3%,rgba(0,0,0,0) 50.7%),linear-gradient(-45deg,rgba(0,0,0,0) 49.3%,rgba(235,245,255,.7) 49.7%,rgba(235,245,255,.7) 50.3%,rgba(0,0,0,0) 50.7%)}
+/* прицел редакта как в игре: «( · )» по центру экрана */
+.exh{position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;pointer-events:none;box-sizing:border-box;border-radius:50%;border:2px solid rgba(255,255,255,.95);border-top-color:transparent;border-bottom-color:transparent;filter:drop-shadow(0 0 2px rgba(0,0,0,.9))}
+.exh:before{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:2px;background:#fff}
+.exh:after{content:none}
 /* что получится: стена, выделенные клетки — вырезаны */
 .ep{display:flex;flex-wrap:wrap;width:54px;margin-left:12px;flex:none;border-radius:4px;overflow:hidden;background:linear-gradient(180deg,#5B86B3 0%,#8FB3D6 100%)}
 .ep i{width:18px;height:18px;box-sizing:border-box;background:#A6774A;border:1px solid #7E5733}
