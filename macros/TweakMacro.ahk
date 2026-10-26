@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.5"
+APP_VERSION := "4.6"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -230,6 +230,8 @@ AfterEdit=1
 Enabled=0
 ; Сколько пикселей движения мыши между соседними клетками сетки редакта (подбирается под твою чувствительность)
 TileStep=60
+; То же для пола, лестницы и конуса (сетка 2×2, клетки крупнее)
+TileStep2=90
 EnterDelay=25
 ; Пауза между клетками, мс
 ClickDelay=12
@@ -237,17 +239,21 @@ ConfirmBy=release
 ConfirmDelay=10
 ; 1 = после редакта вернуть прицел туда, где он был
 ReturnAim=1
-; Клетки стены 3×3: 1 2 3 / 4 5 6 / 7 8 9 — через запятую
+; Постройка: wall (стена 3×3: 1 2 3 / 4 5 6 / 7 8 9), floor, stairs, cone (2×2: 1 2 / 3 4). Клетки — через запятую
 Name1=Окно
+Piece1=wall
 Key1=
 Tiles1=5
 Name2=Дверь
+Piece2=wall
 Key2=
 Tiles2=5,8
 Name3=Своя 1
+Piece3=floor
 Key3=
 Tiles3=
 Name4=Своя 2
+Piece4=stairs
 Key4=
 Tiles4=
 
@@ -1119,24 +1125,23 @@ Build(piece, *) {
 ; Слайд-спам: пока держишь клавишу — подкат, встал, снова подкат. Подкат в начале даёт рывок скорости.
 ; Подкат получается на бегу (спринт), поэтому держи спринт или включи в Fortnite «Спринт по умолчанию».
 ; ───── бинды редакта ─────
-; Сетка стены 3×3, клетки 1…9 построчно сверху. При входе в редакт прицел смотрит в центр (клетка 5),
-; макрос сдвигает мышь на TileStep пикселей между клетками и выделяет нужные.
-ParseTiles(s) {
+; Стена — сетка 3×3 (клетки 1…9 построчно сверху), пол, лестница и конус — 2×2 (1 2 / 3 4).
+; При входе в редакт прицел смотрит в центр постройки: у стены это клетка 5, у 2×2 — точка между клетками.
+; Макрос двигает мышь на шаг между клетками (у стены TileStep, у 2×2 TileStep2) и выделяет нужные.
+PieceCols(piece) => piece = "wall" || piece = "" ? 3 : 2
+ParseTiles(s, cols := 3) {
     out := [], seen := Map()
     for v in StrSplit(s, ",", " ")
-        if (v ~= "^[1-9]$" && !seen.Has(v))
+        if (v ~= "^[1-9]$" && Integer(v) <= cols * cols && !seen.Has(v))
             out.Push(Integer(v)), seen[v] := 1
     return out
 }
 ; Путь через все клетки по соседним (без диагоналей) — нужен, когда редакт подтверждается отпусканием:
 ; выбор держится зажатым, и всё, через что проходит прицел, выделяется. Начинаем как можно ближе к центру.
-TilePath(tiles) {
-    set := Map()
-    for t in tiles
-        set[t] := 1
-    near(a, b) => Abs(Mod(a - 1, 3) - Mod(b - 1, 3)) + Abs((a - 1) // 3 - (b - 1) // 3) = 1
-    dist(t) => Abs(Mod(t - 1, 3) - 1) + Abs((t - 1) // 3 - 1)
-    best := 0
+TilePath(tiles, cols := 3) {
+    near(a, b) => Abs(Mod(a - 1, cols) - Mod(b - 1, cols)) + Abs((a - 1) // cols - (b - 1) // cols) = 1
+    mid := (cols - 1) / 2
+    dist(t) => Abs(Mod(t - 1, cols) - mid) + Abs((t - 1) // cols - mid)
     dfs(path, used) {
         if (path.Length = tiles.Length)
             return path.Clone()
@@ -1164,24 +1169,29 @@ MouseRel(dx, dy) {
         DllCall("mouse_event", "uint", 1, "int", dx, "int", dy, "uint", 0, "uptr", 0)
 }
 EditPreset(n, *) {
-    tiles := ParseTiles(Get("EditBinds", "Tiles" n))
+    piece := Get("EditBinds", "Piece" n, "wall"), cols := PieceCols(piece)
+    tiles := ParseTiles(Get("EditBinds", "Tiles" n), cols)
     if !tiles.Length
         return
     release := Get("EditBinds", "ConfirmBy", "release") != "key" && !Bool("Competitive", "Enabled")
-    path := release ? TilePath(tiles) : tiles
+    path := release ? TilePath(tiles, cols) : tiles
     if !path {
         Notify(Tr("Эту форму нельзя выделить одним движением — включи «Подтверждение: клавишей»"), 2500)
         return
     }
-    step := Num("EditBinds", "TileStep", 60), pause := Num("EditBinds", "ClickDelay", 12)
-    cur := 5, sx := 0, sy := 0
+    step := cols = 3 ? Num("EditBinds", "TileStep", 60) : Num("EditBinds", "TileStep2", 90)
+    pause := Num("EditBinds", "ClickDelay", 12)
+    ; позиция прицела в клетках: центр стены — (1, 1), центр 2×2 — (0.5, 0.5)
+    cx := (cols - 1) / 2, cy := cx, sx := 0, sy := 0
     go(t) {
-        dx := (Mod(t - 1, 3) - Mod(cur - 1, 3)) * step, dy := ((t - 1) // 3 - (cur - 1) // 3) * step
+        tx := Mod(t - 1, cols), ty := (t - 1) // cols
+        dx := Round((tx - cx) * step), dy := Round((ty - cy) * step)
         MouseRel(dx, dy)
-        sx += dx, sy += dy, cur := t
+        sx += dx, sy += dy, cx := tx, cy := ty
         Wait(pause)
     }
     StopPlace()
+    ; редакт открывается на том, куда смотришь; тип постройки нужен только для сетки и шага
     Tap(B("Edit"))
     Wait(Num("EditBinds", "EnterDelay", 25))
     if release {
@@ -1783,9 +1793,11 @@ CaptureKey() {
     busy := true
     wasSusp := A_IsSuspended
     Suspend(1)
-    res := {k: ""}
+    res := {k: "", vk: 0, sc: 0}
     ih := InputHook("L0 T8")
-    ih.KeyOpt("{All}", "E")
+    ; код клавиши берём в момент нажатия: свойств EndVK/EndSC в части версий AutoHotkey нет
+    ih.KeyOpt("{All}", "N")
+    ih.OnKeyDown := (h, vk, sc) => (res.vk := vk, res.sc := sc, h.Stop())
     btns := ["LButton", "RButton", "MButton", "XButton1", "XButton2", "WheelUp", "WheelDown"]
     Sleep 150
     HotIf()
@@ -1797,7 +1809,7 @@ CaptureKey() {
         try Hotkey("*" b, "Off")
     Suspend(wasSusp ? 1 : 0)
     busy := false
-    k := res.k != "" ? res.k : (ih.EndReason = "EndKey" ? KeyFromVK(ih.EndVK, ih.EndSC, ih.EndKey) : "")
+    k := res.k != "" ? res.k : (res.vk ? KeyFromVK(res.vk, res.sc, GetKeyName(Format("vk{:X}sc{:X}", res.vk, res.sc))) : "")
     if (k = "" || k = "Escape")
         return {ok: false}
     if (k = "Backspace")
@@ -2875,8 +2887,8 @@ InitForms() {
         , Fld("key", "WallTrigger", "Стена"), Fld("key", "FloorTrigger", "Пол"), Fld("key", "StairsTrigger", "Лестница")
         , Fld("key", "ConeTrigger", "Конус"), Fld("num", "PlaceDelay", "Задержка установки")
         , Fld("toggle", "Continuous", "Непрерывная стройка"), Fld("text", "StopKeys", "Клавиши, отпускающие ЛКМ", {w: 200})]}
-    FORMS["EditBinds"] := {desc: "Жмёшь свою клавишу — стена сама редактируется в заданную форму: окно, дверь или своя. Обычный редакт работает как раньше. Смотри в центр стены.", fields: [en
-        , Fld("num", "TileStep", "Шаг между клетками", {u: "px"}), ed, Fld("num", "ClickDelay", "Пауза между клетками"), cb, cd
+    FORMS["EditBinds"] := {desc: "Жмёшь свою клавишу — стена, пол, лестница или конус сами редактируются в заданную форму. Обычный редакт работает как раньше. Смотри в центр постройки.", fields: [en
+        , Fld("num", "TileStep", "Шаг клетки: стена", {u: "px"}), Fld("num", "TileStep2", "Шаг клетки: пол, лестница, конус", {u: "px"}), ed, Fld("num", "ClickDelay", "Пауза между клетками"), cb, cd
         , Fld("toggle", "ReturnAim", "Возвращать прицел")]}
     FORMS["Slide"] := {desc: "Пока держишь клавишу на бегу — персонаж раз за разом делает подкат и встаёт. Каждый подкат даёт рывок скорости, поэтому бежишь быстрее.", fields: [en, tr
         , Fld("choice", "CrouchMode", "Присед в Fortnite", {o: ["toggle", "hold"], l: ["Переключение", "Удержание"], bw: 120})
@@ -2911,6 +2923,7 @@ InitHints() {
         , "AfterCone", "Нажимать спринт после конуса из Instant build."
         , "AfterEdit", "Нажимать спринт после Drag edit, Instant edit и Infinite edit."
         , "TileStep", "На сколько пикселей сдвигать мышь между клетками сетки редакта. Зависит от чувствительности в редакте и расстояния до стены: если выделяется не та клетка — меняй по 5–10."
+        , "TileStep2", "То же для пола, лестницы и конуса: у них сетка 2×2 и клетки крупнее. Подбирай так же, если выделяется не та клетка."
         , "ClickDelay", "Пауза после каждого сдвига, чтобы игра успела заметить клетку. При низком FPS увеличь до 20–30."
         , "ReturnAim", "После редакта вернуть прицел в исходную точку — смотришь туда же, куда смотрел."
         , "CrouchMode", "Как настроен присед в Fortnite. «Переключение» — нажал и сидишь, нажал ещё раз — встал. «Удержание» — сидишь, пока держишь клавишу."
