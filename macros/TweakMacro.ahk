@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.6"
+APP_VERSION := "4.7"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -257,6 +257,14 @@ Piece4=stairs
 Key4=
 Tiles4=
 
+[EditAssist]
+; Помощь в редакте: пока зажат выбор в редакте, мышь движется медленнее — меньше шанс зацепить лишнюю клетку
+Enabled=0
+; Сколько процентов движения мыши остаётся во время выделения
+Slow=50
+; 1 = в Fortnite включено «Подтверждать редактирование при отпускании»
+ConfirmOnRelease=1
+
 [Slide]
 Enabled=0
 Trigger=CapsLock
@@ -360,6 +368,7 @@ BUILTIN := [
     {sec: "Macro:Mantle", name: "Mantle"},
     {sec: "Slide", name: "Slide spam"},
     {sec: "EditBinds", name: "Edit binds", badge: "EDIT"},
+    {sec: "EditAssist", name: "Edit assist", badge: "ASSIST"},
     {sec: "Macro:CrouchPeek", name: "Crouch peek"},
     {sec: "Pickup", name: "Pick-up"},
     {sec: "RapidFire", name: "Rapid fire"},
@@ -866,6 +875,8 @@ ApplyEngine() {
     ; Без активной подписки работают только меню, клавиши меню и оптимизация
     if !Lic.ok {
         SetTimer(AntiAFKTick, 0)
+        SetTimer(EditAssistTick, 0)
+        SlowHook(false)
         return
     }
 
@@ -906,6 +917,9 @@ ApplyEngine() {
         Reg(ctx, t, Counted.Bind("RapidFire", RapidFire.Bind(t)), "Rapid fire")
     }
     SetTimer(AntiAFKTick, Bool("AntiAFK", "Enabled") ? 5000 : 0)
+    SetTimer(EditAssistTick, Bool("EditAssist", "Enabled") ? 10 : 0)
+    if !Bool("EditAssist", "Enabled")
+        SlowHook(false)
 
     ; Переназначение клавиш: секции [Remap:N]
     for sec in C {
@@ -1212,6 +1226,71 @@ EditPreset(n, *) {
         MouseRel(-sx, -sy)
     Confirm("EditBinds")
     AutoSprint("Edit")
+}
+
+; ───── помощь в редакте ─────
+; Игра не сообщает, открыт ли редакт, поэтому следим за своими же клавишами: нажал «Редактировать» — редакт открыт,
+; нажал ещё раз, оружие, стройку или Esc — закрыт. Пока редакт открыт и выбор зажат, часть движений мыши
+; отбрасывается (низкоуровневый хук ставится только на время выделения, максимум на 3 с).
+EditAssistTick() {
+    static open := false, last := 0, prev := Map()
+    if !GameActive() {
+        open := false
+        SlowHook(false)
+        return
+    }
+    edge(k) {
+        if (k = "")
+            return false
+        d := GetKeyState(k, "P"), was := prev.Get(k, false), prev[k] := d
+        return d && !was
+    }
+    if edge(B("Edit"))
+        open := !open, last := A_TickCount
+    for k in ["Pickaxe", "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Wall", "Floor", "Stairs", "Cone"]
+        if edge(B(k))
+            open := false
+    if edge("Escape")
+        open := false
+    sel := GetKeyState(B("Select"), "P")
+    if (open && sel && !SlowHook()) {
+        SlowHook(true), last := A_TickCount
+    } else if SlowHook() && (!sel || A_TickCount - last > 3000) {
+        SlowHook(false)
+        if (!sel && Bool("EditAssist", "ConfirmOnRelease", true))
+            open := false
+    }
+    ; нажал «Редактировать», но так и не выделял — скорее всего, редакт не открылся
+    if (open && !sel && A_TickCount - last > 2000)
+        open := false
+}
+; SlowHook() — стоит ли хук, SlowHook(true/false) — поставить/снять
+SlowHook(on := "") {
+    static hook := 0, cb := 0
+    global SlowAcc := SlowAcc ?? 0, SlowKeep := Max(10, Min(100, Num("EditAssist", "Slow", 50))) / 100
+    if (on = "")
+        return hook != 0
+    if (on && !hook) {
+        cb := cb || CallbackCreate(SlowProc, "F", 3)
+        SlowAcc := 0
+        hook := DllCall("SetWindowsHookEx", "int", 14, "ptr", cb, "ptr", DllCall("GetModuleHandle", "ptr", 0, "ptr"), "uint", 0, "ptr")
+    } else if (!on && hook) {
+        DllCall("UnhookWindowsHookEx", "ptr", hook)
+        hook := 0
+    }
+    return hook != 0
+}
+SlowProc(nCode, wParam, lParam) {
+    global SlowAcc
+    ; WM_MOUSEMOVE от настоящей мыши (не от программ): отбрасываем долю 1 - Slow%
+    if (nCode >= 0 && wParam = 0x200 && !(NumGet(lParam, 12, "uint") & 1)) {
+        SlowAcc += 1 - SlowKeep
+        if (SlowAcc >= 1) {
+            SlowAcc -= 1
+            return 1
+        }
+    }
+    return DllCall("CallNextHookEx", "ptr", 0, "int", nCode, "uptr", wParam, "ptr", lParam, "ptr")
 }
 
 SlideSpam(trig, *) {
@@ -2890,6 +2969,8 @@ InitForms() {
     FORMS["EditBinds"] := {desc: "Жмёшь свою клавишу — стена, пол, лестница или конус сами редактируются в заданную форму. Обычный редакт работает как раньше. Смотри в центр постройки.", fields: [en
         , Fld("num", "TileStep", "Шаг клетки: стена", {u: "px"}), Fld("num", "TileStep2", "Шаг клетки: пол, лестница, конус", {u: "px"}), ed, Fld("num", "ClickDelay", "Пауза между клетками"), cb, cd
         , Fld("toggle", "ReturnAim", "Возвращать прицел")]}
+    FORMS["EditAssist"] := {desc: "Помогает не зацепить лишнюю клетку: пока в редакте зажат выбор, мышь движется медленнее. Работает с обычным редактом, ничего не нажимает за тебя.", fields: [en
+        , Fld("num", "Slow", "Скорость мыши при выделении", {u: "%"}), Fld("toggle", "ConfirmOnRelease", "В Fortnite «Подтверждать при отпускании»")]}
     FORMS["Slide"] := {desc: "Пока держишь клавишу на бегу — персонаж раз за разом делает подкат и встаёт. Каждый подкат даёт рывок скорости, поэтому бежишь быстрее.", fields: [en, tr
         , Fld("choice", "CrouchMode", "Присед в Fortnite", {o: ["toggle", "hold"], l: ["Переключение", "Удержание"], bw: 120})
         , Fld("num", "SlideMs", "Длина подката"), Fld("num", "Gap", "Пауза между подкатами"), Fld("toggle", "JumpCancel", "Выходить из подката прыжком")]}
@@ -2923,6 +3004,8 @@ InitHints() {
         , "AfterCone", "Нажимать спринт после конуса из Instant build."
         , "AfterEdit", "Нажимать спринт после Drag edit, Instant edit и Infinite edit."
         , "TileStep", "На сколько пикселей сдвигать мышь между клетками сетки редакта. Зависит от чувствительности в редакте и расстояния до стены: если выделяется не та клетка — меняй по 5–10."
+        , "Slow", "Сколько движения мыши остаётся, пока выделяешь клетки: 50% — вдвое медленнее. Меньше — точнее, но дольше тянуть."
+        , "ConfirmOnRelease", "Включи, если в Fortnite стоит «Подтверждать редактирование при отпускании»: тогда отпускание выбора закрывает редакт."
         , "TileStep2", "То же для пола, лестницы и конуса: у них сетка 2×2 и клетки крупнее. Подбирай так же, если выделяется не та клетка."
         , "ClickDelay", "Пауза после каждого сдвига, чтобы игра успела заметить клетку. При низком FPS увеличь до 20–30."
         , "ReturnAim", "После редакта вернуть прицел в исходную точку — смотришь туда же, куда смотрел."

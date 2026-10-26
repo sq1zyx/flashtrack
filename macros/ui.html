@@ -420,13 +420,23 @@ svg{overflow:hidden}
 .eb .ef{flex:1;min-width:0;margin-right:12px}
 .eb .ef .in{width:100%;margin-bottom:8px}
 /* сетка как в редакте Fortnite: синие полупрозрачные клетки, выбранные — яркие */
-.eg{position:relative;display:flex;flex-wrap:wrap;width:120px;padding:4px;flex:none;border-radius:6px;background:linear-gradient(180deg,#0E2340 0%,#0A1A30 100%);border:1px solid #2B4F80;box-shadow:0 0 18px rgba(60,130,255,.18)}
-.eg b{position:relative;width:36px;height:36px;margin:2px;box-sizing:border-box;background:rgba(110,165,255,.14);border:1px solid rgba(160,200,255,.45);cursor:pointer;transition:background .12s,box-shadow .12s,border-color .12s}
-.eg b:hover{background:rgba(110,165,255,.3)}
-.eg b.on{background:rgba(70,150,255,.85);border-color:#CFE3FF;box-shadow:0 0 12px rgba(80,160,255,.8),inset 0 0 0 1px rgba(255,255,255,.35)}
-.eg.g2 b{width:54px;height:54px}
-.eg.g2:after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:2px;background:#fff;box-shadow:0 0 4px #fff}
-.eg b.c:after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:2px;background:#fff;box-shadow:0 0 4px #fff}
+.egw{position:relative;width:132px;height:132px;flex:none;display:flex;align-items:center;justify-content:center}
+.eg{position:relative;display:flex;flex-wrap:wrap;width:123px;padding:3px;box-sizing:border-box;background:rgba(70,150,255,.1);border:1.5px solid rgba(190,225,255,.85);box-shadow:0 0 16px rgba(80,170,255,.45),inset 0 0 14px rgba(80,170,255,.25)}
+.eg b{width:38px;height:38px;box-sizing:border-box;background:rgba(140,205,255,.22);border:1px solid rgba(210,235,255,.7);cursor:pointer;transition:background .12s,box-shadow .12s,border-color .12s}
+.eg b:hover{background:rgba(185,228,255,.42);border-color:#fff}
+.eg b.on{background:rgba(40,125,255,.72);border-color:#E6F3FF;box-shadow:inset 0 0 10px rgba(255,255,255,.45),0 0 10px rgba(60,150,255,.9)}
+.eg.g2 b{width:57px;height:57px}
+/* наклон как в игре: пол и конус видишь сверху, лестницу — под углом */
+.eg.floor{transform:perspective(380px) rotateX(50deg)}
+.eg.stairs{transform:perspective(380px) rotateX(34deg)}
+.eg.stairs b{background-image:repeating-linear-gradient(180deg,rgba(255,255,255,0) 0,rgba(255,255,255,0) 7px,rgba(220,240,255,.35) 7px,rgba(220,240,255,.35) 8px)}
+.eg.cone{transform:perspective(380px) rotateX(46deg)}
+.eg.cone:before{content:"";position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none;background:linear-gradient(45deg,rgba(0,0,0,0) 49.3%,rgba(220,240,255,.65) 49.7%,rgba(220,240,255,.65) 50.3%,rgba(0,0,0,0) 50.7%),linear-gradient(-45deg,rgba(0,0,0,0) 49.3%,rgba(220,240,255,.65) 49.7%,rgba(220,240,255,.65) 50.3%,rgba(0,0,0,0) 50.7%)}
+/* прицел по центру экрана, как в игре */
+.exh{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;pointer-events:none}
+.exh:before,.exh:after{content:"";position:absolute;background:#fff;box-shadow:0 0 3px rgba(0,0,0,.8)}
+.exh:before{left:6px;top:0;width:2px;height:14px}
+.exh:after{left:0;top:6px;width:14px;height:2px}
 /* что получится: стена, выделенные клетки — вырезаны */
 .ep{display:flex;flex-wrap:wrap;width:54px;margin-left:12px;flex:none;border-radius:4px;overflow:hidden;background:linear-gradient(180deg,#5B86B3 0%,#8FB3D6 100%)}
 .ep i{width:18px;height:18px;box-sizing:border-box;background:#A6774A;border:1px solid #7E5733}
@@ -733,7 +743,7 @@ var ICON = {
 function ico(n, cls) {
   return '<svg class="' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICON[n] || '') + '</svg>';
 }
-var CARDICON = { EditBinds: 'edit', Slide: 'sprint', DragEdit: 'edit', InfiniteEdit: 'edit', InstantEdit: 'edit', Prefire: 'rapid', InstantBuild: 'build', Pickup: 'pickup', AutoSprint: 'sprint', Competitive: 'eye', RapidFire: 'rapid', AntiAFK: 'afk' };
+var CARDICON = { EditAssist: 'target', EditBinds: 'edit', Slide: 'sprint', DragEdit: 'edit', InfiniteEdit: 'edit', InstantEdit: 'edit', Prefire: 'rapid', InstantBuild: 'build', Pickup: 'pickup', AutoSprint: 'sprint', Competitive: 'eye', RapidFire: 'rapid', AntiAFK: 'afk' };
 
 // ───────────── подписи клавиш ─────────────
 var KEYLBL = { lbutton: 'LMB', rbutton: 'RMB', mbutton: 'MMB', xbutton1: 'MB4', xbutton2: 'MB5', wheelup: 'WhUp', wheeldown: 'WhDn',
@@ -1488,7 +1498,7 @@ function editBindsHtml() {
     h += '<div class="eb"><div class="ebp" id="ebp' + n + '">';
     for (var p = 0; p < PIECES.length; p++) h += '<b data-act="piece" data-n="' + n + '" data-v="' + PIECES[p][0] + '">' + t(PIECES[p][1]) + '</b>';
     h += '</div><div class="ebr"><div class="ef">' + field('EditBinds', { t: 'text', k: 'Name' + n, w: 130 }) + field('EditBinds', { t: 'key', k: 'Key' + n }) + '</div>' +
-      '<div class="eg" id="eg' + n + '"></div><div class="ep" id="ep' + n + '" data-tip="Так будет выглядеть постройка после редакта."></div></div></div>';
+      '<div class="egw"><div class="eg" id="eg' + n + '"></div><i class="exh"></i></div><div class="ep" id="ep' + n + '" data-tip="Так будет выглядеть постройка после редакта."></div></div></div>';
   }
   return h + '</div><p class="gnote">Выделяй клетки как в игре: зажми мышь и проведи. Справа — что получится. Смотри в центр постройки и жми бинд. Если выделяется соседняя клетка — подбери «Шаг клетки». Для подтверждения отпусканием клетки формы должны идти подряд (без диагоналей).</p>';
 }
@@ -1496,11 +1506,11 @@ function editBindsHtml() {
 function renderGrid(n, piece) {
   var cols = piece === 'wall' ? 3 : 2, g = $('eg' + n), e = $('ep' + n), h = '', ph = '';
   for (var c = 1; c <= cols * cols; c++) {
-    h += '<b data-tile="' + n + ',' + c + '"' + (cols === 3 && c === 5 ? ' class="c" data-tip="Центр — сюда смотрит прицел при входе в редакт."' : '') + '></b>';
+    h += '<b data-tile="' + n + ',' + c + '"></b>';
     ph += '<i></i>';
   }
   g.innerHTML = h; e.innerHTML = ph;
-  g.className = 'eg' + (cols === 2 ? ' g2' : ''); e.className = 'ep ' + piece + (cols === 2 ? ' g2' : '');
+  g.className = 'eg ' + piece + (cols === 2 ? ' g2' : ''); e.className = 'ep ' + piece + (cols === 2 ? ' g2' : '');
   g.setAttribute('data-piece', piece);
 }
 function syncEditBinds() {
