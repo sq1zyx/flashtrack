@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.1"
+APP_VERSION := "4.2"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -529,6 +529,11 @@ SetVal(sec, key, v) {
 
 ; Старые конфиги: Prefire был набором нажатий, Simple edit повторял Instant edit
 MigrateCfg(cfg) {
+    ; клавиши, записанные русскими буквами (назначали с русской раскладкой), — в латинские по положению
+    for sec, kv in cfg
+        for key, val in kv.Clone()
+            if (StrLen(val) = 1 && val ~= "i)[а-яё]" && (sec = "Game" || key ~= "i)(Trigger|Key|From|To)$"))
+                kv[key] := LatinKey(val)
     ; старая задержка входа драг-эдита (10 мс) слишком короткая: выбор успевал нажаться до редакта и стрелял
     if cfg.Has("DragEdit") && cfg["DragEdit"].Has("EnterDelay") && Integer("0" cfg["DragEdit"]["EnterDelay"]) < 20
         cfg["DragEdit"]["EnterDelay"] := "25"
@@ -1675,12 +1680,33 @@ CaptureKey() {
         try Hotkey("*" b, "Off")
     Suspend(wasSusp ? 1 : 0)
     busy := false
-    k := res.k != "" ? res.k : (ih.EndReason = "EndKey" ? ih.EndKey : "")
+    k := res.k != "" ? res.k : (ih.EndReason = "EndKey" ? KeyFromVK(ih.EndVK, ih.EndSC, ih.EndKey) : "")
     if (k = "" || k = "Escape")
         return {ok: false}
     if (k = "Backspace")
         k := ""
     return {ok: true, key: k}
+}
+
+; Имя клавиши по физической кнопке, а не по раскладке: с русской раскладкой EndKey даёт «а» вместо F,
+; а такое имя AHK не понимает (KeyWait и горячие клавиши ломаются)
+KeyFromVK(vk, sc, fallback := "") {
+    static oem := Map(0xBA, ";", 0xBB, "=", 0xBC, ",", 0xBD, "-", 0xBE, ".", 0xBF, "/", 0xC0, "``", 0xDB, "[", 0xDC, "\", 0xDD, "]", 0xDE, "'")
+    if (vk >= 0x41 && vk <= 0x5A) || (vk >= 0x30 && vk <= 0x39)
+        return StrLower(Chr(vk))
+    if oem.Has(vk)
+        return oem[vk]
+    n := vk ? GetKeyName(Format("vk{:02X}sc{:03X}", vk, sc)) : ""
+    if (n != "" && !(n ~= "[^\x00-\x7F]"))
+        return n
+    return LatinKey(fallback)
+}
+; Русская буква → клавиша на том же месте в английской раскладке (ЙЦУКЕН → QWERTY)
+LatinKey(k) {
+    static ru := "йцукенгшщзхъфывапролджэячсмитьбюё", en := "qwertyuiop[]asdfghjkl;'zxcvbnm,.``"
+    if (StrLen(k) = 1 && (i := InStr(ru, StrLower(k))))
+        return SubStr(en, i, 1)
+    return k
 }
 
 MouseCap(res, ih, b, *) {
