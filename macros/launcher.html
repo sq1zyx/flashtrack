@@ -36,7 +36,7 @@ input::-ms-clear{display:none}
 /* системная полоса прокрутки уезжает за правый край окна, вместо неё — своя */
 #body{position:absolute;left:0;right:-20px;top:196px;bottom:44px;padding:0 25px 0 22px;overflow-x:hidden;overflow-y:scroll}
 .sbar{position:fixed;width:12px;z-index:60;display:none}
-.sbar i{position:absolute;right:3px;width:5px;border-radius:5px;background:#33333D;transition:width .12s,background .12s,right .12s}
+.sbar i{position:absolute;right:3px;width:5px;border-radius:5px;background:#33333D;transition:width 0.2s cubic-bezier(.22,1,.36,1),background 0.2s cubic-bezier(.22,1,.36,1),right 0.2s cubic-bezier(.22,1,.36,1)}
 .sbar:hover i{width:7px;right:2px;background:#5E5E6A}
 .sbar.drag i{width:7px;right:2px;background:#E5242F}
 .card{background:#141419;border:1px solid #23232B;border-radius:16px;padding:6px 16px;margin-bottom:12px}
@@ -54,7 +54,7 @@ input::-ms-clear{display:none}
 .spin.big{width:26px;height:26px;border-width:3px;margin:0 0 10px}
 @keyframes sp{to{transform:rotate(360deg)}}
 
-.btn{display:flex;align-items:center;justify-content:center;height:40px;border-radius:12px;background:#1C1C22;border:1px solid #2A2A33;color:#ECECF1;font-weight:600;cursor:pointer;padding:0 14px;box-sizing:border-box;transition:background .15s}
+.btn{display:flex;align-items:center;justify-content:center;height:40px;border-radius:12px;background:#1C1C22;border:1px solid #2A2A33;color:#ECECF1;font-weight:600;cursor:pointer;padding:0 14px;box-sizing:border-box;transition:background 0.24s cubic-bezier(.22,1,.36,1)}
 .btn:hover{background:#24242B}
 .btn.pri{background:linear-gradient(135deg,#F0333D 0%,#B5121E 100%);border:0;color:#fff;box-shadow:0 8px 24px rgba(229,36,47,.35)}
 .btn.pri:hover{background:linear-gradient(135deg,#FF4550 0%,#C8192A 100%)}
@@ -74,8 +74,8 @@ h3{margin:4px 0 10px;font-size:14px}
 .lnk:hover{text-decoration:underline}
 .center{text-align:center}
 .chk{display:flex;align-items:center;margin-top:12px;color:#A3A3AF;cursor:pointer}
-.chk i{width:34px;height:20px;border-radius:10px;background:#2A2A33;position:relative;margin-right:10px;transition:background .15s}
-.chk i:after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:7px;background:#fff;transition:left .15s}
+.chk i{width:34px;height:20px;border-radius:10px;background:#2A2A33;position:relative;margin-right:10px;transition:background 0.24s cubic-bezier(.22,1,.36,1)}
+.chk i:after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:7px;background:#fff;transition:left 0.24s cubic-bezier(.22,1,.36,1)}
 .chk.on i{background:#E5242F}
 .chk.on i:after{left:17px}
 

@@ -84,6 +84,15 @@ Indicator=1
 WatermarkPos=tl
 ; 1 = показывать только поверх Fortnite
 WatermarkOnlyGame=1
+; Размер: s, m, l
+WatermarkSize=s
+; Непрозрачность в процентах
+WatermarkOpacity=90
+; Что показывать: значок TM, статус, профиль, время
+WatermarkLogo=1
+WatermarkStatus=1
+WatermarkProfile=1
+WatermarkClock=1
 ; 1 = при первом запуске меню показывает быструю настройку
 FirstRun=1
 Profile=Основной
@@ -347,7 +356,7 @@ BASES := Map("dark", ["0E0E11", "121216", "17171C", "1C1C22", "26262D", "2A2A31"
     , "midnight", ["0B0F1A", "0F1424", "141A2E", "182036", "222B45", "263052"]
     , "amoled", ["000000", "08080A", "0E0E11", "131316", "1E1E23", "25252B"])
 CLR := MakePalette()
-W := 1120, H := 740
+W := 1040, H := 680
 UI := 0, WB := 0, Wnd := 0, DPI := 1, UIShown := false
 XG := 0, XR := []
 XVisible := Bool("Crosshair", "ShowOnStart", true)
@@ -2262,45 +2271,70 @@ UpdateIndicator(*) {
         return
     }
     status := A_IsSuspended ? "PAUSE" : "ON", prof := Get("General", "Profile", PROF_DEFAULT), pos := Get("General", "WatermarkPos", "tl")
-    k := status "|" prof "|" FormatTime(, "HH:mm") "|" pos "|" CLR.accent
+    size := Get("General", "WatermarkSize", "s"), alpha := Max(30, Min(100, Integer(Get("General", "WatermarkOpacity", 90))))
+    show := Map()
+    for part in ["Logo", "Status", "Profile", "Clock"]
+        show[part] := Bool("General", "Watermark" part, true)
+    k := status "|" prof "|" FormatTime(, "HH:mm") "|" pos "|" CLR.accent "|" size "|" alpha
+    for part, v in show
+        k .= v
     if (k = key)
         return
     key := k
     if g
         g.Destroy()
-    d := A_ScreenDPI / 96, rh := Round(22 * d)
+    ; fs — размер шрифта, z — множитель для отступов и высоты
+    fs := size = "l" ? 11 : size = "m" ? 9 : 8, z := (size = "l" ? 1.25 : size = "m" ? 1 : 0.86) * A_ScreenDPI / 96
+    rh := Round(20 * z), gap := Round(8 * z)
     g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
     g.BackColor := "101016"
-    g.MarginX := Round(14 * d), g.MarginY := Round(7 * d)
+    g.MarginX := Round(11 * z), g.MarginY := Round(5 * z)
     row := " ym h" rh " 0x200"            ; все надписи одной высоты и по центру строки
-    sep() {
-        g.SetFont("s8 w400 c4A4A57", "Segoe UI")
-        g.AddText("x+" Round(9 * d) row, "•")
+    first := true
+    place(extra := "") {                  ; первая надпись встаёт к краю, остальные — через точку-разделитель
+        if first {
+            first := false
+            return "xm" extra
+        }
+        g.SetFont("s" (fs - 1) " w400 c4A4A57", "Segoe UI")
+        g.AddText("x+" gap row, "•")
+        return "x+" gap extra
     }
-    ; значок-логотип: белые буквы TM на плашке акцентного цвета
-    g.SetFont("s8 w900 cFFFFFF", "Segoe UI")
-    g.AddText("x" Round(12 * d) " ym+" Round(2 * d) " w" Round(26 * d) " h" (rh - Round(4 * d)) " 0x201 Background" CLR.accent, "TM")
-    g.SetFont("s9 w800 cFFFFFF", "Segoe UI")
-    g.AddText("x+" Round(8 * d) row, "TWEAK")
-    g.SetFont("s9 w800 c" CLR.accent)
+    if show["Logo"] {
+        g.SetFont("s" (fs - 1) " w900 cFFFFFF", "Segoe UI")
+        g.AddText("xm ym+" Round(2 * z) " w" Round(24 * z) " h" (rh - Round(4 * z)) " 0x201 Background" CLR.accent, "TM")
+        g.SetFont("s" fs " w800 cFFFFFF", "Segoe UI")
+        g.AddText("x+" Round(7 * z) row, "TWEAK")
+        first := false
+    } else {
+        g.SetFont("s" fs " w800 cFFFFFF", "Segoe UI")
+        g.AddText(place(row), "TWEAK")
+    }
+    g.SetFont("s" fs " w800 c" CLR.accent)
     g.AddText("x+0" row, "MACRO")
-    sep()
-    ; статус — цветная плашка: зелёная, когда макросы работают, серая на паузе
-    g.SetFont("s8 w700 c" (A_IsSuspended ? "9A9AA6" : "4ADE80"), "Segoe UI")
-    g.AddText("x+" Round(9 * d) " ym+" Round(3 * d) " h" (rh - Round(6 * d)) " 0x201 Background" (A_IsSuspended ? "22222B" : "13281C"), "   ● " status "   ")
-    sep()
-    g.SetFont("s9 w600 cD4D4DC", "Segoe UI")
-    g.AddText("x+" Round(9 * d) row, prof)
-    sep()
-    g.SetFont("s9 w500 c8C8C99", "Segoe UI")
-    g.AddText("x+" Round(9 * d) row, FormatTime(, "HH:mm"))
+    if show["Status"] {
+        ; статус — цветная плашка: зелёная, когда макросы работают, серая на паузе
+        opt := place(" ym+" Round(3 * z) " h" (rh - Round(6 * z)) " 0x201 Background" (A_IsSuspended ? "22222B" : "13281C"))
+        g.SetFont("s" (fs - 1) " w700 c" (A_IsSuspended ? "9A9AA6" : "4ADE80"), "Segoe UI")
+        g.AddText(opt, "  ● " status "  ")
+    }
+    if show["Profile"] {
+        opt := place(row)
+        g.SetFont("s" fs " w600 cD4D4DC", "Segoe UI")
+        g.AddText(opt, prof)
+    }
+    if show["Clock"] {
+        opt := place(row)
+        g.SetFont("s" fs " w500 c8C8C99", "Segoe UI")
+        g.AddText(opt, FormatTime(, "HH:mm"))
+    }
     g.Show("Hide AutoSize")
     g.GetPos(, , &w, &h)
-    m := Round(14 * d)
+    m := Round(12 * z)
     x := InStr(pos, "r") ? A_ScreenWidth - w - m : m
-    y := InStr(pos, "b") ? A_ScreenHeight - h - m - Round(40 * d) : m
-    RoundWin(g, w, h, Round(10 * d))
-    WinSetTransparent(242, g)
+    y := InStr(pos, "b") ? A_ScreenHeight - h - m - Round(40 * z) : m
+    RoundWin(g, w, h, Round(9 * z))
+    WinSetTransparent(Round(alpha * 2.55), g)
     g.Show(Format("x{} y{} NA", x, y))
 }
 
@@ -2483,6 +2517,12 @@ InitHints() {
         , "Indicator", "Плашка в углу экрана: TWEAKMACRO, статус макросов (ON — работают, PAUSE — на паузе), активный профиль и время. Клики проходят сквозь неё."
         , "WatermarkPos", "В каком углу экрана показывать водяной знак."
         , "WatermarkOnlyGame", "Показывать водяной знак только поверх Fortnite, а на рабочем столе прятать."
+        , "WatermarkSize", "Маленький почти не заметен, большой лучше читается на 4K."
+        , "WatermarkOpacity", "Насколько водяной знак просвечивает. Меньше — меньше отвлекает."
+        , "WatermarkLogo", "Красный значок TM перед названием."
+        , "WatermarkStatus", "Плашка ● ON / ● PAUSE — видно, работают ли макросы."
+        , "WatermarkProfile", "Название активного профиля."
+        , "WatermarkClock", "Текущее время."
         , "Radius", "Радиус кольца для стилей с кругом."
         , "Opacity", "Непрозрачность прицела: 100 — полностью видимый."
         , "Outline", "Тёмная обводка вокруг прицела — его видно и на светлом фоне."
