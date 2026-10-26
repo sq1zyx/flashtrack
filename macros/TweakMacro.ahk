@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "3.6"
+APP_VERSION := "3.7"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -77,6 +77,8 @@ AskAdmin=1
 MenuKey=Insert
 ; 1 = клавиша меню работает только в Fortnite (и в самом меню, чтобы закрыть его)
 MenuOnlyInGame=1
+; 1 = меню открывается только поверх запущенного Fortnite и прячется, если свернуть игру
+MenuGameOnly=1
 MenuOnTop=1
 ; 1 = водяной знак в углу экрана: TWEAKMACRO, статус макросов, профиль и время
 Indicator=1
@@ -394,6 +396,7 @@ if Bool("Optimize", "MemClean")
     SetTimer(MemCleanTick, 5000)
 OnError(ReportError)
 SetTimer(SafetyTick, 100)
+SetTimer(MenuGuard, 500)
 SetTimer(UpdateIndicator, 1000)
 SetTimer(GameAccessTick, 2000)
 OnExit((*) => ReleaseAll())
@@ -795,7 +798,7 @@ ApplyEngine() {
     if FixSysKeys()
         Notify("Клавиша вкл/выкл стояла на кнопке мыши — вернул стандартную")
     Reg("", Get("General", "SuspendKey"), ToggleSuspend, "Macros toggle", "S")
-    Reg(Bool("General", "MenuOnlyInGame", true) ? "menu" : "", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
+    Reg(Bool("General", "MenuOnlyInGame", true) || MenuGameOnly() ? "menu" : "", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
     if Bool("Crosshair", "Enabled")
         Reg("", Get("Crosshair", "ToggleKey"), ToggleCrosshair, "Crosshair toggle")
 
@@ -2233,6 +2236,48 @@ ShowUI(*) {
     SetTimer(StatsTick, 500)
 }
 
+; ───── меню только в Fortnite ─────
+; Как оверлей: меню открывается клавишей поверх запущенной игры и прячется, когда переключаешься в другую программу.
+; В админской сборке меню доступно и на рабочем столе.
+MenuGameOnly() => Bool("General", "MenuGameOnly", true) && AdminCode() = ""
+FORTNITE_URI := "com.epicgames.launcher://apps/fn%3A4fe75bbc5a674f4f9b356b5c90567da5%3AFortnite?action=launch&silent=true"
+StartFortnite(*) {
+    if FortniteRunning()
+        return Notify(Format(Tr("Fortnite уже запущен. Меню — клавиша {}"), Get("General", "MenuKey")), 2500)
+    try Run(FORTNITE_URI)
+    catch {
+        Notify(Tr("Не нашёл Epic Games Launcher — запусти Fortnite вручную"), 3000)
+        return
+    }
+    Notify(Format(Tr("Запускаю Fortnite… Меню откроется в игре по клавише {}"), Get("General", "MenuKey")), 3500)
+}
+MenuHint() => Notify(Format(Tr("Меню открывается в Fortnite: запусти игру и нажми {}"), Get("General", "MenuKey")), 3000)
+; Пункт «Открыть меню» в трее
+OpenMenu(*) {
+    if MenuGameOnly() && !FortniteRunning()
+        return MenuHint()
+    ShowUI()
+    try WinActivate("ahk_id " UI.Hwnd)
+}
+MenuGuard() {
+    static seen := false
+    if !Launched || !MenuGameOnly()
+        return
+    run := FortniteRunning()
+    if (run && !seen)
+        Notify(Format(Tr("Fortnite запущен. Меню TweakMacro — клавиша {}"), Get("General", "MenuKey")), 3000)
+    seen := run
+    if !(UI && UIShown)
+        return
+    fg := WinExist("A")
+    mine := false
+    try mine := fg && WinGetPID("ahk_id " fg) = DllCall("GetCurrentProcessId")
+    if !run || (fg && !mine && !IsGameWin(fg)) {
+        UI.Hide()
+        HideUI(true)
+    }
+}
+
 ; Клавиша меню: открыть поверх игры / вернуться в игру
 ToggleMenu(*) {
     global PrevWin
@@ -2455,6 +2500,7 @@ InitHints() {
         , "SlideMs", "Сколько длится один подкат. 250–350 мс — самый быстрый рывок."
         , "Gap", "Пауза после того, как встал, перед следующим подкатом."
         , "JumpCancel", "Вставать из подката прыжком — так быстрее, но персонаж подпрыгивает."
+        , "MenuGameOnly", "Как оверлей: меню открывается только поверх запущенного Fortnite и прячется, если свернуть игру. Лаунчер сразу запускает игру."
         , "MenuOnlyInGame", "Клавиша меню открывает меню только поверх Fortnite. В других программах она работает как обычно. Меню всегда можно открыть из трея."
         , "ShotDelay", "Сколько ждать после подтверждения редакта перед выстрелом. Если выстрел не проходит — увеличь до 40–60 мс."
         , "Shots", "Сколько раз выстрелить после открытия редакта."
@@ -3155,7 +3201,8 @@ SetupTray() {
     t := A_TrayMenu
     t.Delete()
     if Launched {
-        t.Add(Tr("Открыть меню"), ShowUI)
+        t.Add(Tr("Открыть меню"), OpenMenu)
+        t.Add(Tr("Запустить Fortnite"), StartFortnite)
         t.Add(Tr("Макросы вкл/выкл"), ToggleSuspend)
         t.Add(Tr("Прицел вкл/выкл"), ToggleCrosshair)
     }
@@ -3517,7 +3564,7 @@ LClose() {
 
 LState() => Map("lang", Lang(), "version", APP_VERSION, "api", LicApi() != "" ? 1 : 0, "step", LStep
     , "upd", Map("state", Upd.state, "version", Upd.version, "progress", Upd.progress, "error", Upd.error, "changes", Upd.changes)
-    , "lic", LicState(), "pay", Pay, "launched", Launched ? 1 : 0, "auto", Bool("License", "AutoLaunch") ? 1 : 0
+    , "lic", LicState(), "pay", Pay, "launched", Launched ? 1 : 0, "gameOnly", MenuGameOnly() ? 1 : 0, "fnRunning", FortniteRunning() ? 1 : 0, "auto", Bool("License", "AutoLaunch") ? 1 : 0
     , "email", Get("License", "Email"), "prices", Prices, "payOn", PayOn, "promo", PromoS, "trial", TrialS, "trialDays", TrialDays
     , "refDays", RefDays, "news", NewsRaw, "ticket", TicketS, "tickets", TicketsRaw, "compiled", A_IsCompiled ? 1 : 0)
 
@@ -3544,6 +3591,10 @@ Launch(show := true, *) {
         UpdateCrosshair()
         SetupTray()
         Notify("TweakMacro запущен")
+    }
+    if (show && MenuGameOnly() && !FortniteRunning()) {
+        show := false
+        MenuHint()
     }
     if show
         ShowUI()
@@ -3861,6 +3912,11 @@ class LBridge {
         return 1
     }
     launch() {
+        ; в режиме «меню только в Fortnite» главная кнопка лаунчера сразу запускает игру
+        SetTimer(() => (Launch(true), MenuGameOnly() && !FortniteRunning() ? StartFortnite() : 0), -10)
+        return 1
+    }
+    launchOnly() {
         SetTimer(Launch.Bind(true), -10)
         return 1
     }
@@ -3939,6 +3995,12 @@ Tr(msg) {
             , "Графика Fortnite изменена — запускай игру", "Fortnite graphics changed, start the game"
             , "Резервной копии нет — графика не менялась", "No backup, graphics were not changed"
             , "Графика Fortnite возвращена как была", "Fortnite graphics restored"
+            , "Fortnite уже запущен. Меню — клавиша {}", "Fortnite is already running. Menu key: {}"
+            , "Не нашёл Epic Games Launcher — запусти Fortnite вручную", "Epic Games Launcher not found, start Fortnite manually"
+            , "Запускаю Fortnite… Меню откроется в игре по клавише {}", "Starting Fortnite… Open the menu in game with {}"
+            , "Меню открывается в Fortnite: запусти игру и нажми {}", "The menu opens in Fortnite: start the game and press {}"
+            , "Fortnite запущен. Меню TweakMacro — клавиша {}", "Fortnite is running. TweakMacro menu key: {}"
+            , "Запустить Fortnite", "Launch Fortnite"
             , "Задержки подстроены под {} FPS: шаг {} мс, удержание {} мс", "Delays tuned for {} FPS: step {} ms, hold {} ms"
             , "Настройки → Игровой оверлей → выключи «Включить внутриигровой оверлей».", "Settings → Game Overlay → turn off “Enable in-game overlay”."
             , "Alt+Z → Настройки → выключи внутриигровой оверлей, если не записываешь клипы.", "Alt+Z → Settings → turn off the in-game overlay if you don't record clips."

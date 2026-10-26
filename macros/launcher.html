@@ -151,6 +151,7 @@ function call(name, a, b, c) {
       case 'update': return ahk.update();
       case 'recheck': return ahk.recheck();
       case 'launch': return ahk.launch();
+      case 'launchOnly': return ahk.launchOnly();
       case 'setAuto': return ahk.setAuto(a);
       case 'setLang': return ahk.setLang(a);
       case 'removeKey': return ahk.removeKey();
@@ -174,7 +175,7 @@ var EN = {
   'Обновить': 'Update', 'Выключены': 'Off',
   'Активна': 'Active', 'до': 'until', 'Навсегда': 'Lifetime', 'Не активна': 'Not active', 'Не требуется': 'Not required',
   'Без интернета, по последней проверке': 'Offline, using last check',
-  'ЗАПУСТИТЬ': 'LAUNCH', 'ОТКРЫТЬ МЕНЮ': 'OPEN MENU', 'Запускать сразу, без лаунчера': 'Launch right away, skip the launcher',
+  'ЗАПУСТИТЬ': 'LAUNCH', 'ЗАПУСТИТЬ FORTNITE': 'LAUNCH FORTNITE', 'Меню откроется в игре по клавише меню.': 'The menu opens in game with the menu key.', 'Только TweakMacro': 'TweakMacro only', 'ОТКРЫТЬ МЕНЮ': 'OPEN MENU', 'Запускать сразу, без лаунчера': 'Launch right away, skip the launcher',
   'Сначала установи обновление или запусти текущую версию.': 'Install the update first or launch the current version.',
   'Запустить без обновления': 'Launch without updating',
   'Активация': 'Activation', 'Вставь ключ из письма или со страницы после оплаты.': 'Paste the key from the email or the page after payment.',
@@ -316,7 +317,11 @@ function mainPart() {
   if (v === 'ready') {
     if ((S.upd || {}).state === 'available')
       h += '<p class="msg center">' + t('Сначала установи обновление или запусти текущую версию.') + '</p>';
-    h += '<div class="btn pri huge" data-act="launch">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</div>';
+    if (S.gameOnly && !S.fnRunning) {
+      h += '<div class="btn pri huge" data-act="launch">' + t('ЗАПУСТИТЬ FORTNITE') + '</div>';
+      h += '<p class="msg center" style="margin:8px 0 0">' + t('Меню откроется в игре по клавише меню.') + ' <span class="lnk" data-act="launchOnly">' + t('Только TweakMacro') + '</span></p>';
+    } else
+      h += '<div class="btn pri huge" data-act="launch">' + t(S.launched ? 'ОТКРЫТЬ МЕНЮ' : 'ЗАПУСТИТЬ') + '</div>';
     h += '<div class="chk' + (S.auto ? ' on' : '') + '" data-act="auto"><i></i>' + t('Запускать сразу, без лаунчера') + '</div>';
     if (L.state === 'admin') {
       h += '<div class="acts"><span class="btn" data-act="openAdmin">' + t('Админ-панель') + '</span></div>';
@@ -441,6 +446,7 @@ function act(el) {
     case 'diag': call('diag'); break;
     case 'update': call('update'); break;
     case 'launch': call('launch'); break;
+    case 'launchOnly': call('launchOnly'); break;
     case 'recheck': call('recheck'); break;
     case 'auto': call('setAuto', S.auto ? 0 : 1); break;
     case 'view': setView(v); if (v === 'support') call('tickets'); break;
