@@ -2248,8 +2248,7 @@ StatsTick() {
     }
 }
 
-; Точка-индикатор в углу экрана: зелёная — макросы работают, серая — пауза
-; Водяной знак в углу экрана: TWEAKMACRO | ● ON | профиль | время. Сквозь него проходят клики.
+; Водяной знак в углу экрана: [TM] TWEAKMACRO • ● ON • профиль • время. Сквозь него проходят клики.
 ; Перестраивается только когда меняется текст (раз в минуту из-за часов), поэтому игре не мешает.
 UpdateIndicator(*) {
     static g := 0, key := ""
@@ -2269,33 +2268,39 @@ UpdateIndicator(*) {
     key := k
     if g
         g.Destroy()
-    d := A_ScreenDPI / 96
+    d := A_ScreenDPI / 96, rh := Round(22 * d)
     g := Gui("+AlwaysOnTop -Caption +ToolWindow +E0x20 -DPIScale")
-    g.BackColor := "0E0E12"
-    g.MarginX := Round(12 * d), g.MarginY := Round(6 * d)
-    g.SetFont("s9 w700 cFFFFFF", "Segoe UI")
-    g.AddText("", "TWEAK")
-    g.SetFont("s9 w700 c" CLR.accent)
-    g.AddText("x+0 yp", "MACRO")
-    g.SetFont("s9 w400 c3A3A46")
-    g.AddText("x+9 yp", "|")
-    g.SetFont("s9 w700 c" (A_IsSuspended ? "8C8C99" : "22C55E"))
-    g.AddText("x+9 yp", "● " status)
-    g.SetFont("s9 w400 c3A3A46")
-    g.AddText("x+9 yp", "|")
-    g.SetFont("s9 w600 cC9C9D3")
-    g.AddText("x+9 yp", prof)
-    g.SetFont("s9 w400 c3A3A46")
-    g.AddText("x+9 yp", "|")
-    g.SetFont("s9 w600 cC9C9D3")
-    g.AddText("x+9 yp", FormatTime(, "HH:mm"))
+    g.BackColor := "101016"
+    g.MarginX := Round(14 * d), g.MarginY := Round(7 * d)
+    row := " ym h" rh " 0x200"            ; все надписи одной высоты и по центру строки
+    sep() {
+        g.SetFont("s8 w400 c4A4A57", "Segoe UI")
+        g.AddText("x+" Round(9 * d) row, "•")
+    }
+    ; значок-логотип: белые буквы TM на плашке акцентного цвета
+    g.SetFont("s8 w900 cFFFFFF", "Segoe UI")
+    g.AddText("x" Round(12 * d) " ym+" Round(2 * d) " w" Round(26 * d) " h" (rh - Round(4 * d)) " 0x201 Background" CLR.accent, "TM")
+    g.SetFont("s9 w800 cFFFFFF", "Segoe UI")
+    g.AddText("x+" Round(8 * d) row, "TWEAK")
+    g.SetFont("s9 w800 c" CLR.accent)
+    g.AddText("x+0" row, "MACRO")
+    sep()
+    ; статус — цветная плашка: зелёная, когда макросы работают, серая на паузе
+    g.SetFont("s8 w700 c" (A_IsSuspended ? "9A9AA6" : "4ADE80"), "Segoe UI")
+    g.AddText("x+" Round(9 * d) " ym+" Round(3 * d) " h" (rh - Round(6 * d)) " 0x201 Background" (A_IsSuspended ? "22222B" : "13281C"), "   ● " status "   ")
+    sep()
+    g.SetFont("s9 w600 cD4D4DC", "Segoe UI")
+    g.AddText("x+" Round(9 * d) row, prof)
+    sep()
+    g.SetFont("s9 w500 c8C8C99", "Segoe UI")
+    g.AddText("x+" Round(9 * d) row, FormatTime(, "HH:mm"))
     g.Show("Hide AutoSize")
     g.GetPos(, , &w, &h)
-    m := Round(12 * d)
+    m := Round(14 * d)
     x := InStr(pos, "r") ? A_ScreenWidth - w - m : m
     y := InStr(pos, "b") ? A_ScreenHeight - h - m - Round(40 * d) : m
-    RoundWin(g, w, h, Round(12 * d))
-    WinSetTransparent(235, g)
+    RoundWin(g, w, h, Round(10 * d))
+    WinSetTransparent(242, g)
     g.Show(Format("x{} y{} NA", x, y))
 }
 
