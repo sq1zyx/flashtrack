@@ -29,11 +29,25 @@ try {
   if ((Test-Path (Join-Path $old 'config.ini')) -and -not (Test-Path (Join-Path $dir 'config.ini'))) { Copy-Item (Join-Path $old 'config.ini') $dir }
   Remove-Item (Join-Path $desk 'FlashMacro.lnk') -ErrorAction SilentlyContinue
   # Close a running copy so the .exe can be replaced; the script version is not needed any more
-  Get-Process TweakMacro -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ($dir + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue
+  # A copy started as administrator hides its path and can't be closed from here: then re-run the installer elevated
+  Get-Process TweakMacro -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 700
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if ((Get-Process TweakMacro -ErrorAction SilentlyContinue) -and -not $isAdmin) {
+    Write-Host 'TweakMacro is running as administrator. Asking for admin rights to close it...' -ForegroundColor Yellow
+    Start-Process cmd.exe -Verb RunAs -ArgumentList ('/c "' + $f + '"')
+    return
+  }
   # Old script versions run inside AutoHotkey and would fight the new exe for the same keys
   Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'TweakMacro|FlashMacro' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Milliseconds 500
   Remove-Item (Join-Path $dir 'TweakMacro.ahk') -ErrorAction SilentlyContinue
+  # If the .exe is still locked, move it aside: Windows allows renaming a running program
+  Get-ChildItem $dir -Filter 'TweakMacro.old*.exe' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  $cur = Join-Path $dir 'TweakMacro.exe'
+  if (Test-Path $cur) {
+    try { Remove-Item $cur -Force } catch { Rename-Item $cur ('TweakMacro.old' + [DateTime]::Now.Ticks + '.exe') }
+  }
 @@FILES@@
   $ws = New-Object -ComObject WScript.Shell
   $exe = Join-Path $dir 'TweakMacro.exe'
