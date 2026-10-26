@@ -75,6 +75,8 @@ Sound=1
 AskAdmin=1
 ; Клавиша, открывающая меню поверх игры
 MenuKey=Insert
+; 1 = клавиша меню работает только в Fortnite (и в самом меню, чтобы закрыть его)
+MenuOnlyInGame=1
 MenuOnTop=1
 ; 1 = водяной знак в углу экрана: TWEAKMACRO, статус макросов, профиль и время
 Indicator=1
@@ -196,6 +198,16 @@ AfterStairs=1
 AfterCone=1
 AfterEdit=1
 
+[Slide]
+Enabled=0
+Trigger=CapsLock
+; Как в Fortnite работает присед: toggle — нажал и нажал ещё раз, hold — пока держишь
+CrouchMode=toggle
+SlideMs=300
+Gap=60
+; 1 = выходить из подката прыжком
+JumpCancel=0
+
 [Pickup]
 Enabled=0
 Trigger=MButton
@@ -287,6 +299,7 @@ BUILTIN := [
     {sec: "Macro:WallRetake", name: "Wall retake"},
     {sec: "Macro:SprintReset", name: "Sprint reset"},
     {sec: "Macro:Mantle", name: "Mantle"},
+    {sec: "Slide", name: "Slide spam"},
     {sec: "Macro:CrouchPeek", name: "Crouch peek"},
     {sec: "Pickup", name: "Pick-up"},
     {sec: "RapidFire", name: "Rapid fire"},
@@ -683,12 +696,15 @@ SetCtx(ctx) {
         HotIf()
     else if (ctx = "*")
         HotIf(NotInMenu)
+    else if (ctx = "menu")
+        HotIf(InGameOrMenu)
     else
         HotIf(InGame)
 }
 
 NotInMenu(*) => !(UI && WinActive("ahk_id " UI.Hwnd))
 InGame(*) => IsGameWin(WinExist("A"))
+InGameOrMenu(*) => IsGameWin(WinExist("A")) || (UI && WinActive("ahk_id " UI.Hwnd))
 
 ; Окно игры: процесс из настроек; для Fortnite — любой FortniteClient*.exe или окно Unreal с «Fortnite» в заголовке
 ; (у части игроков процесс называется иначе, и строгая проверка по имени отключала все макросы)
@@ -765,7 +781,7 @@ ApplyEngine() {
     if FixSysKeys()
         Notify("Клавиша вкл/выкл стояла на кнопке мыши — вернул стандартную")
     Reg("", Get("General", "SuspendKey"), ToggleSuspend, "Macros toggle", "S")
-    Reg("", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
+    Reg(Bool("General", "MenuOnlyInGame", true) ? "menu" : "", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
     if Bool("Crosshair", "Enabled")
         Reg("", Get("Crosshair", "ToggleKey"), ToggleCrosshair, "Crosshair toggle")
 
@@ -794,6 +810,10 @@ ApplyEngine() {
     if Bool("InstantBuild", "Enabled") {
         for piece in ["Wall", "Floor", "Stairs", "Cone"]
             Reg(ctx, Get("InstantBuild", piece "Trigger"), Counted.Bind("InstantBuild", Build.Bind(piece)), "Instant build")
+    }
+    if Bool("Slide", "Enabled") {
+        t := Get("Slide", "Trigger")
+        Reg(ctx, t, Counted.Bind("Slide", SlideSpam.Bind(t)), "Slide spam")
     }
     if Bool("Pickup", "Enabled") {
         t := Get("Pickup", "Trigger")
@@ -1011,6 +1031,27 @@ Build(piece, *) {
         Tap(B("Select"))
         AutoSprint(piece)
     }
+}
+
+; Слайд-спам: пока держишь клавишу — подкат, встал, снова подкат. Подкат в начале даёт рывок скорости.
+; Подкат получается на бегу (спринт), поэтому держи спринт или включи в Fortnite «Спринт по умолчанию».
+SlideSpam(trig, *) {
+    StopPlace()
+    hold := Get("Slide", "CrouchMode", "toggle") = "hold"
+    loop {
+        if hold
+            Down(B("Crouch"))
+        else
+            Tap(B("Crouch"))
+        Wait(Num("Slide", "SlideMs", 300))
+        if Bool("Slide", "JumpCancel")
+            Tap(B("Jump"))
+        if hold
+            Up(B("Crouch"))
+        else if !Bool("Slide", "JumpCancel")
+            Tap(B("Crouch"))
+        Wait(Num("Slide", "Gap", 60))
+    } until !Held(trig) || !GameActive()
 }
 
 Pickup(trig, *) {
@@ -1458,6 +1499,19 @@ class Bridge {
         return 1
     }
     optToggle(id, on) => Json(OptApply(id, on ? true : false))
+    gfxApply(preset, limit) {
+        SetTimer(GfxApply.Bind(preset, limit), -10)
+        return 1
+    }
+    gfxRevert() {
+        SetTimer(GfxRevert, -10)
+        return 1
+    }
+    gfxFolder() {
+        SplitPath(GameIni(), , &dir)
+        try Run(dir)
+        return 1
+    }
     optRefresh() {
         SetTimer(RefreshOpt, -10)
         return 1
@@ -1689,6 +1743,79 @@ ImportProfile() {
     FileOpen(ProfPath(n), "w", "UTF-8-RAW").Write(StripPrivate(FileRead(path, "UTF-8")))
     PushState()
     Notify("Импортирован профиль «" n "»")
+}
+
+; ───── графика Fortnite ─────
+; Пресеты пишутся в GameUserSettings.ini игры. Перед первым изменением файл копируется в backup\,
+; «Вернуть как было» кладёт копию обратно. Пока игра запущена, менять нельзя: при выходе она перезапишет файл.
+GameIni() => EnvGet("LOCALAPPDATA") "\FortniteGame\Saved\Config\WindowsClient\GameUserSettings.ini"
+GfxBackup() => A_ScriptDir "\backup\GameUserSettings.ini"
+FortniteRunning() {
+    for p in ["FortniteClient-Win64-Shipping.exe", Get("General", "GameExe", "FortniteClient-Win64-Shipping.exe")]
+        if ProcessExist(p)
+            return true
+    return false
+}
+GFX_SG := ["sg.AntiAliasingQuality", "sg.ShadowQuality", "sg.GlobalIlluminationQuality", "sg.ReflectionQuality", "sg.PostProcessQuality"
+    , "sg.EffectsQuality", "sg.FoliageQuality", "sg.ShadingQuality"]
+GfxApply(preset, limit) {
+    f := GameIni()
+    if !FileExist(f)
+        return Notify("Настройки Fortnite не найдены — запусти игру хотя бы один раз")
+    if FortniteRunning()
+        return Notify("Сначала закрой Fortnite — при выходе игра перезапишет настройки")
+    DirCreate(A_ScriptDir "\backup")
+    if !FileExist(GfxBackup())
+        FileCopy(f, GfxBackup())
+    try FileSetAttrib("-R", f)
+    us := "/Script/FortniteGame.FortGameUserSettings"
+    try {
+        if (preset = "fps" || preset = "comp") {
+            ; fps — «Режим производительности» (DirectX 11, упрощённый рендер): больше всего кадров на слабых ПК
+            ; comp — DirectX 11 на низких: картинка чище, кадров чуть меньше
+            IniWrite("dx11", f, "D3DRHIPreference", "PreferredRHI")
+            IniWrite(preset = "fps" ? "es31" : "sm5", f, "D3DRHIPreference", "PreferredFeatureLevel")
+            for k in GFX_SG
+                IniWrite(0, f, "ScalabilityGroups", k)
+            IniWrite(preset = "fps" ? 0 : 1, f, "ScalabilityGroups", "sg.TextureQuality")
+            IniWrite(preset = "fps" ? 2 : 3, f, "ScalabilityGroups", "sg.ViewDistanceQuality")
+            IniWrite(100, f, "ScalabilityGroups", "sg.ResolutionQuality")
+            for k in ["bUseVSync", "bMotionBlur", "bShowGrass", "bRayTracing", "bUseNanite"]
+                IniWrite("False", f, us, k)
+            IniWrite("True", f, us, "bShowFPS")
+        }
+        if (limit != "" && limit != "keep")
+            IniWrite(Format("{:.6f}", Integer(limit)), f, us, "FrameRateLimit")
+    } catch Error as e {
+        return Notify("Не получилось изменить настройки Fortnite: " e.Message)
+    }
+    SetVal("Optimize", "GfxPreset", preset)
+    SaveIni()
+    Notify("Графика Fortnite изменена — запускай игру")
+    RefreshOpt()
+}
+GfxRevert() {
+    if !FileExist(GfxBackup())
+        return Notify("Резервной копии нет — графика не менялась")
+    if FortniteRunning()
+        return Notify("Сначала закрой Fortnite — при выходе игра перезапишет настройки")
+    try FileSetAttrib("-R", GameIni())
+    FileCopy(GfxBackup(), GameIni(), 1)
+    FileDelete(GfxBackup())
+    SetVal("Optimize", "GfxPreset", "")
+    SaveIni()
+    Notify("Графика Fortnite возвращена как была")
+    RefreshOpt()
+}
+GfxState() {
+    f := GameIni(), st := Map("found", FileExist(f) ? 1 : 0, "running", FortniteRunning() ? 1 : 0, "backup", FileExist(GfxBackup()) ? 1 : 0
+        , "preset", Get("Optimize", "GfxPreset"), "rhi", "", "level", "", "limit", "")
+    if st["found"] {
+        try st["rhi"] := IniRead(f, "D3DRHIPreference", "PreferredRHI", "")
+        try st["level"] := IniRead(f, "D3DRHIPreference", "PreferredFeatureLevel", "")
+        try st["limit"] := Round(IniRead(f, "/Script/FortniteGame.FortGameUserSettings", "FrameRateLimit", "0"))
+    }
+    return st
 }
 
 ; ───── обмен конфигами и облако ─────
@@ -2153,6 +2280,9 @@ InitForms() {
         , Fld("key", "WallTrigger", "Стена"), Fld("key", "FloorTrigger", "Пол"), Fld("key", "StairsTrigger", "Лестница")
         , Fld("key", "ConeTrigger", "Конус"), Fld("num", "PlaceDelay", "Задержка установки")
         , Fld("toggle", "Continuous", "Непрерывная стройка"), Fld("text", "StopKeys", "Клавиши, отпускающие ЛКМ", {w: 200})]}
+    FORMS["Slide"] := {desc: "Пока держишь клавишу на бегу — персонаж раз за разом делает подкат и встаёт. Каждый подкат даёт рывок скорости, поэтому бежишь быстрее.", fields: [en, tr
+        , Fld("choice", "CrouchMode", "Присед в Fortnite", {o: ["toggle", "hold"], l: ["Переключение", "Удержание"], bw: 120})
+        , Fld("num", "SlideMs", "Длина подката"), Fld("num", "Gap", "Пауза между подкатами"), Fld("toggle", "JumpCancel", "Выходить из подката прыжком")]}
     FORMS["Pickup"] := {desc: "Пока держишь клавишу — спамит «Взаимодействие», чтобы быстро подбирать лут.", fields: [en, tr, Fld("num", "Delay", "Интервал")]}
     FORMS["RapidFire"] := {desc: "Пока держишь клавишу — быстро кликает «Выбор/выстрел» с заданным интервалом.", fields: [en, tr, Fld("num", "Delay", "Интервал кликов")]}
     FORMS["AntiAFK"] := {desc: "Если долго не трогать клавиатуру и мышь, персонаж изредка подпрыгивает, чтобы игра не выкинула за бездействие. Работает только в окне Fortnite.", fields: [en, Fld("num", "Interval", "Прыгать после бездействия", {u: "сек"})]}
@@ -2182,6 +2312,11 @@ InitHints() {
         , "AfterStairs", "Нажимать спринт после лестницы из Instant build."
         , "AfterCone", "Нажимать спринт после конуса из Instant build."
         , "AfterEdit", "Нажимать спринт после Drag edit, Instant edit и Infinite edit."
+        , "CrouchMode", "Как настроен присед в Fortnite. «Переключение» — нажал и сидишь, нажал ещё раз — встал. «Удержание» — сидишь, пока держишь клавишу."
+        , "SlideMs", "Сколько длится один подкат. 250–350 мс — самый быстрый рывок."
+        , "Gap", "Пауза после того, как встал, перед следующим подкатом."
+        , "JumpCancel", "Вставать из подката прыжком — так быстрее, но персонаж подпрыгивает."
+        , "MenuOnlyInGame", "Клавиша меню открывает меню только поверх Fortnite. В других программах она работает как обычно. Меню всегда можно открыть из трея."
         , "ShotDelay", "Сколько ждать после подтверждения редакта перед выстрелом. Если выстрел не проходит — увеличь до 40–60 мс."
         , "Shots", "Сколько раз выстрелить после открытия редакта."
         , "ShotInterval", "Пауза между выстрелами, если их несколько. Для дробовика — около 60 мс, для автомата можно меньше."
@@ -2367,6 +2502,7 @@ RefreshOpt(push := true) {
     st["autogame"] := Bool("Optimize", "AutoGame")
     st["lite"] := Bool("Optimize", "Lite")
     st["gameRunning"] := GameRunning ? 1 : 0
+    st["gfx"] := GfxState()
     OptCache := st
     if push
         PushState()
@@ -3597,7 +3733,12 @@ Tr(msg) {
             , "Игровой режим включён", "Game mode on", "Игровой режим выключен", "Game mode off"
             , "Запуск от имени администратора отменён", "Running as administrator was cancelled", "Подписка активна", "Subscription active"
             , "Открыть меню", "Open menu", "Лаунчер", "Launcher", "Ключ получен и активирован", "Key received and activated"
-            , "Привязка перенесена на этот ПК", "Binding moved to this PC", "Диагностика", "Diagnostics"
+            , "Привязка перенесена на этот ПК", "Binding moved to this PC"
+            , "Настройки Fortnite не найдены — запусти игру хотя бы один раз", "Fortnite settings not found, start the game once"
+            , "Сначала закрой Fortnite — при выходе игра перезапишет настройки", "Close Fortnite first, it overwrites its settings on exit"
+            , "Графика Fortnite изменена — запускай игру", "Fortnite graphics changed, start the game"
+            , "Резервной копии нет — графика не менялась", "No backup, graphics were not changed"
+            , "Графика Fortnite возвращена как была", "Fortnite graphics restored", "Диагностика", "Diagnostics"
             , "Диагностика скопирована. Вставь её (Ctrl+V) в сообщение разработчику.", "Diagnostics copied. Paste it (Ctrl+V) into a message to the developer."
             , "Похоже, Fortnite запущен с правами администратора, а TweakMacro — без них. В таком случае Windows не пропускает макросы в игру.`n`nПерезапустить TweakMacro с правами администратора? Настройки сохранятся.", "It looks like Fortnite runs as administrator and TweakMacro doesn't. In that case Windows blocks macros from reaching the game.`n`nRestart TweakMacro as administrator? Your settings are kept."
             , "Что-то пошло не так — подробности в «Диагностике» (меню в трее)", "Something went wrong, see Diagnostics in the tray menu"
