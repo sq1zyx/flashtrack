@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "3.8"
+APP_VERSION := "3.9"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -79,6 +79,8 @@ MenuKey=Insert
 MenuOnlyInGame=1
 ; 1 = меню открывается только поверх запущенного Fortnite и прячется, если свернуть игру
 MenuGameOnly=1
+; Размер меню в процентах: 80, 90 или 100
+MenuScale=90
 MenuOnTop=1
 ; 1 = водяной знак в углу экрана: TWEAKMACRO, статус макросов, профиль и время
 Indicator=1
@@ -95,6 +97,8 @@ WatermarkLogo=1
 WatermarkStatus=1
 WatermarkProfile=1
 WatermarkClock=1
+WatermarkKills=1
+WatermarkMatch=1
 ; 1 = при первом запуске меню показывает быструю настройку
 FirstRun=1
 Profile=Основной
@@ -118,14 +122,26 @@ Admin=
 RefCode=
 RefCount=0
 
-[Trainer]
-BestCps=0
-BestReact=0
 ; 1 = не показывать лаунчер, сразу запускать, если ключ в порядке
 AutoLaunch=0
 ; Свой адрес сервера (необязательно, иначе LICENSE_API из TweakMacro.ahk)
 Api=
 BuyUrl=
+
+[Trainer]
+BestCps=0
+BestReact=0
+
+[Tools]
+; Счётчик килов: клавиша +1 и клавиша «новый матч» (сбрасывает счётчик и таймер матча)
+KillKey=NumpadAdd
+NewMatchKey=NumpadSub
+BestKills=0
+; Закрывать эти программы при запуске Fortnite (через запятую, например chrome.exe, Spotify.exe)
+AutoCloseOn=0
+AutoClose=
+; Напоминание о перерыве: каждые N минут игры, 0 = выключено
+BreakMins=0
 
 [Game]
 ; Твои бинды из настроек Fortnite
@@ -150,7 +166,7 @@ Slot5=6
 Enabled=0
 Trigger=g
 ConfirmBy=release
-EnterDelay=10
+EnterDelay=25
 ConfirmDelay=10
 
 [InfiniteEdit]
@@ -334,6 +350,7 @@ Holding := Map(), Holding.CaseSense := "Off"
 OwnMods := Map(), OwnMods.CaseSense := "Off"
 MODS := ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"]
 Stats := NewMap(), StatsVer := 0
+Kills := 0, MatchStart := 0, PlayStart := 0, PlayMs := 0, PingRes := Map()
 PROF_DEFAULT := "Основной"
 PrevWin := 0
 IFEO_KEY := "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions"
@@ -358,7 +375,7 @@ BASES := Map("dark", ["0E0E11", "121216", "17171C", "1C1C22", "26262D", "2A2A31"
     , "midnight", ["0B0F1A", "0F1424", "141A2E", "182036", "222B45", "263052"]
     , "amoled", ["000000", "08080A", "0E0E11", "131316", "1E1E23", "25252B"])
 CLR := MakePalette()
-W := 1120, H := 740
+W := 1120, H := 740, BuiltScale := 1
 UI := 0, WB := 0, Wnd := 0, DPI := 1, UIShown := false
 XG := 0, XR := []
 XVisible := Bool("Crosshair", "ShowOnStart", true)
@@ -397,6 +414,7 @@ if Bool("Optimize", "MemClean")
 OnError(ReportError)
 SetTimer(SafetyTick, 100)
 SetTimer(MenuGuard, 500)
+SetTimer(ToolsTick, 1000)
 SetTimer(UpdateIndicator, 1000)
 SetTimer(GameAccessTick, 2000)
 OnExit((*) => ReleaseAll())
@@ -511,6 +529,9 @@ SetVal(sec, key, v) {
 
 ; Старые конфиги: Prefire был набором нажатий, Simple edit повторял Instant edit
 MigrateCfg(cfg) {
+    ; старая задержка входа драг-эдита (10 мс) слишком короткая: выбор успевал нажаться до редакта и стрелял
+    if cfg.Has("DragEdit") && cfg["DragEdit"].Has("EnterDelay") && Integer("0" cfg["DragEdit"]["EnterDelay"]) < 20
+        cfg["DragEdit"]["EnterDelay"] := "25"
     if cfg.Has("Macro:Prefire") {
         old := cfg["Macro:Prefire"]
         if !cfg.Has("Prefire")
@@ -801,6 +822,8 @@ ApplyEngine() {
     Reg(Bool("General", "MenuOnlyInGame", true) || MenuGameOnly() ? "menu" : "", Get("General", "MenuKey"), ToggleMenu, "Open menu", "S")
     if Bool("Crosshair", "Enabled")
         Reg("", Get("Crosshair", "ToggleKey"), ToggleCrosshair, "Crosshair toggle")
+    Reg("game", Get("Tools", "KillKey"), AddKill, "Kill counter", "S")
+    Reg("game", Get("Tools", "NewMatchKey"), NewMatch, "New match", "S")
 
     ; Без активной подписки работают только меню, клавиши меню и оптимизация
     if !Lic.ok {
@@ -975,7 +998,14 @@ EditCycle(sec) {
 }
 
 ; Зажал триггер — вошёл в редактирование и держишь выбор; отпустил — подтверждение
+; Если редакт не открылся (смотришь не на постройку), зажатый «выбор» становится выстрелом, когда он висит на ЛКМ.
+; Игра не сообщает, открыт ли редакт, поэтому надёжно спасает только отдельная клавиша выбора — об этом подсказка.
 DragEdit(trig, *) {
+    static told := false
+    if (!told && SelectIsFire()) {
+        told := true
+        Notify(Tr("Драг-эдит может стрелять: выбор в редактировании стоит на ЛКМ. Исправить — Macros → Drag edit"), 3500)
+    }
     StopPlace()
     Tap(B("Edit"))
     Wait(Num("DragEdit", "EnterDelay", 10))
@@ -1309,9 +1339,12 @@ MakePalette() {
     return {bg: bs[1], key: bs[5], text: "ECECF1", accent: acc}
 }
 
+; Масштаб меню: окно и страница уменьшаются вместе, дизайн не меняется
+MenuScale() => Max(70, Min(100, Integer(Get("General", "MenuScale", 90)))) / 100
 BuildUI() {
-    global UI, WB, Wnd, DPI
+    global UI, WB, Wnd, DPI, BuiltScale
     DPI := A_ScreenDPI / 96
+    BuiltScale := MenuScale()
     WebMode()
     UI := Gui("-Caption -Border -MaximizeBox", "TweakMacro")
     SetWinIcon(UI.Hwnd)
@@ -1322,7 +1355,7 @@ BuildUI() {
     if win11
         try DllCall("dwmapi\DwmSetWindowAttribute", "ptr", UI.Hwnd, "int", 33, "int*", 2, "int", 4)
     UI.OnEvent("Close", (*) => HideUI())
-    WB := UI.Add("ActiveX", Format("x0 y0 w{} h{}", W, H), "Shell.Explorer").Value
+    WB := UI.Add("ActiveX", Format("x0 y0 w{} h{}", Round(W * BuiltScale), Round(H * BuiltScale)), "Shell.Explorer").Value
     WB.Silent := true
     page := A_ScriptDir "\ui.html"
     if !FileExist(page) {
@@ -1338,7 +1371,7 @@ BuildUI() {
     Wnd.setBridge(Bridge())
     Wnd.init(MetaJson())
     ; Масштаб страницы под DPI экрана
-    try WB.ExecWB(63, 2, Round(DPI * 100), 0)
+    try WB.ExecWB(63, 2, Round(DPI * 100 * BuiltScale), 0)
 }
 
 ; Клавиши навигации и правки в полях ввода передаём движку страницы (иначе он их не видит)
@@ -1521,6 +1554,23 @@ class Bridge {
         return 1
     }
     overlays() => Json(FindOverlays())
+    safeSelect() {
+        SetTimer(SetSafeSelect.Bind("End"), -10)
+        return 1
+    }
+    toolsState() => Json(ToolsState())
+    pingRegions() {
+        SetTimer(PingRegions, -10)
+        return 1
+    }
+    addKill() {
+        SetTimer(AddKill, -10)
+        return 1
+    }
+    newMatch() {
+        SetTimer(NewMatch, -10)
+        return 1
+    }
     tuneDelays(fps) {
         SetTimer(TuneDelays.Bind(fps), -10)
         return 1
@@ -1840,6 +1890,8 @@ TuneDelays(fps) {
         SetVal(sec, "EnterDelay", step)
         SetVal(sec, "ConfirmDelay", step)
     }
+    ; драг-эдиту нужен запас: если выбор нажать раньше, чем откроется редакт, получится выстрел
+    SetVal("DragEdit", "EnterDelay", Max(20, step * 2))
     SetVal("InfiniteEdit", "FPS", fps)
     SetVal("InfiniteEdit", "StepDelay", 0)
     SetVal("InstantBuild", "PlaceDelay", step)
@@ -2223,17 +2275,155 @@ FlashTick() {
 }
 
 ShowUI(*) {
-    global UIShown
+    global UIShown, UI
     if !UI
         BuildUI()
     if !UI
         return
+    ; размер меню поменяли в настройках — пересобрать окно под новый масштаб
+    if (BuiltScale != MenuScale()) {
+        UI.Destroy()
+        UI := 0
+        BuildUI()
+        if !UI
+            return
+    }
     UI.Opt(Bool("General", "MenuOnTop", true) ? "+AlwaysOnTop" : "-AlwaysOnTop")
-    UI.Show("w" W " h" H)
+    first := !UIShown
+    mw := Round(W * BuiltScale), mh := Round(H * BuiltScale)
+    ; плавное появление: окно проявляется из прозрачного, страница чуть «всплывает»
+    if first
+        try WinSetTransparent(0, UI)
+    UI.Show("w" mw " h" mh)
+    ; скруглённые углы: на Windows 11 их рисует система, на Windows 10 — обрезаем окно
+    if (VerCompare(A_OSVersion, "10.0.22000") < 0) {
+        UI.GetPos(, , &pw, &ph)
+        RoundWin(UI, pw, ph, Round(18 * DPI))
+    }
+    if first {
+        try Wnd.menuIn()
+        try loop 6 {
+            WinSetTransparent(A_Index * 42, UI)
+            Sleep 12
+        }
+        try WinSetTransparent("Off", UI)
+    }
     UIShown := true
     PushState()
     SetTimer(FlashTick, 40)
     SetTimer(StatsTick, 500)
+}
+
+SelectIsFire() => StrLower(Get("Game", "Select")) = "lbutton"
+; Отдельная клавиша выбора: макрос жмёт её вместо ЛКМ, и без открытого редакта она ничего не делает
+SetSafeSelect(key := "End") {
+    SetVal("Game", "Select", key)
+    Commit()
+    Notify(Format(Tr("Клавиша выбора: {}. Поставь её же в Fortnite: Управление → Строительство → «Выбор при редактировании»"), key), 6000)
+}
+
+; ───── помощники для игры ─────
+; Счётчик килов ведётся вручную клавишей: игра не отдаёт эти данные, а читать её память нельзя (бан от античита).
+AddKill(*) {
+    global Kills
+    if !MatchStart
+        NewMatch(true)
+    Kills++
+    if (Kills > Integer(Get("Tools", "BestKills", 0))) {
+        SetVal("Tools", "BestKills", Kills)
+        SaveIni()
+    }
+    ToolsPush()
+}
+NewMatch(quiet := false, *) {
+    global Kills, MatchStart
+    Kills := 0, MatchStart := A_TickCount
+    if (quiet != true)
+        Notify(Tr("Новый матч: счётчик килов и таймер сброшены"), 1500)
+    ToolsPush()
+}
+MatchMins() => MatchStart ? (A_TickCount - MatchStart) // 60000 : -1
+ToolsPush() {
+    UpdateIndicator()
+    if (UI && UIShown && Wnd)
+        try Wnd.toolsState(Json(ToolsState()))
+}
+ToolsState() => Map("kills", Kills, "best", Integer(Get("Tools", "BestKills", 0)), "match", MatchMins()
+    , "play", (PlayMs + (PlayStart ? A_TickCount - PlayStart : 0)) // 60000, "ping", PingRes)
+; Раз в секунду: время в игре, автозакрытие программ при запуске Fortnite, напоминание о перерыве
+ToolsTick() {
+    global PlayStart, PlayMs, MatchStart
+    static was := false, lastBreak := 0
+    run := FortniteRunning()
+    if (run && !was) {
+        PlayStart := A_TickCount, lastBreak := A_TickCount
+        if !MatchStart
+            MatchStart := A_TickCount
+        if Bool("Tools", "AutoCloseOn") {
+            closed := []
+            for name in StrSplit(Get("Tools", "AutoClose"), ",", " `t")
+                if (name != "" && ProcessExist(name)) {
+                    ProcessClose(name)
+                    closed.Push(name)
+                }
+            if closed.Length
+                Notify(Tr("Закрыл перед игрой: ") JoinArr(closed, ", "), 2500)
+        }
+    } else if (!run && was) {
+        PlayMs += A_TickCount - PlayStart, PlayStart := 0
+    }
+    was := run
+    mins := Integer(Get("Tools", "BreakMins", 0))
+    if (run && mins > 0 && A_TickCount - lastBreak >= mins * 60000) {
+        lastBreak := A_TickCount
+        Notify(Format(Tr("Ты играешь уже {} мин — разомни руки и глаза"), (A_TickCount - PlayStart) // 60000), 4000)
+    }
+    ; таймер матча в водяном знаке меняется раз в минуту — перерисовка идёт по своему ключу
+    if (MatchStart && Bool("General", "WatermarkMatch", true))
+        UpdateIndicator()
+}
+JoinArr(a, sep) {
+    out := ""
+    for v in a
+        out .= (A_Index > 1 ? sep : "") v
+    return out
+}
+; Пинг до серверов Epic по регионам. Каждый ping — отдельный скрытый процесс, программа не ждёт ответа,
+; поэтому макросы не подвисают. Результат приходит в меню через пару секунд.
+PING_REGIONS := [["eu", "Европа", "ping-eu.ds.on.epicgames.com"], ["me", "Ближний Восток", "ping-me.ds.on.epicgames.com"]
+    , ["nae", "NA East", "ping-nae.ds.on.epicgames.com"], ["nac", "NA Central", "ping-nac.ds.on.epicgames.com"]
+    , ["naw", "NA West", "ping-naw.ds.on.epicgames.com"], ["br", "Бразилия", "ping-br.ds.on.epicgames.com"]
+    , ["asia", "Азия", "ping-asia.ds.on.epicgames.com"], ["oce", "Океания", "ping-oce.ds.on.epicgames.com"]]
+PingRegions() {
+    global PingRes
+    PingRes := Map()
+    dir := A_Temp "\TweakMacroPing"
+    DirCreate(dir)
+    for reg in PING_REGIONS {
+        PingRes[reg[1]] := "…"
+        try FileDelete(dir "\" reg[1] ".txt")
+        Run(A_ComSpec ' /c ping -n 3 -w 900 ' reg[3] ' > "' dir "\" reg[1] '.txt"', , "Hide")
+    }
+    ToolsPush()
+    SetTimer(PingCollect, -4500)
+}
+PingCollect() {
+    global PingRes
+    dir := A_Temp "\TweakMacroPing"
+    for reg in PING_REGIONS {
+        txt := ""
+        try txt := FileRead(dir "\" reg[1] ".txt")
+        ; последняя строка ответа ping — «Минимальное = 34 мсек, …, Среднее = 35 мсек» на любом языке Windows,
+        ; поэтому берём последнее «= число единица» в ней и не зависим от кодировки и языка
+        ms := "", last := ""
+        for line in StrSplit(txt, "`n", "`r `t")
+            if (line != "")
+                last := line
+        if RegExMatch(last, "=\s*(\d+)\s*\S{0,6}\s*$", &m)
+            ms := m[1]
+        PingRes[reg[1]] := ms != "" ? ms : "—"
+    }
+    ToolsPush()
 }
 
 ; ───── меню только в Fortnite ─────
@@ -2318,9 +2508,9 @@ UpdateIndicator(*) {
     status := A_IsSuspended ? "PAUSE" : "ON", prof := Get("General", "Profile", PROF_DEFAULT), pos := Get("General", "WatermarkPos", "tl")
     size := Get("General", "WatermarkSize", "s"), alpha := Max(30, Min(100, Integer(Get("General", "WatermarkOpacity", 90))))
     show := Map()
-    for part in ["Logo", "Status", "Profile", "Clock"]
+    for part in ["Logo", "Status", "Profile", "Clock", "Kills", "Match"]
         show[part] := Bool("General", "Watermark" part, true)
-    k := status "|" prof "|" FormatTime(, "HH:mm") "|" pos "|" CLR.accent "|" size "|" alpha
+    k := status "|" prof "|" FormatTime(, "HH:mm") "|" pos "|" CLR.accent "|" size "|" alpha "|" Kills "|" MatchMins()
     for part, v in show
         k .= v
     if (k = key)
@@ -2367,6 +2557,16 @@ UpdateIndicator(*) {
         opt := place(row)
         g.SetFont("s" fs " w600 cD4D4DC", "Segoe UI")
         g.AddText(opt, prof)
+    }
+    if (show["Kills"] && MatchStart) {
+        opt := place(row)
+        g.SetFont("s" fs " w700 cFFFFFF", "Segoe UI")
+        g.AddText(opt, Tr("Киллы") " " Kills)
+    }
+    if (show["Match"] && MatchStart) {
+        opt := place(row)
+        g.SetFont("s" fs " w500 c8C8C99", "Segoe UI")
+        g.AddText(opt, Tr("Матч") " " MatchMins() " " Tr("мин"))
     }
     if show["Clock"] {
         opt := place(row)
@@ -2500,6 +2700,7 @@ InitHints() {
         , "SlideMs", "Сколько длится один подкат. 250–350 мс — самый быстрый рывок."
         , "Gap", "Пауза после того, как встал, перед следующим подкатом."
         , "JumpCancel", "Вставать из подката прыжком — так быстрее, но персонаж подпрыгивает."
+        , "MenuScale", "Размер окна меню. Дизайн тот же, всё пропорционально меньше. Применится при следующем открытии меню."
         , "MenuGameOnly", "Как оверлей: меню открывается только поверх запущенного Fortnite и прячется, если свернуть игру. Лаунчер сразу запускает игру."
         , "MenuOnlyInGame", "Клавиша меню открывает меню только поверх Fortnite. В других программах она работает как обычно. Меню всегда можно открыть из трея."
         , "ShotDelay", "Сколько ждать после подтверждения редакта перед выстрелом. Если выстрел не проходит — увеличь до 40–60 мс."
@@ -2582,6 +2783,14 @@ InitHints() {
         , "page.License", "Подписка, ключ и продление."
         , "page.Admin", "Админ-панель: сколько людей с подпиской, выручка, выдача и отзыв ключей."
         , "page.Trainer", "Тренажёр: скорость кликов и реакция, с рекордами."
+        , "page.Tools", "Помощники для игры: счётчик килов, таймер матча, пинг до серверов Epic, автозакрытие программ и напоминание о перерыве."
+        , "KillKey", "Нажимай после каждого кила — счётчик виден в водяном знаке. Работает только в окне Fortnite."
+        , "NewMatchKey", "Сбросить счётчик килов и таймер матча — нажми в начале нового матча."
+        , "AutoCloseOn", "При запуске Fortnite закрыть программы из списка ниже. Несохранённое в них пропадёт."
+        , "AutoClose", "Имена процессов через запятую, как в Диспетчере задач: chrome.exe, Spotify.exe."
+        , "BreakMins", "Каждые N минут игры напоминать сделать перерыв. 0 — не напоминать."
+        , "WatermarkKills", "Счётчик килов текущего матча."
+        , "WatermarkMatch", "Сколько минут идёт текущий матч."
         , "page.Watermark", "Водяной знак поверх игры: угол, размер, прозрачность и что показывать."
         , "page.Graphics", "Пресет графики Fortnite, лимит FPS, Reflex, задержки под твой FPS и оверлеи."
         , "page.Optimize", "Оптимизация Windows и игры: приоритет, питание, ускорение мыши, Game DVR, очистка кэша, тяжёлые программы."
@@ -4008,6 +4217,12 @@ Tr(msg) {
             , "Меню открывается в Fortnite: запусти игру и нажми {}", "The menu opens in Fortnite: start the game and press {}"
             , "Fortnite запущен. Меню TweakMacro — клавиша {}", "Fortnite is running. TweakMacro menu key: {}"
             , "Запустить Fortnite", "Launch Fortnite"
+            , "Драг-эдит может стрелять: выбор в редактировании стоит на ЛКМ. Исправить — Macros → Drag edit", "Drag edit may shoot: edit select is on LMB. Fix it in Macros → Drag edit"
+            , "Клавиша выбора: {}. Поставь её же в Fortnite: Управление → Строительство → «Выбор при редактировании»", "Select key: {}. Set the same key in Fortnite: Keyboard controls → Building → “Select building edit”"
+            , "Новый матч: счётчик килов и таймер сброшены", "New match: kill counter and timer reset"
+            , "Закрыл перед игрой: ", "Closed before the game: "
+            , "Ты играешь уже {} мин — разомни руки и глаза", "You've been playing for {} min, stretch your hands and rest your eyes"
+            , "Киллы", "Kills", "Матч", "Match", "мин", "min"
             , "Задержки подстроены под {} FPS: шаг {} мс, удержание {} мс", "Delays tuned for {} FPS: step {} ms, hold {} ms"
             , "Настройки → Игровой оверлей → выключи «Включить внутриигровой оверлей».", "Settings → Game Overlay → turn off “Enable in-game overlay”."
             , "Alt+Z → Настройки → выключи внутриигровой оверлей, если не записываешь клипы.", "Alt+Z → Settings → turn off the in-game overlay if you don't record clips."
