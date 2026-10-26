@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "3.9"
+APP_VERSION := "4.0"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -2300,14 +2300,8 @@ ShowUI(*) {
         UI.GetPos(, , &pw, &ph)
         RoundWin(UI, pw, ph, Round(18 * DPI))
     }
-    if first {
-        try Wnd.menuIn()
-        try loop 6 {
-            WinSetTransparent(A_Index * 42, UI)
-            Sleep 12
-        }
-        try WinSetTransparent("Off", UI)
-    }
+    if first
+        MenuOpenAnim()
     UIShown := true
     PushState()
     SetTimer(FlashTick, 40)
@@ -2469,10 +2463,37 @@ MenuGuard() {
 }
 
 ; Клавиша меню: открыть поверх игры / вернуться в игру
+; Быстрое открытие (~0,1 с): окно проявляется и въезжает на 16 px снизу с замедлением в конце, страница всплывает
+MenuOpenAnim() {
+    try {
+        UI.GetPos(&x, &y)
+        dy := Round(16 * DPI)
+        WinMove(x, y + dy, , , UI)
+        Wnd.menuIn()
+        loop 7 {
+            k := 1 - (1 - A_Index / 7) ** 3
+            WinSetTransparent(Round(255 * k), UI)
+            WinMove(x, y + Round(dy * (1 - k)), , , UI)
+            Sleep 10
+        }
+        WinMove(x, y, , , UI)
+        WinSetTransparent("Off", UI)
+    }
+}
+; Быстрое закрытие: короткое затухание вместо резкого исчезновения
+MenuCloseAnim() {
+    try {
+        for a in [190, 120, 50]
+            WinSetTransparent(a, UI), Sleep(10)
+    }
+    UI.Hide()
+    try WinSetTransparent("Off", UI)
+}
+
 ToggleMenu(*) {
     global PrevWin
     if (UI && UIShown && WinActive("ahk_id " UI.Hwnd)) {
-        UI.Hide()
+        MenuCloseAnim()
         HideUI(true)
         if (PrevWin && WinExist("ahk_id " PrevWin))
             try WinActivate("ahk_id " PrevWin)

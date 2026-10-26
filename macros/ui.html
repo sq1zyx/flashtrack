@@ -64,6 +64,8 @@ svg{overflow:hidden}
 #content{position:absolute;left:66px;right:-20px;top:58px;bottom:0;overflow-y:scroll;overflow-x:hidden;padding:20px 27px 24px 24px;box-sizing:border-box}
 .page{display:none}
 .page.show{display:block;animation:pin .22s ease-out}
+.page.show.open{animation:openIn .2s cubic-bezier(.22,1,.36,1)}
+@keyframes openIn{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes pin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .ph{display:flex;align-items:center;margin-bottom:16px;padding:1px 0}
 .ph h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em}
@@ -1591,7 +1593,7 @@ function fire(sec) {
 // ───────────── вызовы из AutoHotkey ─────────────
 // Окно меню показано — проиграть появление
 // анимируется только страница: анимация всего #app ломает отрисовку движка
-function menuIn() { var pg = $('pg-' + page); if (!pg) return; pg.className = 'page'; void pg.offsetWidth; pg.className = 'page show'; }
+function menuIn() { var pg = $('pg-' + page); if (!pg) return; pg.className = 'page'; void pg.offsetWidth; pg.className = 'page show open'; }
 function init(meta) {
   M = JSON.parse(meta);
   build();
