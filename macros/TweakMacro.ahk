@@ -332,8 +332,11 @@ LAYERS_KEY := "HKCU\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\
 DVR_KEY1 := "HKCU\System\GameConfigStore"
 DVR_KEY2 := "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR"
 GAMEBAR_KEY := "HKCU\Software\Microsoft\GameBar"
+GPUPREF_KEY := "HKCU\Software\Microsoft\DirectX\UserGpuPreferences"
+MMCSS_KEY := "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+MMCSS_GAMES := MMCSS_KEY "\Tasks\Games"
 PLAN_ULT := "e9a42b02-d5df-448d-aa00-03f14749eb61", PLAN_HIGH := "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", PLAN_BAL := "381b4222-f694-41f0-9685-ff5bb260df2e"
-OptCache := Map(), GameRunning := false
+OptCache := Map(), GameRunning := false, MemCleaned := 0
 
 ; Состояние интерфейса
 THEME_ORDER := ["red", "blue", "purple", "emerald", "orange", "pink"]
@@ -378,6 +381,8 @@ SetupTray()
 if Bool("Optimize", "AutoGame")
     SetTimer(GameWatch, 3000)
 SetTimer(LicPeriodic, 6 * 3600 * 1000)
+if Bool("Optimize", "MemClean")
+    SetTimer(MemCleanTick, 5000)
 OnError(ReportError)
 SetTimer(SafetyTick, 100)
 SetTimer(UpdateIndicator, 1000)
@@ -1503,6 +1508,11 @@ class Bridge {
         SetTimer(GfxApply.Bind(preset, limit), -10)
         return 1
     }
+    overlays() => Json(FindOverlays())
+    tuneDelays(fps) {
+        SetTimer(TuneDelays.Bind(fps), -10)
+        return 1
+    }
     gfxRevert() {
         SetTimer(GfxRevert, -10)
         return 1
@@ -1745,6 +1755,89 @@ ImportProfile() {
     Notify("Импортирован профиль «" n "»")
 }
 
+; ───── очистка резервной памяти ─────
+; Как ISLC: пока идёт Fortnite и свободной памяти меньше 1 ГБ при большой «резервной» (кэш Windows), кэш сбрасывается.
+; На ПК с 8–16 ГБ это убирает микрофризы после долгой игры. Нужны права администратора.
+MemCleanTick() {
+    global MemCleaned
+    if !A_IsAdmin || !FortniteRunning()
+        return
+    EnablePriv("SeProfileSingleProcessPrivilege")
+    info := Buffer(8 * 22, 0), ret := 0
+    if DllCall("ntdll\NtQuerySystemInformation", "int", 80, "ptr", info, "uint", info.Size, "uint*", &ret) != 0
+        return
+    mb := 4096 / 1048576
+    free := (NumGet(info, 0, "uptr") + NumGet(info, 8, "uptr")) * mb
+    standby := 0
+    loop 8
+        standby += NumGet(info, 40 + (A_Index - 1) * 8, "uptr")
+    standby *= mb
+    if (free < 1024 && standby > 1024) {
+        cmd := 4                        ; MemoryPurgeStandbyList
+        if DllCall("ntdll\NtSetSystemInformation", "int", 80, "int*", &cmd, "uint", 4) = 0
+            MemCleaned++
+    }
+}
+EnablePriv(name) {
+    static done := Map()
+    if done.Has(name)
+        return
+    tok := 0, luid := Buffer(8, 0), tp := Buffer(16, 0)
+    DllCall("advapi32\OpenProcessToken", "ptr", DllCall("GetCurrentProcess", "ptr"), "uint", 0x28, "ptr*", &tok)
+    DllCall("advapi32\LookupPrivilegeValueW", "ptr", 0, "wstr", name, "ptr", luid)
+    NumPut("uint", 1, tp, 0), NumPut("int64", NumGet(luid, 0, "int64"), tp, 4), NumPut("uint", 2, tp, 12)
+    DllCall("advapi32\AdjustTokenPrivileges", "ptr", tok, "int", 0, "ptr", tp, "uint", 0, "ptr", 0, "ptr", 0)
+    DllCall("CloseHandle", "ptr", tok)
+    done[name] := 1
+}
+
+; ───── оверлеи ─────
+; Программы, которые рисуют поверх игры: каждая немного отнимает кадры и добавляет задержку
+FindOverlays() {
+    static list := [["Discord.exe", "Discord", "Настройки → Игровой оверлей → выключи «Включить внутриигровой оверлей»."]
+        , ["NVIDIA Overlay.exe", "NVIDIA App / GeForce Experience", "Alt+Z → Настройки → выключи внутриигровой оверлей, если не записываешь клипы."]
+        , ["NVIDIA Share.exe", "GeForce Experience", "Настройки → Общие → выключи «Внутриигровой оверлей»."]
+        , ["RTSS.exe", "RivaTuner (MSI Afterburner)", "Счётчик поверх игры добавляет задержку — закрой RTSS, если мониторинг не нужен."]
+        , ["Overwolf.exe", "Overwolf", "Выключи оверлей Overwolf для Fortnite или закрой программу."]
+        , ["GameBar.exe", "Xbox Game Bar", "Параметры → Игры → Xbox Game Bar → выключи."]
+        , ["obs64.exe", "OBS", "Захват игры нагружает видеокарту. Если не стримишь — закрой OBS."]
+        , ["Medal.exe", "Medal", "Фоновая запись клипов отнимает кадры — выключи, если не нужна."]
+        , ["steam.exe", "Steam", "Оверлей Steam влияет, только если Fortnite добавлен в Steam. Иначе можно не трогать."]]
+    found := []
+    for o in list
+        if ProcessExist(o[1])
+            found.Push(Map("name", o[2], "tip", Tr(o[3])))
+    return found
+}
+
+; Частота обновления основного монитора, Гц
+MonitorHz() {
+    dm := Buffer(220, 0)
+    NumPut("ushort", 220, dm, 68)
+    if !DllCall("EnumDisplaySettingsW", "ptr", 0, "int", -1, "ptr", dm)
+        return 0
+    return NumGet(dm, 184, "uint")
+}
+
+; Задержки макросов под FPS: удержание клавиши — чуть больше кадра, шаги редакта и стройки — два кадра.
+; Меньше игра просто не успевает заметить нажатие.
+TuneDelays(fps) {
+    fps := Max(30, Min(1000, Round(fps)))
+    frame := 1000 / fps, hold := Max(3, Ceil(frame) + 1), step := Max(5, Ceil(frame * 2))
+    for sec in ["DragEdit", "InstantEdit", "InfiniteEdit", "Prefire"] {
+        SetVal(sec, "EnterDelay", step)
+        SetVal(sec, "ConfirmDelay", step)
+    }
+    SetVal("InfiniteEdit", "FPS", fps)
+    SetVal("InfiniteEdit", "StepDelay", 0)
+    SetVal("InstantBuild", "PlaceDelay", step)
+    SetVal("AutoSprint", "Delay", step)
+    SetVal("General", "KeyHoldMs", hold)
+    SetVal("General", "ClickHoldMs", hold)
+    Commit()
+    Notify(Format(Tr("Задержки подстроены под {} FPS: шаг {} мс, удержание {} мс"), fps, step, hold), 2500)
+}
+
 ; ───── графика Fortnite ─────
 ; Пресеты пишутся в GameUserSettings.ini игры. Перед первым изменением файл копируется в backup\,
 ; «Вернуть как было» кладёт копию обратно. Пока игра запущена, менять нельзя: при выходе она перезапишет файл.
@@ -1783,7 +1876,12 @@ GfxApply(preset, limit) {
             for k in ["bUseVSync", "bMotionBlur", "bShowGrass", "bRayTracing", "bUseNanite"]
                 IniWrite("False", f, us, k)
             IniWrite("True", f, us, "bShowFPS")
+            ; NVIDIA Reflex «Вкл. + усиление» — только если игра уже хранит эту настройку в файле
+            if (IniRead(f, us, "LatencyTweak2", "none") != "none")
+                IniWrite(2, f, us, "LatencyTweak2")
         }
+        if (limit = "mon")
+            limit := MonitorHz() ? String(MonitorHz()) : "keep"
         if (limit != "" && limit != "keep")
             IniWrite(Format("{:.6f}", Integer(limit)), f, us, "FrameRateLimit")
     } catch Error as e {
@@ -1809,12 +1907,14 @@ GfxRevert() {
 }
 GfxState() {
     f := GameIni(), st := Map("found", FileExist(f) ? 1 : 0, "running", FortniteRunning() ? 1 : 0, "backup", FileExist(GfxBackup()) ? 1 : 0
-        , "preset", Get("Optimize", "GfxPreset"), "rhi", "", "level", "", "limit", "")
+        , "preset", Get("Optimize", "GfxPreset"), "rhi", "", "level", "", "limit", "", "reflex", "")
     if st["found"] {
         try st["rhi"] := IniRead(f, "D3DRHIPreference", "PreferredRHI", "")
         try st["level"] := IniRead(f, "D3DRHIPreference", "PreferredFeatureLevel", "")
         try st["limit"] := Round(IniRead(f, "/Script/FortniteGame.FortGameUserSettings", "FrameRateLimit", "0"))
+        try st["reflex"] := IniRead(f, "/Script/FortniteGame.FortGameUserSettings", "LatencyTweak2", "")
     }
+    st["hz"] := MonitorHz()
     return st
 }
 
@@ -2499,6 +2599,11 @@ RefreshOpt(push := true) {
     fp := FortnitePath()
     st["fsoPath"] := fp
     st["fso"] := fp != "" && InStr(RegGet(LAYERS_KEY, fp, ""), "DISABLEDXMAXIMIZEDWINDOWEDMODE") > 0
+    st["gpupref"] := fp != "" && InStr(RegGet(GPUPREF_KEY, fp, ""), "GpuPreference=2") > 0
+    st["mmcss"] := RegGet(MMCSS_KEY, "SystemResponsiveness", 20) = 10 && RegGet(MMCSS_GAMES, "Priority", 2) = 6
+    st["defender"] := Bk("DefenderPath") != ""
+    st["memclean"] := Bool("Optimize", "MemClean")
+    st["memCleaned"] := MemCleaned
     st["autogame"] := Bool("Optimize", "AutoGame")
     st["lite"] := Bool("Optimize", "Lite")
     st["gameRunning"] := GameRunning ? 1 : 0
@@ -2521,7 +2626,7 @@ Touch(id, on) {
 
 ; Включить/выключить пункт. Возвращает {ok, msg, need}
 OptApply(id, on, refresh := true) {
-    static adminIds := Map("priority", 1, "timer", 1, "hags", 1)
+    static adminIds := Map("priority", 1, "timer", 1, "hags", 1, "mmcss", 1, "defender", 1, "memclean", 1)
     if adminIds.Has(id) && !A_IsAdmin
         return {ok: 0, need: "admin", msg: "Нужны права администратора"}
     msg := ""
@@ -2605,6 +2710,50 @@ OptApply(id, on, refresh := true) {
                 } else {
                     RegWrite(cur, "REG_SZ", LAYERS_KEY, fp)
                 }
+            case "gpupref":
+                ; Высокопроизводительная видеокарта для Fortnite (Параметры → Дисплей → Графика)
+                fp := FortnitePath()
+                if (fp = "")
+                    throw Error("Не нашёл Fortnite. Запусти игру один раз при включённом TweakMacro — путь запомнится.")
+                prev := RegGet(GPUPREF_KEY, fp, "")
+                if on {
+                    if (prev != "" && !InStr(prev, "GpuPreference=2"))
+                        SetBk("GpuPrefPrev", prev)
+                    RegWrite("GpuPreference=2;", "REG_SZ", GPUPREF_KEY, fp)
+                } else if (Bk("GpuPrefPrev") != "") {
+                    RegWrite(Bk("GpuPrefPrev"), "REG_SZ", GPUPREF_KEY, fp)
+                } else
+                    try RegDelete(GPUPREF_KEY, fp)
+            case "mmcss":
+                ; Планировщик мультимедиа: игры получают больше процессора и приоритет видеокарты
+                vals := [[MMCSS_KEY, "SystemResponsiveness", "REG_DWORD", 10, 20], [MMCSS_GAMES, "GPU Priority", "REG_DWORD", 8, 8]
+                    , [MMCSS_GAMES, "Priority", "REG_DWORD", 6, 2], [MMCSS_GAMES, "Scheduling Category", "REG_SZ", "High", "Medium"]
+                    , [MMCSS_GAMES, "SFIO Priority", "REG_SZ", "High", "Normal"]]
+                for v in vals {
+                    bkName := "Mmcss_" StrReplace(v[2], " ")
+                    if on {
+                        if (Bk(bkName) = "")
+                            SetBk(bkName, RegGet(v[1], v[2], v[5]))
+                        RegWrite(v[4], v[3], v[1], v[2])
+                    } else
+                        RegWrite(Bk(bkName, v[5]), v[3], v[1], v[2])
+                }
+            case "defender":
+                ; Исключение папки Fortnite из проверки Защитником: меньше подлагиваний при подгрузке файлов игры
+                if on {
+                    fp := FortnitePath()
+                    if (fp = "")
+                        throw Error("Не нашёл Fortnite. Запусти игру один раз при включённом TweakMacro — путь запомнится.")
+                    root := RegExReplace(fp, "i)\\FortniteGame\\Binaries\\Win64\\[^\\]+$")
+                    RunWait('powershell -NoProfile -Command "Add-MpPreference -ExclusionPath \"' root '\""', , "Hide")
+                    SetBk("DefenderPath", root)
+                } else if (Bk("DefenderPath") != "") {
+                    RunWait('powershell -NoProfile -Command "Remove-MpPreference -ExclusionPath \"' Bk("DefenderPath") '\""', , "Hide")
+                    SetBk("DefenderPath", "")
+                }
+            case "memclean":
+                SetVal("Optimize", "MemClean", on ? "1" : "0")
+                SetTimer(MemCleanTick, on ? 5000 : 0)
             case "autogame":
                 SetVal("Optimize", "AutoGame", on ? "1" : "0")
                 SetTimer(GameWatch, on ? 3000 : 0)
@@ -2618,7 +2767,7 @@ OptApply(id, on, refresh := true) {
     } catch Error as e {
         return {ok: 0, msg: e.Message}
     }
-    if !(id ~= "^(autogame|lite)$")
+    if !(id ~= "^(autogame|lite|memclean)$")
         Touch(id, on)
     SaveIni()
     if refresh
@@ -2651,17 +2800,21 @@ OptRevertAll() {
     }
     if Bool("Optimize", "AutoGame")
         OptApply("autogame", false, false)
+    if Bool("Optimize", "MemClean")
+        OptApply("memclean", false, false)
     RefreshOpt()
     Notify(skipped = "" ? "Настройки Windows возвращены как были" : "Возвращено, кроме (нужны права администратора): " skipped)
 }
 
 OptName(id) {
     static e := Map("priority", "priority", "power", "power plan", "gamedvr", "Game DVR", "timer", "timer", "mouseaccel", "mouse acceleration"
-        , "hags", "GPU scheduling", "gamemode", "game mode", "fso", "fullscreen optimizations", "autogame", "TweakMacro game mode")
+        , "hags", "GPU scheduling", "gamemode", "game mode", "fso", "fullscreen optimizations", "autogame", "TweakMacro game mode"
+        , "gpupref", "high-performance GPU", "mmcss", "game scheduling", "defender", "Defender exclusion", "memclean", "memory cleaning")
     if (Lang() = "en")
         return e.Has(id) ? e[id] : id
     static n := Map("priority", "приоритет", "power", "схема питания", "gamedvr", "Game DVR", "timer", "таймер", "mouseaccel", "ускорение мыши"
-        , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим TweakMacro")
+        , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим TweakMacro"
+        , "gpupref", "мощная видеокарта", "mmcss", "приоритет игр", "defender", "исключение Защитника", "memclean", "очистка памяти")
     return n.Has(id) ? n[id] : id
 }
 
@@ -3738,7 +3891,17 @@ Tr(msg) {
             , "Сначала закрой Fortnite — при выходе игра перезапишет настройки", "Close Fortnite first, it overwrites its settings on exit"
             , "Графика Fortnite изменена — запускай игру", "Fortnite graphics changed, start the game"
             , "Резервной копии нет — графика не менялась", "No backup, graphics were not changed"
-            , "Графика Fortnite возвращена как была", "Fortnite graphics restored", "Диагностика", "Diagnostics"
+            , "Графика Fortnite возвращена как была", "Fortnite graphics restored"
+            , "Задержки подстроены под {} FPS: шаг {} мс, удержание {} мс", "Delays tuned for {} FPS: step {} ms, hold {} ms"
+            , "Настройки → Игровой оверлей → выключи «Включить внутриигровой оверлей».", "Settings → Game Overlay → turn off “Enable in-game overlay”."
+            , "Alt+Z → Настройки → выключи внутриигровой оверлей, если не записываешь клипы.", "Alt+Z → Settings → turn off the in-game overlay if you don't record clips."
+            , "Настройки → Общие → выключи «Внутриигровой оверлей».", "Settings → General → turn off “In-game overlay”."
+            , "Счётчик поверх игры добавляет задержку — закрой RTSS, если мониторинг не нужен.", "The on-screen counter adds latency, close RTSS if you don't need monitoring."
+            , "Выключи оверлей Overwolf для Fortnite или закрой программу.", "Turn off the Overwolf overlay for Fortnite or close it."
+            , "Параметры → Игры → Xbox Game Bar → выключи.", "Settings → Gaming → Xbox Game Bar → turn it off."
+            , "Захват игры нагружает видеокарту. Если не стримишь — закрой OBS.", "Game capture loads the GPU. If you're not streaming, close OBS."
+            , "Фоновая запись клипов отнимает кадры — выключи, если не нужна.", "Background clip recording costs frames, turn it off if you don't need it."
+            , "Оверлей Steam влияет, только если Fortnite добавлен в Steam. Иначе можно не трогать.", "The Steam overlay only matters if Fortnite is added to Steam. Otherwise leave it.", "Диагностика", "Diagnostics"
             , "Диагностика скопирована. Вставь её (Ctrl+V) в сообщение разработчику.", "Diagnostics copied. Paste it (Ctrl+V) into a message to the developer."
             , "Похоже, Fortnite запущен с правами администратора, а TweakMacro — без них. В таком случае Windows не пропускает макросы в игру.`n`nПерезапустить TweakMacro с правами администратора? Настройки сохранятся.", "It looks like Fortnite runs as administrator and TweakMacro doesn't. In that case Windows blocks macros from reaching the game.`n`nRestart TweakMacro as administrator? Your settings are kept."
             , "Что-то пошло не так — подробности в «Диагностике» (меню в трее)", "Something went wrong, see Diagnostics in the tray menu"
