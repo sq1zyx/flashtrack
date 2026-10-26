@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.3"
+APP_VERSION := "4.4"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -225,6 +225,32 @@ AfterStairs=1
 AfterCone=1
 AfterEdit=1
 
+[EditBinds]
+; Бинды редакта: своя клавиша — стена сама редактируется в заданную форму. Обычный редакт работает как раньше.
+Enabled=0
+; Сколько пикселей движения мыши между соседними клетками сетки редакта (подбирается под твою чувствительность)
+TileStep=60
+EnterDelay=25
+; Пауза между клетками, мс
+ClickDelay=12
+ConfirmBy=release
+ConfirmDelay=10
+; 1 = после редакта вернуть прицел туда, где он был
+ReturnAim=1
+; Клетки стены 3×3: 1 2 3 / 4 5 6 / 7 8 9 — через запятую
+Name1=Окно
+Key1=
+Tiles1=5
+Name2=Дверь
+Key2=
+Tiles2=5,8
+Name3=Своя 1
+Key3=
+Tiles3=
+Name4=Своя 2
+Key4=
+Tiles4=
+
 [Slide]
 Enabled=0
 Trigger=CapsLock
@@ -327,6 +353,7 @@ BUILTIN := [
     {sec: "Macro:SprintReset", name: "Sprint reset"},
     {sec: "Macro:Mantle", name: "Mantle"},
     {sec: "Slide", name: "Slide spam"},
+    {sec: "EditBinds", name: "Edit binds", badge: "EDIT"},
     {sec: "Macro:CrouchPeek", name: "Crouch peek"},
     {sec: "Pickup", name: "Pick-up"},
     {sec: "RapidFire", name: "Rapid fire"},
@@ -860,6 +887,10 @@ ApplyEngine() {
         t := Get("Slide", "Trigger")
         Reg(ctx, t, Counted.Bind("Slide", SlideSpam.Bind(t)), "Slide spam")
     }
+    if Bool("EditBinds", "Enabled")
+        loop 4
+            if (Get("EditBinds", "Key" A_Index) != "" && Get("EditBinds", "Tiles" A_Index) != "")
+                Reg(ctx, Get("EditBinds", "Key" A_Index), Counted.Bind("EditBinds", EditPreset.Bind(A_Index)), "Edit: " Get("EditBinds", "Name" A_Index))
     if Bool("Pickup", "Enabled") {
         t := Get("Pickup", "Trigger")
         Reg(ctx, t, Counted.Bind("Pickup", Pickup.Bind(t)), "Pick-up")
@@ -1087,6 +1118,92 @@ Build(piece, *) {
 
 ; Слайд-спам: пока держишь клавишу — подкат, встал, снова подкат. Подкат в начале даёт рывок скорости.
 ; Подкат получается на бегу (спринт), поэтому держи спринт или включи в Fortnite «Спринт по умолчанию».
+; ───── бинды редакта ─────
+; Сетка стены 3×3, клетки 1…9 построчно сверху. При входе в редакт прицел смотрит в центр (клетка 5),
+; макрос сдвигает мышь на TileStep пикселей между клетками и выделяет нужные.
+ParseTiles(s) {
+    out := [], seen := Map()
+    for v in StrSplit(s, ",", " ")
+        if (v ~= "^[1-9]$" && !seen.Has(v))
+            out.Push(Integer(v)), seen[v] := 1
+    return out
+}
+; Путь через все клетки по соседним (без диагоналей) — нужен, когда редакт подтверждается отпусканием:
+; выбор держится зажатым, и всё, через что проходит прицел, выделяется. Начинаем как можно ближе к центру.
+TilePath(tiles) {
+    set := Map()
+    for t in tiles
+        set[t] := 1
+    near(a, b) => Abs(Mod(a - 1, 3) - Mod(b - 1, 3)) + Abs((a - 1) // 3 - (b - 1) // 3) = 1
+    dist(t) => Abs(Mod(t - 1, 3) - 1) + Abs((t - 1) // 3 - 1)
+    best := 0
+    dfs(path, used) {
+        if (path.Length = tiles.Length)
+            return path.Clone()
+        for t in tiles
+            if !used.Has(t) && near(path[path.Length], t) {
+                used[t] := 1, path.Push(t)
+                if (res := dfs(path, used))
+                    return res
+                path.Pop(), used.Delete(t)
+            }
+        return 0
+    }
+    starts := tiles.Clone()
+    loop starts.Length - 1                          ; сортировка по удалённости от центра
+        loop starts.Length - A_Index
+            if dist(starts[A_Index]) > dist(starts[A_Index + 1])
+                tmp := starts[A_Index], starts[A_Index] := starts[A_Index + 1], starts[A_Index + 1] := tmp
+    for st in starts
+        if (res := dfs([st], Map(st, 1)))
+            return res
+    return 0
+}
+MouseRel(dx, dy) {
+    if (dx || dy)
+        DllCall("mouse_event", "uint", 1, "int", dx, "int", dy, "uint", 0, "uptr", 0)
+}
+EditPreset(n, *) {
+    tiles := ParseTiles(Get("EditBinds", "Tiles" n))
+    if !tiles.Length
+        return
+    release := Get("EditBinds", "ConfirmBy", "release") != "key" && !Bool("Competitive", "Enabled")
+    path := release ? TilePath(tiles) : tiles
+    if !path {
+        Notify(Tr("Эту форму нельзя выделить одним движением — включи «Подтверждение: клавишей»"), 2500)
+        return
+    }
+    step := Num("EditBinds", "TileStep", 60), pause := Num("EditBinds", "ClickDelay", 12)
+    cur := 5, sx := 0, sy := 0
+    go(t) {
+        dx := (Mod(t - 1, 3) - Mod(cur - 1, 3)) * step, dy := ((t - 1) // 3 - (cur - 1) // 3) * step
+        MouseRel(dx, dy)
+        sx += dx, sy += dy, cur := t
+        Wait(pause)
+    }
+    StopPlace()
+    Tap(B("Edit"))
+    Wait(Num("EditBinds", "EnterDelay", 25))
+    if release {
+        go(path[1])
+        Down(B("Select"))
+        Wait(pause)
+        loop path.Length - 1
+            go(path[A_Index + 1])
+        Up(B("Select"))
+    } else {
+        for t in path {
+            go(t)
+            Tap(B("Select"))
+            Wait(pause)
+        }
+    }
+    if Bool("EditBinds", "ReturnAim", true)
+        MouseRel(-sx, -sy)
+    Confirm("EditBinds")
+    AutoSprint("Edit")
+}
+
 SlideSpam(trig, *) {
     StopPlace()
     hold := Get("Slide", "CrouchMode", "toggle") = "hold"
@@ -2758,6 +2875,9 @@ InitForms() {
         , Fld("key", "WallTrigger", "Стена"), Fld("key", "FloorTrigger", "Пол"), Fld("key", "StairsTrigger", "Лестница")
         , Fld("key", "ConeTrigger", "Конус"), Fld("num", "PlaceDelay", "Задержка установки")
         , Fld("toggle", "Continuous", "Непрерывная стройка"), Fld("text", "StopKeys", "Клавиши, отпускающие ЛКМ", {w: 200})]}
+    FORMS["EditBinds"] := {desc: "Жмёшь свою клавишу — стена сама редактируется в заданную форму: окно, дверь или своя. Обычный редакт работает как раньше. Смотри в центр стены.", fields: [en
+        , Fld("num", "TileStep", "Шаг между клетками", {u: "px"}), ed, Fld("num", "ClickDelay", "Пауза между клетками"), cb, cd
+        , Fld("toggle", "ReturnAim", "Возвращать прицел")]}
     FORMS["Slide"] := {desc: "Пока держишь клавишу на бегу — персонаж раз за разом делает подкат и встаёт. Каждый подкат даёт рывок скорости, поэтому бежишь быстрее.", fields: [en, tr
         , Fld("choice", "CrouchMode", "Присед в Fortnite", {o: ["toggle", "hold"], l: ["Переключение", "Удержание"], bw: 120})
         , Fld("num", "SlideMs", "Длина подката"), Fld("num", "Gap", "Пауза между подкатами"), Fld("toggle", "JumpCancel", "Выходить из подката прыжком")]}
@@ -2790,6 +2910,9 @@ InitHints() {
         , "AfterStairs", "Нажимать спринт после лестницы из Instant build."
         , "AfterCone", "Нажимать спринт после конуса из Instant build."
         , "AfterEdit", "Нажимать спринт после Drag edit, Instant edit и Infinite edit."
+        , "TileStep", "На сколько пикселей сдвигать мышь между клетками сетки редакта. Зависит от чувствительности в редакте и расстояния до стены: если выделяется не та клетка — меняй по 5–10."
+        , "ClickDelay", "Пауза после каждого сдвига, чтобы игра успела заметить клетку. При низком FPS увеличь до 20–30."
+        , "ReturnAim", "После редакта вернуть прицел в исходную точку — смотришь туда же, куда смотрел."
         , "CrouchMode", "Как настроен присед в Fortnite. «Переключение» — нажал и сидишь, нажал ещё раз — встал. «Удержание» — сидишь, пока держишь клавишу."
         , "SlideMs", "Сколько длится один подкат. 250–350 мс — самый быстрый рывок."
         , "Gap", "Пауза после того, как встал, перед следующим подкатом."
@@ -4311,6 +4434,7 @@ Tr(msg) {
             , "Меню открывается в Fortnite: запусти игру и нажми {}", "The menu opens in Fortnite: start the game and press {}"
             , "Fortnite запущен. Меню TweakMacro — клавиша {}", "Fortnite is running. TweakMacro menu key: {}"
             , "Запустить Fortnite", "Launch Fortnite"
+            , "Эту форму нельзя выделить одним движением — включи «Подтверждение: клавишей»", "This shape can't be selected in one stroke, set “Confirm: by key”"
             , "Драг-эдит может стрелять: выбор в редактировании стоит на ЛКМ. Исправить — Macros → Drag edit", "Drag edit may shoot: edit select is on LMB. Fix it in Macros → Drag edit"
             , "Клавиша выбора: {}. Поставь её же в Fortnite: Управление → Строительство → «Выбор при редактировании»", "Select key: {}. Set the same key in Fortnite: Keyboard controls → Building → “Select building edit”"
             , "Новый матч: счётчик килов и таймер сброшены", "New match: kill counter and timer reset"
