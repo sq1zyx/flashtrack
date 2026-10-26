@@ -34,7 +34,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "3.7"
+APP_VERSION := "3.8"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -3549,6 +3549,7 @@ ShowLauncher(view := "", *) {
     LG.Show("w440 h690")
     LGShown := true
     LPush()
+    try LWnd.appear()
     if (view != "")
         try LWnd.setView(view)
     try WinActivate("ahk_id " LG.Hwnd)
@@ -3578,6 +3579,12 @@ Launch(show := true, *) {
     global Launched, LGShown, LG, LWB, LWnd
     first := !Launched
     Launched := true
+    ; лаунчер плавно гаснет, а не пропадает рывком (окно всё равно сразу уничтожается)
+    if (LG && LGShown)
+        try loop 6 {
+            WinSetTransparent(255 - A_Index * 40, LG)
+            Sleep 15
+        }
     if LG
         LG.Hide()
     LGShown := false

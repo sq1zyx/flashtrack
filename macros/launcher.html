@@ -107,6 +107,27 @@ h3{margin:4px 0 10px;font-size:14px}
 .keybox{display:flex;align-items:center;background:#0F0F13;border:1px solid #2A2A33;border-radius:12px;padding:10px 12px;margin:10px 0}
 .keybox .mono{flex:1;font-size:14px;font-weight:700;white-space:nowrap}
 
+/* ── плавность ── */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+#app.show{animation:fadeIn .35s cubic-bezier(.22,1,.36,1)}
+#app.show #hero .big{animation:pop .55s cubic-bezier(.22,1,.36,1)}
+#app.show #hero h1,#app.show #hero p{animation:rise .5s cubic-bezier(.22,1,.36,1)}
+#body.enter>*{animation:rise .42s cubic-bezier(.22,1,.36,1) both}
+#body.enter>*:nth-child(2){animation-delay:.05s}
+#body.enter>*:nth-child(3){animation-delay:.1s}
+#body.enter>*:nth-child(4){animation-delay:.15s}
+#body.enter>*:nth-child(n+5){animation-delay:.2s}
+.wb,.seg span,.lnk,.pl,.in,.tx,.news,.keybox{transition:background .25s cubic-bezier(.22,1,.36,1),color .25s cubic-bezier(.22,1,.36,1),border-color .25s cubic-bezier(.22,1,.36,1),transform .25s cubic-bezier(.22,1,.36,1),box-shadow .25s cubic-bezier(.22,1,.36,1)}
+.btn{transition:background .25s cubic-bezier(.22,1,.36,1),transform .2s cubic-bezier(.22,1,.36,1),box-shadow .25s cubic-bezier(.22,1,.36,1),border-color .25s cubic-bezier(.22,1,.36,1)}
+.btn:hover{transform:translateY(-1px)}
+.btn.pri:hover{box-shadow:0 12px 30px rgba(229,36,47,.45)}
+.btn:active,.pl:active,.wb:active{transform:scale(.97)}
+.btn.dis:hover,.btn.dis:active{transform:none}
+.pl:hover{transform:translateY(-2px)}
+.news:hover{border-color:#33333D}
+.in:focus,.tx:focus{box-shadow:0 0 0 3px rgba(229,36,47,.16)}
 #foot{position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;justify-content:center;color:#5E5E6A;font-size:11px}
 #foot .lnk{color:#8C8C99;font-weight:400;margin:0 8px}
 </style>
@@ -131,8 +152,10 @@ h3{margin:4px 0 10px;font-size:14px}
 </div>
 <script>window.onerror = function (m, u, l) { document.title = 'JSERR ' + m + ' @' + l; };</script>
 <script>
-var ahk = null, S = null, view = '', plan = 'm3', lastHtml = '', promoCode = '';
+var ahk = null, S = null, view = '', plan = 'm3', lastHtml = '', promoCode = '', lastView = null, lastFoot = '', lastSub = '', sbUpd = function () {};
 function setBridge(b) { ahk = b; }
+// Окно показано — проиграть появление (страница грузится скрытой, поэтому запускаем вручную)
+function appear() { var a = $('app'); a.className = ''; void a.offsetWidth; a.className = 'show'; lastView = null; lastHtml = ''; if (S) render(JSON.stringify(S)); }
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function call(name, a, b, c) {
@@ -259,16 +282,23 @@ function render(json) {
   lang = S.lang === 'en' ? 'en' : 'ru';
   var segs = $('lang').getElementsByTagName('span');
   for (i = 0; i < segs.length; i++) segs[i].className = segs[i].getAttribute('data-v') === lang ? 'on' : '';
-  $('sub').innerHTML = esc(t('Макросы для Fortnite')) + ' · v' + esc(S.version);
+  var sub = esc(t('Макросы для Fortnite')) + ' · v' + esc(S.version);
+  if (sub !== lastSub) { lastSub = sub; $('sub').innerHTML = sub; }
   var f = [];
   if (S.api) f.push('<span class="lnk" data-act="site">' + t('Сайт') + '</span>', '<span class="lnk" data-act="view" data-v="support">' + t('Поддержка') + '</span>');
   f.push('<span class="lnk" data-act="folder">' + t('Папка программы') + '</span>', '<span class="lnk" data-act="diag">' + t('Диагностика') + '</span>', '<span>v' + esc(S.version) + '</span>');
-  $('foot').innerHTML = f.join(' · ');
+  var foot = f.join(' · ');
+  if (foot !== lastFoot) { lastFoot = foot; $('foot').innerHTML = foot; }
 
   var v = curView(), h = (v === 'ready' || v === 'key' || v === 'wait' ? statusCard() : '') + mainPart();
   if (h !== lastHtml) {
     lastHtml = h;
-    $('body').innerHTML = h;
+    var b = $('body');
+    // анимация появления — только при смене экрана, а не при каждом обновлении состояния
+    b.className = '';
+    b.innerHTML = h;
+    if (v !== lastView) { lastView = v; b.scrollTop = 0; void b.offsetWidth; b.className = 'enter'; }
+    sbUpd();
     for (var id in keep) if ($(id) && keep[id]) $(id).value = keep[id];
     if (focus && $(focus)) try { $(focus).focus(); } catch (e) {}
   }
@@ -518,6 +548,8 @@ document.onkeydown = function (e) {
     th.style.top = Math.round((track - h) * el.scrollTop / max) + 'px';
   }
   el.onscroll = upd;
+  sbUpd = upd;
+  window.onresize = upd;
   th.onmousedown = function (e) {
     e = e || window.event;
     var y0 = e.clientY, s0 = el.scrollTop, track = bar.offsetHeight - th.offsetHeight, max = el.scrollHeight - el.clientHeight;
@@ -530,7 +562,6 @@ document.onkeydown = function (e) {
     if (e.preventDefault) e.preventDefault();
     return false;
   };
-  setInterval(function () { if (!document.hasFocus || document.hasFocus()) upd(); }, 400);
 })();
 document.oncontextmenu = function () { return false; };
 document.onselectstart = function (e) { e = e || window.event; var tg = e.target || e.srcElement; return tg.tagName === 'INPUT'; };
