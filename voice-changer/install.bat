@@ -54,11 +54,13 @@ if not exist "%APPDIR%" mkdir "%APPDIR%"
 if exist "%~dp0voice_changer.py" (
     copy /y "%~dp0voice_changer.py" "%APPDIR%\voice_changer.py" >nul
     copy /y "%~dp0requirements.txt" "%APPDIR%\requirements.txt" >nul
+    if exist "%~dp0install_vbcable.bat" copy /y "%~dp0install_vbcable.bat" "%APPDIR%\install_vbcable.bat" >nul
 ) else (
     echo       Скачиваю с GitHub...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/voice_changer.py' -OutFile '%APPDIR%\voice_changer.py'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/requirements.txt' -OutFile '%APPDIR%\requirements.txt'"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/voice_changer.py' -OutFile '%APPDIR%\voice_changer.py'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/requirements.txt' -OutFile '%APPDIR%\requirements.txt'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/install_vbcable.bat' -OutFile '%APPDIR%\install_vbcable.bat'"
 )
 if not exist "%APPDIR%\voice_changer.py" goto err_download_app
+if not exist "%APPDIR%\install_vbcable.bat" powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/install_vbcable.bat' -OutFile '%APPDIR%\install_vbcable.bat'"
 
 rem ---------------------------------------------------------- 3. библиотеки
 echo [3/5] Ставлю библиотеки: numpy, sounddevice...
@@ -113,11 +115,9 @@ if not errorlevel 1 (
 echo.
 echo       Чтобы ваш новый голос слышали в Discord, играх и OBS,
 echo       нужен бесплатный драйвер VB-Audio Virtual Cable.
-choice /c YN /n /m "      Открыть страницу загрузки VB-Cable? [Y - да, N - нет]: "
+choice /c YN /n /m "      Скачать и установить VB-Cable сейчас? [Y - да, N - нет]: "
 if errorlevel 2 goto done
-start "" "https://vb-audio.com/Cable/"
-echo       Скачайте архив, распакуйте и запустите VBCABLE_Setup_x64.exe
-echo       от имени администратора, затем перезагрузите компьютер.
+call "%APPDIR%\install_vbcable.bat"
 
 :done
 echo.

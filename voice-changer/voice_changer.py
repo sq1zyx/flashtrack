@@ -500,191 +500,496 @@ def process_file(src, dst, preset, enhance=0.0, boost_db=0.0):
 
 # ---------------------------------------------------------------- интерфейс ---
 
-def run_gui():
-    import tkinter as tk
-    from tkinter import messagebox, ttk
+VOICE_GROUPS = {
+    "Люди": ["Обычный", "Женский", "Мужской", "Ребёнок", "Подросток",
+             "Бас", "Старик", "Бабушка", "Диктор", "Нервный"],
+    "Персонажи": ["Великан", "Гном", "Эльф", "Бурундук", "Мультяшка",
+                  "Демон", "Монстр", "Зомби", "Злодей в маске", "Призрак"],
+    "Техника": ["Робот", "Андроид", "Инопланетянин", "Ретро 8-бит",
+                "Рация", "Телефон", "Мегафон"],
+    "Атмосфера": ["Шёпот", "Под водой", "Хор", "Пещера", "Собор"],
+}
 
+VOICE_INFO = {
+    "Обычный": "без изменений",
+    "Женский": "выше и мягче",
+    "Мужской": "ниже и грубее",
+    "Ребёнок": "тонкий, детский",
+    "Подросток": "чуть моложе",
+    "Бас": "глубокий и плотный",
+    "Старик": "хриплый, с дрожью",
+    "Бабушка": "старческий, выше",
+    "Диктор": "как на радио",
+    "Нервный": "голос дрожит",
+    "Великан": "огромный и гулкий",
+    "Гном": "низкий, но мелкий",
+    "Эльф": "звонкий, лёгкий",
+    "Бурундук": "быстрый писк",
+    "Мультяшка": "смешной",
+    "Демон": "низкий рык с эхом",
+    "Монстр": "самый страшный",
+    "Зомби": "хрипящий и глухой",
+    "Злодей в маске": "через маску",
+    "Призрак": "шёпот с эхом",
+    "Робот": "металлический",
+    "Андроид": "цифровой",
+    "Инопланетянин": "странный, чужой",
+    "Ретро 8-бит": "как из приставки",
+    "Рация": "шипящая связь",
+    "Телефон": "как в трубке",
+    "Мегафон": "громкий и рваный",
+    "Шёпот": "только шёпот",
+    "Под водой": "глухо и плывёт",
+    "Хор": "много голосов",
+    "Пещера": "далёкое эхо",
+    "Собор": "огромный зал",
+}
+
+# Цвета те же, что в версии для телефона
+THEME = {
+    "bg": "#0E1117", "panel": "#171B23", "card": "#222834", "card_hover": "#2C3342",
+    "line": "#2A303B", "text": "#EDF0F5", "muted": "#98A0AF",
+    "accent": "#FF6544", "accent_hover": "#FF7E61", "accent_text": "#1A0A05",
+    "live": "#3DDC97", "danger": "#E5484D", "danger_hover": "#F0616A",
+}
+
+
+def _signed(v, unit):
+    return f"{'+' if v > 0 else ''}{v:g} {unit}"
+
+
+def _pct(v):
+    return f"{round(v * 100)}%"
+
+
+SLIDER_TABS = {
+    "Голос": [
+        ("pitch", "Высота тона", -12, 12, 48, lambda v: _signed(round(v * 2) / 2, "пт")),
+        ("formant", "Тембр (размер голоса)", -12, 12, 48, lambda v: _signed(round(v * 2) / 2, "пт")),
+        ("whisper", "Шёпот", 0, 1, 20, _pct),
+        ("vibrato", "Дрожание", 0, 1, 20, _pct),
+        ("vibrato_rate", "Скорость дрожания", 0.5, 10, 19, lambda v: f"{v:.1f} Гц"),
+        ("lowpass", "Глухость", 300, 20000, 197,
+         lambda v: "выкл" if v >= 19000 else f"{v / 1000:.1f} кГц"),
+    ],
+    "Эффекты": [
+        ("robot", "Робот", 0, 1, 20, _pct),
+        ("robot_freq", "Частота робота", 20, 400, 76, lambda v: f"{v:.0f} Гц"),
+        ("crush", "8-бит", 0, 1, 20, _pct),
+        ("radio", "Рация", 0, 1, 20, _pct),
+        ("distortion", "Искажение", 0, 1, 20, _pct),
+        ("chorus", "Хор", 0, 1, 20, _pct),
+        ("echo", "Эхо", 0, 0.9, 18, _pct),
+        ("echo_ms", "Задержка эха", 30, 1000, 97, lambda v: f"{v:.0f} мс"),
+        ("reverb", "Зал (реверберация)", 0, 1, 20, _pct),
+    ],
+    "Громкость и качество": [
+        ("enhance", "Улучшение голоса", 0, 1, 20, _pct),
+        ("boost_db", "Усиление", -12, 30, 42, lambda v: _signed(round(v), "дБ")),
+        ("gate", "Шумодав", 0, 0.1, 20, lambda v: "выкл" if v <= 0 else f"{v * 1000:.0f}"),
+    ],
+}
+
+
+def run_gui():
+    import os
+    import webbrowser
+    from tkinter import messagebox
+
+    try:
+        import customtkinter as ctk
+    except ImportError:
+        sys.exit("Нужен модуль интерфейса: pip install customtkinter")
     import sounddevice as sd
 
+    T = THEME
+    ctk.set_appearance_mode("dark")
     engine = VoiceEngine()
-    state = {"stream": None}
+    state = {"stream": None, "level": 0.0, "shown": 0.0, "voice": "Обычный", "group": "Люди"}
 
-    root = tk.Tk()
+    root = ctk.CTk(fg_color=T["bg"])
     root.title("Voice Changer")
-    root.resizable(False, False)
-    pad = {"padx": 8, "pady": 4}
+    root.geometry("1180x760")
+    root.minsize(1060, 700)
+    root.grid_columnconfigure(1, weight=1)
+    root.grid_rowconfigure(0, weight=1)
 
-    # --- устройства
-    devices = sd.query_devices()
+    def font(size, weight="normal"):
+        return ctk.CTkFont(size=size, weight=weight)
+
+    def caption(parent, text):
+        return ctk.CTkLabel(parent, text=text, font=font(12, "bold"), text_color=T["muted"], anchor="w")
+
+    def hint(parent, text, wrap=270):
+        return ctk.CTkLabel(parent, text=text, font=font(12), text_color=T["muted"],
+                            anchor="w", justify="left", wraplength=wrap)
+
+    # ------------------------------------------------ устройства
     hostapis = sd.query_hostapis()
+    devices = sd.query_devices()
 
-    def label(i, d):
-        return f"{i}: {d['name']} ({hostapis[d['hostapi']]['name']})"
+    def device_lists(show_all):
+        # MME есть на любом Windows и работает со всеми устройствами — показываем его,
+        # остальные драйверы только по галочке, чтобы список не дублировался 3-4 раза
+        mme = [i for i, a in enumerate(hostapis) if "MME" in a["name"]]
+        ins, outs = {}, {}
+        for i, d in enumerate(devices):
+            if not show_all and mme and d["hostapi"] not in mme:
+                continue
+            name = d["name"] if not show_all else f"{d['name']}  ·  {hostapis[d['hostapi']]['name']}"
+            if d["max_input_channels"] > 0:
+                ins.setdefault(name, i)
+            if d["max_output_channels"] > 0:
+                outs.setdefault(name, i)
+        return ins, outs
 
-    inputs = [label(i, d) for i, d in enumerate(devices) if d["max_input_channels"] > 0]
-    outputs = [label(i, d) for i, d in enumerate(devices) if d["max_output_channels"] > 0]
-    default_in, default_out = sd.default.device
+    inputs, outputs = device_lists(False)
 
-    dev_frame = ttk.LabelFrame(root, text="Устройства")
-    dev_frame.grid(row=0, column=0, sticky="ew", **pad)
-    ttk.Label(dev_frame, text="Микрофон:").grid(row=0, column=0, sticky="w")
-    in_var = tk.StringVar()
-    in_box = ttk.Combobox(dev_frame, textvariable=in_var, values=inputs, width=60, state="readonly")
-    in_box.grid(row=0, column=1, **pad)
-    ttk.Label(dev_frame, text="Вывод:").grid(row=1, column=0, sticky="w")
-    out_var = tk.StringVar()
-    out_box = ttk.Combobox(dev_frame, textvariable=out_var, values=outputs, width=60, state="readonly")
-    out_box.grid(row=1, column=1, **pad)
-    ttk.Label(
-        dev_frame,
-        text="Для Discord/игр выберите вывод «CABLE Input» (VB-Cable),\n"
-             "а в Discord — микрофон «CABLE Output».",
-        foreground="#666",
-    ).grid(row=2, column=0, columnspan=2, sticky="w", **pad)
+    # ------------------------------------------------ левая панель
+    side = ctk.CTkFrame(root, fg_color=T["panel"], corner_radius=0, width=330)
+    side.grid(row=0, column=0, sticky="nsew")
+    side.grid_propagate(False)
+    side.grid_columnconfigure(0, weight=1)
+    pad = {"padx": 24}
 
-    for box, items, default in ((in_box, inputs, default_in), (out_box, outputs, default_out)):
-        match = [s for s in items if s.startswith(f"{default}:")]
-        if match:
-            box.set(match[0])
-        elif items:
-            box.set(items[0])
+    ctk.CTkLabel(side, text="Voice Changer", font=font(26, "bold"), text_color=T["text"],
+                 anchor="w").grid(row=0, column=0, sticky="ew", pady=(28, 0), **pad)
+    hint(side, "Меняет голос в реальном времени —\nв наушниках, Discord и играх").grid(
+        row=1, column=0, sticky="ew", pady=(4, 22), **pad)
 
-    # --- пресеты
-    preset_frame = ttk.LabelFrame(root, text="Голоса")
-    preset_frame.grid(row=1, column=0, sticky="ew", **pad)
-    current = tk.StringVar(value="Обычный")
+    caption(side, "1   МИКРОФОН").grid(row=2, column=0, sticky="ew", **pad)
+    in_menu = ctk.CTkOptionMenu(side, values=list(inputs) or ["Нет микрофона"], width=282, height=36,
+                                dynamic_resizing=False, fg_color=T["card"], button_color=T["card"],
+                                button_hover_color=T["card_hover"], dropdown_fg_color=T["card"],
+                                text_color=T["text"], font=font(13))
+    in_menu.grid(row=3, column=0, sticky="ew", pady=(6, 18), **pad)
 
-    # --- ползунки во вкладках
-    tabs = ttk.Notebook(root)
-    tabs.grid(row=2, column=0, sticky="ew", **pad)
+    caption(side, "2   КУДА ВЫВОДИТЬ ГОЛОС").grid(row=4, column=0, sticky="ew", **pad)
+    route = ctk.CTkSegmentedButton(side, values=["Наушники", "Discord и игры"], height=36, font=font(13),
+                                   selected_color=T["accent"], selected_hover_color=T["accent_hover"],
+                                   unselected_color=T["card"], unselected_hover_color=T["card_hover"],
+                                   fg_color=T["card"], text_color=T["text"])
+    route.grid(row=5, column=0, sticky="ew", pady=(6, 8), **pad)
+    out_menu = ctk.CTkOptionMenu(side, values=list(outputs) or ["Нет устройства"], width=282, height=36,
+                                 dynamic_resizing=False, fg_color=T["card"], button_color=T["card"],
+                                 button_hover_color=T["card_hover"], dropdown_fg_color=T["card"],
+                                 text_color=T["text"], font=font(13))
+    out_menu.grid(row=6, column=0, sticky="ew", **pad)
+    route_hint = hint(side, "")
+    route_hint.grid(row=7, column=0, sticky="ew", pady=(8, 0), **pad)
+    cable_btn = ctk.CTkButton(side, text="Установить VB-Cable", height=32, font=font(13),
+                              fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"])
+    show_all = ctk.BooleanVar(value=False)
+    ctk.CTkCheckBox(side, text="Показать все драйверы", variable=show_all, font=font(12),
+                    text_color=T["muted"], fg_color=T["accent"], hover_color=T["accent_hover"],
+                    border_color=T["line"], checkbox_width=18, checkbox_height=18,
+                    command=lambda: refresh_devices()).grid(row=9, column=0, sticky="w", pady=(10, 0), **pad)
+
+    caption(side, "3   ВКЛЮЧИТЬ").grid(row=10, column=0, sticky="ew", pady=(24, 0), **pad)
+    start_btn = ctk.CTkButton(side, text="▶  Старт", height=54, corner_radius=14, font=font(18, "bold"),
+                              fg_color=T["accent"], hover_color=T["accent_hover"], text_color=T["accent_text"])
+    start_btn.grid(row=11, column=0, sticky="ew", pady=(8, 10), **pad)
+    status_row = ctk.CTkFrame(side, fg_color="transparent")
+    status_row.grid(row=12, column=0, sticky="ew", **pad)
+    status_row.grid_columnconfigure(1, weight=1)
+    status_dot = ctk.CTkLabel(status_row, text="●", font=font(14), text_color=T["muted"], width=16)
+    status_dot.grid(row=0, column=0)
+    status_lbl = ctk.CTkLabel(status_row, text="Выключено", font=font(13), text_color=T["muted"], anchor="w")
+    status_lbl.grid(row=0, column=1, sticky="w", padx=(4, 0))
+    meter = ctk.CTkProgressBar(side, height=8, corner_radius=4, fg_color=T["card"], progress_color=T["live"])
+    meter.set(0)
+    meter.grid(row=13, column=0, sticky="ew", pady=(8, 0), **pad)
+
+    side.grid_rowconfigure(14, weight=1)
+    hint(side, "Совет: слушайте себя только в наушниках —\nс колонками будет свист.").grid(
+        row=15, column=0, sticky="ew", pady=(0, 24), **pad)
+
+    # ------------------------------------------------ основная часть
+    main = ctk.CTkFrame(root, fg_color="transparent")
+    main.grid(row=0, column=1, sticky="nsew", padx=28, pady=24)
+    main.grid_columnconfigure(0, weight=1)
+    main.grid_rowconfigure(3, weight=1)
+
+    # карточка «сейчас»
+    now = ctk.CTkFrame(main, fg_color=T["panel"], corner_radius=18)
+    now.grid(row=0, column=0, sticky="ew")
+    now.grid_columnconfigure(0, weight=1)
+    caption(now, "СЕЙЧАС ВЫБРАН ГОЛОС").grid(row=0, column=0, sticky="w", padx=24, pady=(20, 0))
+    voice_lbl = ctk.CTkLabel(now, text="", font=font(34, "bold"), text_color=T["text"], anchor="w")
+    voice_lbl.grid(row=1, column=0, sticky="w", padx=24)
+    voice_info = ctk.CTkLabel(now, text="", font=font(14), text_color=T["muted"], anchor="w")
+    voice_info.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 20))
+
+    loud_box = ctk.CTkFrame(now, fg_color="transparent")
+    loud_box.grid(row=0, column=1, rowspan=3, padx=20, pady=16, sticky="e")
+    caption(loud_box, "ГРОМКОСТЬ").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+    loud_buttons = {}
+    for col, (key, text) in enumerate((("normal", "Обычная"), ("loud", "Громкий и чистый"), ("max", "Максимум"))):
+        b = ctk.CTkButton(loud_box, text=text, height=40, corner_radius=12, font=font(13, "bold"),
+                          fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"],
+                          width=96 if key != "loud" else 160)
+        b.grid(row=1, column=col, padx=(0 if col == 0 else 8, 0))
+        loud_buttons[key] = b
+    loud_hint = hint(loud_box, "", wrap=380)
+    loud_hint.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+    # выбор голоса
+    head = ctk.CTkFrame(main, fg_color="transparent")
+    head.grid(row=1, column=0, sticky="ew", pady=(24, 10))
+    head.grid_columnconfigure(0, weight=1)
+    ctk.CTkLabel(head, text="Голоса", font=font(20, "bold"), text_color=T["text"], anchor="w").grid(
+        row=0, column=0, sticky="w")
+    groups = ctk.CTkSegmentedButton(head, values=list(VOICE_GROUPS), height=34, font=font(13),
+                                    selected_color=T["accent"], selected_hover_color=T["accent_hover"],
+                                    unselected_color=T["panel"], unselected_hover_color=T["card"],
+                                    fg_color=T["panel"], text_color=T["text"])
+    groups.grid(row=0, column=1, sticky="e")
+
+    grid = ctk.CTkFrame(main, fg_color="transparent")
+    grid.grid(row=2, column=0, sticky="ew")
+    COLS = 5
+    for c in range(COLS):
+        grid.grid_columnconfigure(c, weight=1, uniform="voice")
+    cards = {}
+
+    # тонкая настройка
+    tabs = ctk.CTkTabview(main, fg_color=T["panel"], corner_radius=18,
+                          segmented_button_fg_color=T["bg"], segmented_button_selected_color=T["card_hover"],
+                          segmented_button_selected_hover_color=T["card_hover"],
+                          segmented_button_unselected_color=T["bg"],
+                          segmented_button_unselected_hover_color=T["card"], text_color=T["text"])
+    tabs.grid(row=3, column=0, sticky="nsew", pady=(18, 0))
     sliders = {}
-    spec = {
-        "Голос": [
-            ("pitch", "Высота тона (полутоны)", -12, 12),
-            ("formant", "Тембр / форманты (полутоны)", -12, 12),
-            ("whisper", "Шёпот", 0, 1),
-            ("vibrato", "Дрожание", 0, 1),
-            ("vibrato_rate", "Скорость дрожания (Гц)", 0.5, 10),
-            ("lowpass", "Глухость (срез, Гц)", 300, 20000),
-        ],
-        "Эффекты": [
-            ("robot", "Робот", 0, 1),
-            ("robot_freq", "Частота робота (Гц)", 20, 400),
-            ("crush", "8-бит", 0, 1),
-            ("radio", "Рация", 0, 1),
-            ("distortion", "Искажение", 0, 1),
-            ("chorus", "Хор", 0, 1),
-            ("echo", "Эхо", 0, 0.9),
-            ("echo_ms", "Задержка эха (мс)", 30, 1000),
-            ("reverb", "Реверберация (зал)", 0, 1),
-        ],
-        "Громкость и качество": [
-            ("enhance", "Улучшение голоса", 0, 1),
-            ("boost_db", "Усиление (дБ)", -12, 30),
-            ("gate", "Шумодав", 0, 0.1),
-        ],
-    }
-    for tab_name, rows in spec.items():
-        tab = ttk.Frame(tabs)
-        tabs.add(tab, text=tab_name)
-        for row, (key, text, lo, hi) in enumerate(rows):
-            ttk.Label(tab, text=text).grid(row=row, column=0, sticky="w", padx=8)
-            var = tk.DoubleVar(value=engine.params[key])
-            value_lbl = ttk.Label(tab, width=7)
-            value_lbl.grid(row=row, column=2)
+    for tab_name, rows in SLIDER_TABS.items():
+        tab = tabs.add(tab_name)
+        tab.grid_columnconfigure(1, weight=1)
+        tab.grid_columnconfigure(4, weight=1)
+        for i, (key, label, lo, hi, steps, fmt) in enumerate(rows):
+            r, c = i % 5, (i // 5) * 3  # до 5 строк в колонке, потом вторая колонка
+            ctk.CTkLabel(tab, text=label, font=font(13), text_color=T["text"], anchor="w", width=170).grid(
+                row=r, column=c, sticky="w", padx=(16, 8), pady=7)
+            value = ctk.CTkLabel(tab, text="", font=font(13), text_color=T["muted"], width=64, anchor="e")
 
-            def on_change(_=None, key=key, var=var, value_lbl=value_lbl):
-                engine.params[key] = var.get()
-                value_lbl.config(text=f"{var.get():.2f}")
+            def on_change(v, key=key, fmt=fmt, value=value):
+                engine.params[key] = float(v)
+                value.configure(text=fmt(float(v)))
+                if key in SOUND_DEFAULTS:
+                    update_loud_buttons()
 
-            ttk.Scale(tab, from_=lo, to=hi, variable=var, length=320,
-                      command=on_change).grid(row=row, column=1, padx=8, pady=2)
-            on_change()
-            sliders[key] = (var, on_change)
+            s = ctk.CTkSlider(tab, from_=lo, to=hi, number_of_steps=steps, command=on_change, height=18,
+                              button_color=T["accent"], button_hover_color=T["accent_hover"],
+                              progress_color=T["accent"], fg_color=T["card"])
+            s.grid(row=r, column=c + 1, sticky="ew", pady=7)
+            value.grid(row=r, column=c + 2, sticky="e", padx=(8, 16))
+            sliders[key] = (s, on_change)
+    tabs.set("Голос")
 
+    # ------------------------------------------------ логика
     def sync_sliders():
-        for key, (var, on_change) in sliders.items():
-            var.set(engine.params[key])
-            on_change()
+        for key, (s, on_change) in sliders.items():
+            s.set(engine.params[key])
+            on_change(engine.params[key])
 
-    def apply_preset(name):
+    def voice_meta(name):
+        p = PRESETS[name]
+        parts = [VOICE_INFO[name]]
+        if p.get("pitch"):
+            parts.append(f"тон {_signed(p['pitch'], 'пт')}")
+        if p.get("formant"):
+            parts.append(f"тембр {_signed(p['formant'], 'пт')}")
+        return "  ·  ".join(parts)
+
+    def style_cards():
+        for name, (card, title, sub) in cards.items():
+            on = name == state["voice"]
+            card.configure(fg_color=T["accent"] if on else T["card"])
+            title.configure(text_color=T["accent_text"] if on else T["text"])
+            sub.configure(text_color=T["accent_text"] if on else T["muted"])
+
+    def make_card(name):
+        card = ctk.CTkFrame(grid, fg_color=T["card"], corner_radius=14, height=70, cursor="hand2")
+        card.grid_propagate(False)
+        card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure((0, 3), weight=1)
+        title = ctk.CTkLabel(card, text=name, font=font(15, "bold"), anchor="w", height=20)
+        title.grid(row=1, column=0, sticky="ew", padx=14)
+        sub = ctk.CTkLabel(card, text=VOICE_INFO[name], font=font(12), anchor="w", height=16)
+        sub.grid(row=2, column=0, sticky="ew", padx=14)
+
+        def hover(on):
+            if name != state["voice"]:
+                card.configure(fg_color=T["card_hover"] if on else T["card"])
+
+        for w in (card, title, sub):
+            w.bind("<Button-1>", lambda e: select_voice(name))
+            w.bind("<Enter>", lambda e: hover(True))
+            w.bind("<Leave>", lambda e: hover(False))
+        return card, title, sub
+
+    def select_voice(name):
+        state["voice"] = name
         engine.apply_preset(name)
-        current.set(name)
+        voice_lbl.configure(text=name)
+        voice_info.configure(text=voice_meta(name))
+        style_cards()
         sync_sliders()
 
-    def set_sound(values):
-        engine.params.update(values)
+    def show_group(group):
+        state["group"] = group
+        for w in grid.winfo_children():
+            w.destroy()
+        cards.clear()
+        for i, name in enumerate(VOICE_GROUPS[group]):
+            cards[name] = make_card(name)
+            cards[name][0].grid(row=i // COLS, column=i % COLS, sticky="ew", padx=5, pady=5)
+        style_cards()
+
+    LOUD_LEVELS = {
+        "normal": dict(SOUND_DEFAULTS),
+        "loud": dict(LOUD_PRESET),
+        "max": {**LOUD_PRESET, "boost_db": 24.0},
+    }
+    LOUD_HINTS = {
+        "normal": "Голос как есть, без обработки громкости.",
+        "loud": "Убирает гул, делает речь разборчивой и выравнивает громкость.",
+        "max": "Очень громко. Лимитер не даёт голосу хрипеть.",
+        None: "Настроено вручную во вкладке «Громкость и качество».",
+    }
+
+    def update_loud_buttons():
+        current = None
+        for key, values in LOUD_LEVELS.items():
+            if all(abs(engine.params[k] - v) < 1e-6 for k, v in values.items()):
+                current = key
+        for key, b in loud_buttons.items():
+            on = key == current
+            b.configure(fg_color=T["accent"] if on else T["card"],
+                        hover_color=T["accent_hover"] if on else T["card_hover"],
+                        text_color=T["accent_text"] if on else T["text"])
+        loud_hint.configure(text=LOUD_HINTS[current])
+
+    def set_loud(key):
+        engine.params.update(LOUD_LEVELS[key])
         sync_sliders()
+        update_loud_buttons()
 
-    loud_tab = tabs.winfo_children()[-1]
-    btns = ttk.Frame(loud_tab)
-    btns.grid(row=len(spec["Громкость и качество"]), column=0, columnspan=3, sticky="w", **pad)
-    ttk.Button(btns, text="🔊 Громкий и чистый голос",
-               command=lambda: set_sound(LOUD_PRESET)).pack(side="left", padx=4)
-    ttk.Button(btns, text="🔊🔊 Максимум",
-               command=lambda: set_sound({**LOUD_PRESET, "boost_db": 24.0})).pack(side="left", padx=4)
-    ttk.Button(btns, text="Сбросить",
-               command=lambda: set_sound(SOUND_DEFAULTS)).pack(side="left", padx=4)
-    ttk.Label(loud_tab, foreground="#666", text=(
-        "Улучшение: убирает гул, добавляет разборчивость и выравнивает громкость.\n"
-        "Лимитер не даст голосу хрипеть даже на максимальном усилении."
-    )).grid(row=len(spec["Громкость и качество"]) + 1, column=0, columnspan=3, sticky="w", **pad)
+    for key, b in loud_buttons.items():
+        b.configure(command=lambda k=key: set_loud(k))
 
-    columns = 6
-    for i, name in enumerate(PRESETS):
-        ttk.Button(preset_frame, text=name, width=14,
-                   command=lambda n=name: apply_preset(n)).grid(
-            row=i // columns, column=i % columns, padx=3, pady=3, sticky="ew")
+    def find_cable():
+        return next((n for n in outputs if "CABLE Input" in n), None)
 
-    # --- старт / стоп
-    status = tk.StringVar(value="Остановлено")
-    level = tk.DoubleVar(value=0)
+    def install_cable():
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_vbcable.bat")
+        if os.name == "nt" and os.path.exists(script):
+            os.startfile(script)
+        else:
+            webbrowser.open("https://vb-audio.com/Cable/")
+
+    cable_btn.configure(command=install_cable)
+
+    def on_route(choice):
+        cable_btn.grid_forget()
+        if choice == "Discord и игры":
+            cable = find_cable()
+            if cable:
+                out_menu.set(cable)
+                route_hint.configure(text="В Discord, игре или OBS выберите микрофон\n«CABLE Output (VB-Audio Virtual Cable)».",
+                                     text_color=T["text"])
+            else:
+                route_hint.configure(text="Нужен бесплатный драйвер VB-Cable. Установите его\nи перезагрузите компьютер.",
+                                     text_color=T["accent"])
+                cable_btn.grid(row=8, column=0, sticky="ew", pady=(8, 0), **pad)
+        else:
+            default_out = sd.default.device[1]
+            name = next((n for n, i in outputs.items() if i == default_out), None)
+            if name and "CABLE" not in name:
+                out_menu.set(name)
+            route_hint.configure(text="Вы слышите свой новый голос в наушниках.", text_color=T["muted"])
+        restart_if_running()
+
+    route.configure(command=on_route)
+
+    def refresh_devices():
+        nonlocal inputs, outputs
+        inputs, outputs = device_lists(show_all.get())
+        in_menu.configure(values=list(inputs) or ["Нет микрофона"])
+        out_menu.configure(values=list(outputs) or ["Нет устройства"])
+        pick_defaults()
+
+    def pick_defaults():
+        din, dout = sd.default.device
+        for menu, items, default in ((in_menu, inputs, din), (out_menu, outputs, dout)):
+            name = next((n for n, i in items.items() if i == default), None) or next(iter(items), None)
+            if name:
+                menu.set(name)
+
+    in_menu.configure(command=lambda _: restart_if_running())
+    out_menu.configure(command=lambda _: restart_if_running())
 
     def callback(indata, outdata, frames, time_info, status_flags):
         y = engine.process(indata[:, 0])
         outdata[:] = y[:, None]
-        level.set(min(100.0, float(np.abs(y).max()) * 100))
+        state["level"] = max(state["level"], float(np.abs(y).max()))
 
     def start():
         stop()
         try:
-            in_dev = int(in_var.get().split(":")[0])
-            out_dev = int(out_var.get().split(":")[0])
+            in_dev = inputs[in_menu.get()]
+            out_dev = outputs[out_menu.get()]
             out_ch = min(2, devices[out_dev]["max_output_channels"])
             stream = sd.Stream(
                 device=(in_dev, out_dev), samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE,
                 channels=(1, out_ch), dtype="float32", latency="low", callback=callback)
             stream.start()
+        except KeyError:
+            messagebox.showerror("Voice Changer", "Выберите микрофон и устройство вывода.")
+            return
         except Exception as e:  # noqa: BLE001 — показываем пользователю любую ошибку звука
-            messagebox.showerror("Ошибка звука", str(e))
+            messagebox.showerror("Voice Changer", "Не получилось включить звук:\n\n"
+                                 f"{e}\n\nПопробуйте другой микрофон или включите «Показать все драйверы».")
             return
         state["stream"] = stream
-        status.set("▶ Работает")
+        start_btn.configure(text="■  Стоп", fg_color=T["danger"], hover_color=T["danger_hover"], text_color="#FFFFFF")
+        status_dot.configure(text_color=T["live"])
+        status_lbl.configure(text="Работает — говорите", text_color=T["text"])
 
     def stop():
         if state["stream"] is not None:
             state["stream"].stop()
             state["stream"].close()
             state["stream"] = None
-        status.set("Остановлено")
-        level.set(0)
+        start_btn.configure(text="▶  Старт", fg_color=T["accent"], hover_color=T["accent_hover"],
+                            text_color=T["accent_text"])
+        status_dot.configure(text_color=T["muted"])
+        status_lbl.configure(text="Выключено", text_color=T["muted"])
 
-    ctrl = ttk.Frame(root)
-    ctrl.grid(row=3, column=0, sticky="ew", **pad)
-    ttk.Button(ctrl, text="▶ Старт", command=start).pack(side="left", padx=4)
-    ttk.Button(ctrl, text="■ Стоп", command=stop).pack(side="left", padx=4)
-    ttk.Label(ctrl, textvariable=status).pack(side="left", padx=12)
-    ttk.Label(ctrl, text="Голос:").pack(side="left")
-    ttk.Label(ctrl, textvariable=current, font=("", 10, "bold")).pack(side="left", padx=4)
-    ttk.Progressbar(ctrl, variable=level, maximum=100, length=180).pack(side="right", padx=4)
+    def restart_if_running():
+        if state["stream"] is not None:
+            start()
 
-    ttk.Label(root, text="Совет: слушайте себя в наушниках, иначе будет эффект обратной связи.",
-              foreground="#666").grid(row=4, column=0, sticky="w", **pad)
+    start_btn.configure(command=lambda: stop() if state["stream"] else start())
+
+    def poll_meter():
+        # звук идёт в другом потоке — индикатор обновляем из интерфейса
+        level, state["level"] = state["level"], 0.0
+        state["shown"] = max(level, state["shown"] * 0.85)
+        meter.set(min(1.0, state["shown"]))
+        root.after(50, poll_meter)
 
     def on_close():
         stop()
         root.destroy()
 
+    groups.configure(command=show_group)
+    groups.set("Люди")
+    show_group("Люди")
+    select_voice("Обычный")
+    pick_defaults()
+    route.set("Наушники")
+    on_route("Наушники")
+    update_loud_buttons()
+    poll_meter()
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
 
