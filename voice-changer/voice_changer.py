@@ -13,7 +13,9 @@ Voice Changer — изменение голоса в реальном време
 
 import argparse
 import sys
+import threading
 import wave
+from collections import deque
 
 import numpy as np
 
@@ -384,10 +386,14 @@ VOICE_DEFAULTS = {
 SOUND_DEFAULTS = {
     "enhance": 0.0,       # улучшение: эквалайзер + компрессор, 0..1
     "boost_db": 0.0,      # усиление, дБ
-    "gate": 0.01,         # порог шумодава
+    "gate": 0.004,        # порог шумодава
 }
 
-LOUD_PRESET = {"enhance": 1.0, "boost_db": 12.0, "gate": 0.02}
+LOUD_PRESET = {"enhance": 1.0, "boost_db": 12.0, "gate": 0.008}
+
+# Для тихой речи: компрессор поднимает тихие слова, эквалайзер даёт разборчивость,
+# а шумодав почти выключен, чтобы не съедать тихий голос.
+CLEAR_PRESET = {"enhance": 1.0, "boost_db": 0.0, "gate": 0.0015}
 
 PRESETS = {
     "Обычный": {},
@@ -446,6 +452,7 @@ class VoiceEngine:
         self.echo = Echo(sr)
         self.reverb = Reverb(sr)
         self.dynamics = Dynamics(sr)
+        self.bypass = False  # True — голос не меняется, остаются только громкость и шумодав
 
     def apply_preset(self, name):
         self.params.update(VOICE_DEFAULTS)
@@ -456,7 +463,7 @@ class VoiceEngine:
         if len(x) > BLOCK_SIZE:
             return np.concatenate([self.process(x[i:i + BLOCK_SIZE])
                                    for i in range(0, len(x), BLOCK_SIZE)])
-        p = self.params
+        p = {**self.params, **VOICE_DEFAULTS} if self.bypass else self.params
         x = self.gate.process(x, p["gate"])
         x = self.pitch.process(x, p["pitch"])
         # сдвиг тона двигает и форманты — компенсируем до нужного тембра
@@ -583,10 +590,10 @@ SLIDER_TABS = {
         ("echo_ms", "Задержка эха", 30, 1000, 97, lambda v: f"{v:.0f} мс"),
         ("reverb", "Зал (реверберация)", 0, 1, 20, _pct),
     ],
-    "Громкость и качество": [
-        ("enhance", "Улучшение голоса", 0, 1, 20, _pct),
+    "Громкость и чёткость": [
+        ("enhance", "Чёткость (улучшение)", 0, 1, 20, _pct),
         ("boost_db", "Усиление", -12, 30, 42, lambda v: _signed(round(v), "дБ")),
-        ("gate", "Шумодав", 0, 0.1, 20, lambda v: "выкл" if v <= 0 else f"{v * 1000:.0f}"),
+        ("gate", "Шумодав", 0, 0.03, 60, lambda v: "выкл" if v <= 0 else f"{v * 1000:.1f}"),
     ],
 }
 
@@ -605,7 +612,8 @@ def run_gui():
     T = THEME
     ctk.set_appearance_mode("dark")
     engine = VoiceEngine()
-    state = {"stream": None, "level": 0.0, "shown": 0.0, "voice": "Обычный", "group": "Люди"}
+    state = {"stream": None, "monitor": None, "monitor_q": deque(), "level": 0.0, "shown": 0.0,
+             "in_level": 0.0, "mic_shown": 0.0, "silent_polls": 0, "voice": "Обычный", "group": "Люди"}
 
     root = ctk.CTk(fg_color=T["bg"])
     root.title("Voice Changer")
@@ -657,40 +665,57 @@ def run_gui():
     hint(side, "Меняет голос в реальном времени —\nв наушниках, Discord и играх").grid(
         row=1, column=0, sticky="ew", pady=(4, 22), **pad)
 
-    caption(side, "1   МИКРОФОН").grid(row=2, column=0, sticky="ew", **pad)
-    in_menu = ctk.CTkOptionMenu(side, values=list(inputs) or ["Нет микрофона"], width=282, height=36,
-                                dynamic_resizing=False, fg_color=T["card"], button_color=T["card"],
-                                button_hover_color=T["card_hover"], dropdown_fg_color=T["card"],
-                                text_color=T["text"], font=font(13))
-    in_menu.grid(row=3, column=0, sticky="ew", pady=(6, 18), **pad)
+    def small_button(parent, text, command=None):
+        return ctk.CTkButton(parent, text=text, height=32, font=font(13), command=command,
+                             fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"])
 
-    caption(side, "2   КУДА ВЫВОДИТЬ ГОЛОС").grid(row=4, column=0, sticky="ew", **pad)
+    def menu(values):
+        return ctk.CTkOptionMenu(side, values=values, width=282, height=36, dynamic_resizing=False,
+                                 fg_color=T["card"], button_color=T["card"], button_hover_color=T["card_hover"],
+                                 dropdown_fg_color=T["card"], text_color=T["text"], font=font(13))
+
+    caption(side, "1   МИКРОФОН").grid(row=2, column=0, sticky="ew", **pad)
+    in_menu = menu(list(inputs) or ["Нет микрофона"])
+    in_menu.grid(row=3, column=0, sticky="ew", pady=(6, 6), **pad)
+    mic_meter = ctk.CTkProgressBar(side, height=6, corner_radius=3, fg_color=T["card"], progress_color=T["muted"])
+    mic_meter.set(0)
+    mic_meter.grid(row=4, column=0, sticky="ew", **pad)
+    mic_hint = hint(side, "Полоска показывает, слышит ли программа микрофон.")
+    mic_hint.grid(row=5, column=0, sticky="ew", pady=(4, 14), **pad)
+
+    caption(side, "2   КУДА ВЫВОДИТЬ ГОЛОС").grid(row=6, column=0, sticky="ew", **pad)
     route = ctk.CTkSegmentedButton(side, values=["Наушники", "Discord и игры"], height=36, font=font(13),
                                    selected_color=T["accent"], selected_hover_color=T["accent_hover"],
                                    unselected_color=T["card"], unselected_hover_color=T["card_hover"],
                                    fg_color=T["card"], text_color=T["text"])
-    route.grid(row=5, column=0, sticky="ew", pady=(6, 8), **pad)
-    out_menu = ctk.CTkOptionMenu(side, values=list(outputs) or ["Нет устройства"], width=282, height=36,
-                                 dynamic_resizing=False, fg_color=T["card"], button_color=T["card"],
-                                 button_hover_color=T["card_hover"], dropdown_fg_color=T["card"],
-                                 text_color=T["text"], font=font(13))
-    out_menu.grid(row=6, column=0, sticky="ew", **pad)
+    route.grid(row=7, column=0, sticky="ew", pady=(6, 8), **pad)
+    out_menu = menu(list(outputs) or ["Нет устройства"])
+    out_menu.grid(row=8, column=0, sticky="ew", **pad)
     route_hint = hint(side, "")
-    route_hint.grid(row=7, column=0, sticky="ew", pady=(8, 0), **pad)
-    cable_btn = ctk.CTkButton(side, text="Установить VB-Cable", height=32, font=font(13),
-                              fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"])
+    route_hint.grid(row=9, column=0, sticky="ew", pady=(8, 0), **pad)
+    route_box = ctk.CTkFrame(side, fg_color="transparent")
+    route_box.grid(row=10, column=0, sticky="ew", **pad)
+    route_box.grid_columnconfigure((0, 1), weight=1)
+    cable_btn = small_button(route_box, "Установить VB-Cable")
+    test_btn = small_button(route_box, "Проверить кабель")
+    help_btn = small_button(route_box, "Настроить Discord")
+    monitor = ctk.BooleanVar(value=True)
+    monitor_sw = ctk.CTkSwitch(side, text="Слышать себя в наушниках", variable=monitor, font=font(13),
+                               text_color=T["text"], progress_color=T["accent"], button_color=T["text"],
+                               button_hover_color=T["text"], fg_color=T["card"],
+                               command=lambda: restart_if_running())
     show_all = ctk.BooleanVar(value=False)
     ctk.CTkCheckBox(side, text="Показать все драйверы", variable=show_all, font=font(12),
                     text_color=T["muted"], fg_color=T["accent"], hover_color=T["accent_hover"],
                     border_color=T["line"], checkbox_width=18, checkbox_height=18,
-                    command=lambda: refresh_devices()).grid(row=9, column=0, sticky="w", pady=(10, 0), **pad)
+                    command=lambda: refresh_devices()).grid(row=12, column=0, sticky="w", pady=(10, 0), **pad)
 
-    caption(side, "3   ВКЛЮЧИТЬ").grid(row=10, column=0, sticky="ew", pady=(24, 0), **pad)
+    caption(side, "3   ВКЛЮЧИТЬ").grid(row=13, column=0, sticky="ew", pady=(20, 0), **pad)
     start_btn = ctk.CTkButton(side, text="▶  Старт", height=54, corner_radius=14, font=font(18, "bold"),
                               fg_color=T["accent"], hover_color=T["accent_hover"], text_color=T["accent_text"])
-    start_btn.grid(row=11, column=0, sticky="ew", pady=(8, 10), **pad)
+    start_btn.grid(row=14, column=0, sticky="ew", pady=(8, 10), **pad)
     status_row = ctk.CTkFrame(side, fg_color="transparent")
-    status_row.grid(row=12, column=0, sticky="ew", **pad)
+    status_row.grid(row=15, column=0, sticky="ew", **pad)
     status_row.grid_columnconfigure(1, weight=1)
     status_dot = ctk.CTkLabel(status_row, text="●", font=font(14), text_color=T["muted"], width=16)
     status_dot.grid(row=0, column=0)
@@ -698,11 +723,11 @@ def run_gui():
     status_lbl.grid(row=0, column=1, sticky="w", padx=(4, 0))
     meter = ctk.CTkProgressBar(side, height=8, corner_radius=4, fg_color=T["card"], progress_color=T["live"])
     meter.set(0)
-    meter.grid(row=13, column=0, sticky="ew", pady=(8, 0), **pad)
+    meter.grid(row=16, column=0, sticky="ew", pady=(8, 0), **pad)
 
-    side.grid_rowconfigure(14, weight=1)
+    side.grid_rowconfigure(17, weight=1)
     hint(side, "Совет: слушайте себя только в наушниках —\nс колонками будет свист.").grid(
-        row=15, column=0, sticky="ew", pady=(0, 24), **pad)
+        row=18, column=0, sticky="ew", pady=(0, 20), **pad)
 
     # ------------------------------------------------ основная часть
     main = ctk.CTkFrame(root, fg_color="transparent")
@@ -718,20 +743,25 @@ def run_gui():
     voice_lbl = ctk.CTkLabel(now, text="", font=font(34, "bold"), text_color=T["text"], anchor="w")
     voice_lbl.grid(row=1, column=0, sticky="w", padx=24)
     voice_info = ctk.CTkLabel(now, text="", font=font(14), text_color=T["muted"], anchor="w")
-    voice_info.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 20))
+    voice_info.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 12))
+    effect_on = ctk.BooleanVar(value=True)
+    effect_sw = ctk.CTkSwitch(now, text="", variable=effect_on, font=font(14, "bold"), switch_width=50,
+                              switch_height=26, progress_color=T["live"], button_color=T["text"],
+                              button_hover_color=T["text"], fg_color=T["card"], text_color=T["text"])
+    effect_sw.grid(row=3, column=0, sticky="w", padx=24, pady=(0, 20))
 
     loud_box = ctk.CTkFrame(now, fg_color="transparent")
-    loud_box.grid(row=0, column=1, rowspan=3, padx=20, pady=16, sticky="e")
-    caption(loud_box, "ГРОМКОСТЬ").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+    loud_box.grid(row=0, column=1, rowspan=4, padx=20, pady=16, sticky="e")
+    caption(loud_box, "ГРОМКОСТЬ И ЧЁТКОСТЬ").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
     loud_buttons = {}
-    for col, (key, text) in enumerate((("normal", "Обычная"), ("loud", "Громкий и чистый"), ("max", "Максимум"))):
+    for col, (key, text) in enumerate((("normal", "Обычная"), ("clear", "Чёткая"), ("loud", "Громкая"),
+                                       ("max", "Максимум"))):
         b = ctk.CTkButton(loud_box, text=text, height=40, corner_radius=12, font=font(13, "bold"),
-                          fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"],
-                          width=96 if key != "loud" else 160)
+                          fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"], width=92)
         b.grid(row=1, column=col, padx=(0 if col == 0 else 8, 0))
         loud_buttons[key] = b
     loud_hint = hint(loud_box, "", wrap=380)
-    loud_hint.grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+    loud_hint.grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
     # выбор голоса
     head = ctk.CTkFrame(main, fg_color="transparent")
@@ -846,12 +876,14 @@ def run_gui():
 
     LOUD_LEVELS = {
         "normal": dict(SOUND_DEFAULTS),
+        "clear": dict(CLEAR_PRESET),
         "loud": dict(LOUD_PRESET),
         "max": {**LOUD_PRESET, "boost_db": 24.0},
     }
     LOUD_HINTS = {
         "normal": "Голос как есть, без обработки громкости.",
-        "loud": "Убирает гул, делает речь разборчивой и выравнивает громкость.",
+        "clear": "Для тихой речи: подтягивает тихие слова и делает голос\nразборчивым, но не оглушает. Убирает гул.",
+        "loud": "Как «Чёткая», плюс заметно громче.",
         "max": "Очень громко. Лимитер не даёт голосу хрипеть.",
         None: "Настроено вручную во вкладке «Громкость и качество».",
     }
@@ -879,6 +911,17 @@ def run_gui():
     def find_cable():
         return next((n for n in outputs if "CABLE Input" in n), None)
 
+    def find_cable_mic():
+        return next((i for n, i in inputs.items() if "CABLE Output" in n), None)
+
+    def find_headphones():
+        # куда играть «слышать себя»: устройство Windows по умолчанию, если это не сам кабель
+        default_out = sd.default.device[1]
+        named = {i: n for n, i in outputs.items()}
+        if default_out in named and "CABLE" not in named[default_out]:
+            return default_out
+        return next((i for n, i in outputs.items() if "CABLE" not in n), None)
+
     def install_cable():
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_vbcable.bat")
         if os.name == "nt" and os.path.exists(script):
@@ -889,21 +932,26 @@ def run_gui():
     cable_btn.configure(command=install_cable)
 
     def on_route(choice):
-        cable_btn.grid_forget()
+        for w in (cable_btn, test_btn, help_btn):
+            w.grid_forget()
+        monitor_sw.grid_forget()
         if choice == "Discord и игры":
             cable = find_cable()
             if cable:
                 out_menu.set(cable)
-                route_hint.configure(text="В Discord, игре или OBS выберите микрофон\n«CABLE Output (VB-Audio Virtual Cable)».",
+                route_hint.configure(text="Голос идёт в виртуальный микрофон\n«CABLE Output». Выберите его в Discord.",
                                      text_color=T["text"])
+                test_btn.grid(row=0, column=0, sticky="ew", pady=(8, 0), padx=(0, 4))
+                monitor_sw.grid(row=11, column=0, sticky="w", pady=(12, 0), **pad)
             else:
-                route_hint.configure(text="Нужен бесплатный драйвер VB-Cable. Установите его\nи перезагрузите компьютер.",
+                route_hint.configure(text="Не найден драйвер VB-Cable. Установите его\nи перезагрузите компьютер.",
                                      text_color=T["accent"])
-                cable_btn.grid(row=8, column=0, sticky="ew", pady=(8, 0), **pad)
+                cable_btn.grid(row=0, column=0, sticky="ew", pady=(8, 0), padx=(0, 4))
+            help_btn.grid(row=0, column=1, sticky="ew", pady=(8, 0), padx=(4, 0))
         else:
-            default_out = sd.default.device[1]
-            name = next((n for n, i in outputs.items() if i == default_out), None)
-            if name and "CABLE" not in name:
+            hp = find_headphones()
+            name = next((n for n, i in outputs.items() if i == hp), None)
+            if name:
                 out_menu.set(name)
             route_hint.configure(text="Вы слышите свой новый голос в наушниках.", text_color=T["muted"])
         restart_if_running()
@@ -916,21 +964,61 @@ def run_gui():
         in_menu.configure(values=list(inputs) or ["Нет микрофона"])
         out_menu.configure(values=list(outputs) or ["Нет устройства"])
         pick_defaults()
+        on_route(route.get())
 
     def pick_defaults():
         din, dout = sd.default.device
-        for menu, items, default in ((in_menu, inputs, din), (out_menu, outputs, dout)):
+        for menu_, items, default in ((in_menu, inputs, din), (out_menu, outputs, dout)):
             name = next((n for n, i in items.items() if i == default), None) or next(iter(items), None)
             if name:
-                menu.set(name)
+                menu_.set(name)
 
     in_menu.configure(command=lambda _: restart_if_running())
     out_menu.configure(command=lambda _: restart_if_running())
 
+    # ---------- изменение голоса вкл/выкл (F8)
+    def show_effect_state():
+        if effect_on.get():
+            effect_sw.configure(text="Голос меняется  ·  F8 — выключить")
+            voice_lbl.configure(text_color=T["text"])
+        else:
+            effect_sw.configure(text="Обычный голос  ·  F8 — включить")
+            voice_lbl.configure(text_color=T["muted"])
+
+    def apply_effect():
+        engine.bypass = not effect_on.get()
+        show_effect_state()
+
+    def toggle_effect():
+        effect_on.set(not effect_on.get())
+        apply_effect()
+
+    effect_sw.configure(command=apply_effect)
+
+    hotkey = None
+    try:
+        # глобальная клавиша: работает, даже когда вы в игре или в Discord
+        from pynput import keyboard
+        hotkey = keyboard.GlobalHotKeys({"<f8>": lambda: state.update(hotkey_pressed=True)})
+        hotkey.daemon = True
+        hotkey.start()
+    except Exception:  # noqa: BLE001 — без pynput клавиша работает только в окне программы
+        hotkey = None
+        root.bind_all("<F8>", lambda e: toggle_effect())
+
+    # ---------- звук
     def callback(indata, outdata, frames, time_info, status_flags):
-        y = engine.process(indata[:, 0])
+        mic = indata[:, 0]
+        state["in_level"] = max(state["in_level"], float(np.abs(mic).max()))
+        y = engine.process(mic)
         outdata[:] = y[:, None]
         state["level"] = max(state["level"], float(np.abs(y).max()))
+        if state["monitor"] is not None:
+            state["monitor_q"].append(y)
+
+    def monitor_callback(outdata, frames, time_info, status_flags):
+        q = state["monitor_q"]
+        outdata[:] = (q.popleft() if q else np.zeros(frames, dtype=F32))[:, None]
 
     def start():
         stop()
@@ -950,15 +1038,31 @@ def run_gui():
                                  f"{e}\n\nПопробуйте другой микрофон или включите «Показать все драйверы».")
             return
         state["stream"] = stream
+        state["silent_polls"] = 0
+
+        to_discord = "CABLE" in out_menu.get()
+        hp = find_headphones()
+        if to_discord and monitor.get() and hp is not None:
+            try:
+                state["monitor_q"] = deque(maxlen=4)  # не больше ~40 мс задержки
+                mon = sd.OutputStream(device=hp, samplerate=SAMPLE_RATE, blocksize=BLOCK_SIZE,
+                                      channels=1, dtype="float32", latency="low", callback=monitor_callback)
+                mon.start()
+                state["monitor"] = mon
+            except Exception:  # noqa: BLE001 — без прослушки голос в Discord всё равно идёт
+                state["monitor"] = None
+
         start_btn.configure(text="■  Стоп", fg_color=T["danger"], hover_color=T["danger_hover"], text_color="#FFFFFF")
         status_dot.configure(text_color=T["live"])
-        status_lbl.configure(text="Работает — говорите", text_color=T["text"])
+        status_lbl.configure(text="Голос идёт в Discord" if to_discord else "Работает — говорите",
+                             text_color=T["text"])
 
     def stop():
-        if state["stream"] is not None:
-            state["stream"].stop()
-            state["stream"].close()
-            state["stream"] = None
+        for key in ("monitor", "stream"):
+            if state[key] is not None:
+                state[key].stop()
+                state[key].close()
+                state[key] = None
         start_btn.configure(text="▶  Старт", fg_color=T["accent"], hover_color=T["accent_hover"],
                             text_color=T["accent_text"])
         status_dot.configure(text_color=T["muted"])
@@ -970,15 +1074,120 @@ def run_gui():
 
     start_btn.configure(command=lambda: stop() if state["stream"] else start())
 
-    def poll_meter():
-        # звук идёт в другом потоке — индикатор обновляем из интерфейса
+    # ---------- проверка кабеля: пускаем тон в CABLE Input и слушаем CABLE Output
+    def test_cable():
+        cable_in, cable_mic = find_cable(), find_cable_mic()
+        if cable_in is None or cable_mic is None:
+            route_hint.configure(text="Не вижу оба конца кабеля (CABLE Input и\nCABLE Output). Перезагрузите компьютер.",
+                                 text_color=T["accent"])
+            return
+        state["was_running"] = state["stream"] is not None
+        stop()
+        test_btn.configure(state="disabled", text="Проверяю…")
+        route_hint.configure(text="Проверяю, проходит ли звук через кабель…", text_color=T["muted"])
+
+        def work():
+            t = np.arange(int(SAMPLE_RATE * 1.2)) / SAMPLE_RATE
+            tone = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(F32)
+            try:
+                rec = sd.playrec(tone, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                 device=(cable_mic, outputs[cable_in]), blocking=True)
+                state["test_result"] = float(np.sqrt(np.mean(rec[SAMPLE_RATE // 3:] ** 2)))
+            except Exception as e:  # noqa: BLE001
+                state["test_result"] = e
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_test_result(result):
+        test_btn.configure(state="normal", text="Проверить кабель")
+        if isinstance(result, Exception):
+            route_hint.configure(text=f"Проверка не удалась: {result}", text_color=T["accent"])
+        elif result > 0.02:
+            route_hint.configure(text="✓ Кабель работает. Если Discord не слышит —\nнажмите «Настроить Discord».",
+                                 text_color=T["live"])
+        else:
+            route_hint.configure(text="✗ Звук не проходит через кабель. Перезагрузите\nкомпьютер или переустановите VB-Cable.",
+                                 text_color=T["accent"])
+        if state.pop("was_running", False):
+            start()
+
+    test_btn.configure(command=test_cable)
+
+    # ---------- инструкция для Discord
+    DISCORD_STEPS = [
+        ("Перезапустите Discord",
+         "Discord видит новые устройства только после перезапуска. Закройте его полностью "
+         "(значок у часов → Выйти из Discord) и откройте снова."),
+        ("Выберите микрофон «CABLE Output»",
+         "Настройки пользователя → Голос и видео → Устройство ввода: "
+         "CABLE Output (VB-Audio Virtual Cable). Не «По умолчанию»."),
+        ("Выключите шумоподавление Discord",
+         "Там же: Шумоподавление — «Нет», выключите Эхоподавление и Автоматическую регулировку усиления. "
+         "Иначе Discord считает изменённый голос шумом и вырезает его — это самая частая причина."),
+        ("Настройте чувствительность",
+         "Выключите «Автоматически определять чувствительность ввода» и сдвиньте ползунок влево, "
+         "примерно на −60 дБ. Или включите режим рации и говорите с зажатой клавишей."),
+        ("Проверьте",
+         "В Voice Changer нажмите «Старт», в Discord — «Проверка микрофона» (Let's Check). "
+         "Вы должны услышать свой новый голос."),
+        ("Если полоска микрофона здесь не двигается",
+         "Windows: Параметры → Конфиденциальность → Микрофон → разрешите доступ классическим приложениям. "
+         "И выберите в шаге 1 правильный микрофон."),
+    ]
+
+    def show_discord_help():
+        win = ctk.CTkToplevel(root, fg_color=T["bg"])
+        win.title("Настройка Discord")
+        win.geometry("560x720")
+        win.transient(root)
+        win.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(win, text="Чтобы Discord слышал новый голос", font=font(20, "bold"),
+                     text_color=T["text"], anchor="w").grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 12))
+        for i, (title, text) in enumerate(DISCORD_STEPS, start=1):
+            box = ctk.CTkFrame(win, fg_color=T["panel"], corner_radius=12)
+            box.grid(row=i, column=0, sticky="ew", padx=24, pady=4)
+            box.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(box, text=str(i), width=28, height=28, corner_radius=14, fg_color=T["accent"],
+                         text_color=T["accent_text"], font=font(13, "bold")).grid(
+                row=0, column=0, rowspan=2, sticky="n", padx=(12, 10), pady=12)
+            ctk.CTkLabel(box, text=title, font=font(14, "bold"), text_color=T["text"], anchor="w").grid(
+                row=0, column=1, sticky="ew", pady=(10, 0), padx=(0, 12))
+            ctk.CTkLabel(box, text=text, font=font(12), text_color=T["muted"], anchor="w", justify="left",
+                         wraplength=440).grid(row=1, column=1, sticky="ew", pady=(0, 10), padx=(0, 12))
+        small_button(win, "Понятно", win.destroy).grid(row=len(DISCORD_STEPS) + 1, column=0, pady=16)
+        win.after(100, win.lift)
+
+    help_btn.configure(command=show_discord_help)
+
+    # ---------- обновление интерфейса из звукового потока
+    def poll():
         level, state["level"] = state["level"], 0.0
         state["shown"] = max(level, state["shown"] * 0.85)
         meter.set(min(1.0, state["shown"]))
-        root.after(50, poll_meter)
+
+        mic, state["in_level"] = state["in_level"], 0.0
+        state["mic_shown"] = max(mic, state["mic_shown"] * 0.85)
+        mic_meter.set(min(1.0, state["mic_shown"] * 3))
+        if state["stream"] is not None:
+            state["silent_polls"] = 0 if mic > 0.003 else state["silent_polls"] + 1
+            if state["silent_polls"] > 80:  # ~4 секунды тишины
+                mic_hint.configure(text="Микрофон молчит. Выберите другой микрофон или\n"
+                                        "разрешите доступ: Параметры → Конфиденциальность.",
+                                   text_color=T["accent"])
+            else:
+                mic_hint.configure(text="Микрофон работает." if mic > 0.003 else mic_hint.cget("text"),
+                                   text_color=T["muted"])
+
+        if state.pop("hotkey_pressed", False):
+            toggle_effect()
+        if "test_result" in state:
+            show_test_result(state.pop("test_result"))
+        root.after(50, poll)
 
     def on_close():
         stop()
+        if hotkey is not None:
+            hotkey.stop()
         root.destroy()
 
     groups.configure(command=show_group)
@@ -988,8 +1197,9 @@ def run_gui():
     pick_defaults()
     route.set("Наушники")
     on_route("Наушники")
-    update_loud_buttons()
-    poll_meter()
+    set_loud("clear")  # по умолчанию — чёткий голос, удобно для тихой речи
+    show_effect_state()
+    poll()
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
 

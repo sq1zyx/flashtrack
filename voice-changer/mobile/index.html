@@ -184,14 +184,15 @@ details[open] summary::after { content: "–"; }
   </section>
 
   <details id="loud-panel" open>
-    <summary>Громкость и качество</summary>
+    <summary>Громкость и чёткость</summary>
     <div class="panel">
       <div class="row">
-        <button class="loud" id="loud">Громкий и чистый</button>
+        <button class="loud" id="clear">Чёткий</button>
+        <button id="loud">Громкий</button>
         <button id="max">Максимум</button>
         <button class="ghost" id="reset-sound">Сбросить</button>
       </div>
-      <p class="note">Улучшение убирает гул, добавляет разборчивость и выравнивает тихие и громкие слова. Лимитер не даёт голосу хрипеть даже на максимуме.</p>
+      <p class="note"><b>Чёткий</b> — для тихой речи: подтягивает тихие слова и делает голос разборчивым, но не оглушает. <b>Громкий</b> — то же, плюс заметно громче. Улучшение убирает гул, добавляет разборчивость и выравнивает тихие и громкие слова. Лимитер не даёт голосу хрипеть даже на максимуме.</p>
       <div id="sound-sliders" class="panel" style="padding:0"></div>
     </div>
   </details>
@@ -507,8 +508,10 @@ const VOICE_DEFAULTS = {
   pitch: 0, formant: 0, whisper: 0, vibrato: 0, vibrato_rate: 5, robot: 0, robot_freq: 60,
   crush: 0, radio: 0, distortion: 0, chorus: 0, echo: 0, echo_ms: 250, reverb: 0, lowpass: 20000,
 };
-const SOUND_DEFAULTS = { enhance: 0, boost_db: 0, gate: 0.01 };
-const LOUD = { enhance: 1, boost_db: 12, gate: 0.02 };
+const SOUND_DEFAULTS = { enhance: 0, boost_db: 0, gate: 0.004 };
+const LOUD = { enhance: 1, boost_db: 12, gate: 0.008 };
+// для тихой речи: компрессор поднимает тихие слова, шумодав почти выключен
+const CLEAR = { enhance: 1, boost_db: 0, gate: 0.0015 };
 
 const GROUPS = {
   "Люди": {
@@ -716,9 +719,9 @@ const VOICE_SLIDERS = [
   ["reverb", "Зал (реверберация)", 0, 1, 0.05, pct],
 ];
 const SOUND_SLIDERS = [
-  ["enhance", "Улучшение голоса", 0, 1, 0.05, pct],
+  ["enhance", "Чёткость (улучшение)", 0, 1, 0.05, pct],
   ["boost_db", "Усиление", -12, 30, 1, v => (v > 0 ? "+" : "") + v + " дБ"],
-  ["gate", "Шумодав", 0, 0.1, 0.005, v => v === 0 ? "выкл" : Math.round(v * 1000) + ""],
+  ["gate", "Шумодав", 0, 0.03, 0.0005, v => v === 0 ? "выкл" : (v * 1000).toFixed(1)],
 ];
 function pct(v) { return Math.round(v * 100) + "%"; }
 const sliderEls = {};
@@ -912,6 +915,7 @@ for (const id of ["pick-file", "cap-audio", "cap-video"]) {
 $("demo").addEventListener("click", () => { setSource(makeDemo(48000), 48000, "Демо-фраза"); play(); });
 
 $("play").addEventListener("click", () => { if (state.playing) stopPlayback(); else play(); });
+$("clear").addEventListener("click", () => setSound(CLEAR));
 $("loud").addEventListener("click", () => setSound(LOUD));
 $("max").addEventListener("click", () => setSound({ ...LOUD, boost_db: 24 }));
 $("reset-sound").addEventListener("click", () => setSound(SOUND_DEFAULTS));
