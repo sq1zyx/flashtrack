@@ -1,0 +1,979 @@
+<title>Voice Changer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#141821">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=Unbounded:wght@600;700&display=swap">
+<style>
+/* Одна колонка под большой палец: источник звука -> голоса -> настройки, плеер прибит к низу экрана */
+:root {
+  --bg: #EDEFF3;
+  --surface: #FFFFFF;
+  --ink: #141821;
+  --muted: #5B6373;
+  --line: #D6DAE2;
+  --chip: #E2E5EB;
+  --accent: #F2492A;
+  --accent-ink: #FFFFFF;
+  --wave: #9AA2B2;
+  --rec: #E0213A;
+  --font-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --font-body: "Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1117; --surface: #171B23; --ink: #EDF0F5; --muted: #98A0AF; --line: #2A303B;
+    --chip: #232934; --accent: #FF6544; --accent-ink: #160803; --wave: #4E5666; --rec: #FF4560;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1117; --surface: #171B23; --ink: #EDF0F5; --muted: #98A0AF; --line: #2A303B;
+  --chip: #232934; --accent: #FF6544; --accent-ink: #160803; --wave: #4E5666; --rec: #FF4560;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.45; -webkit-tap-highlight-color: transparent; }
+.wrap {
+  max-width: 560px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 120px;
+  display: grid; gap: 22px;
+}
+header h1 { font-family: var(--font-display); font-size: 26px; letter-spacing: -0.01em; margin: 0; line-height: 1.1; }
+header p { margin: 6px 0 0; color: var(--muted); }
+h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+  margin: 0 0 10px; font-weight: 600;
+}
+.source { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; }
+.wave { position: relative; height: 88px; border-radius: 10px; background: var(--bg); overflow: hidden; }
+.wave canvas { width: 100%; height: 100%; display: block; }
+.wave .meta {
+  position: absolute; left: 10px; top: 8px; font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+button, .btn {
+  font: inherit; font-weight: 600; color: var(--ink); background: var(--chip);
+  border: 0; border-radius: 999px; padding: 11px 16px; cursor: pointer; min-height: 44px;
+  display: inline-flex; align-items: center; gap: 8px; justify-content: center;
+}
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: 0.45; cursor: default; }
+.rec-btn { background: var(--rec); color: #fff; flex: 1 1 100%; }
+#mic-row > .ghost { flex: 1 1 0; }
+.rec-btn .dot { width: 12px; height: 12px; border-radius: 50%; background: currentColor; }
+.rec-btn.on .dot { border-radius: 2px; animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .rec-btn.on .dot { animation: none; } }
+.ghost { background: transparent; border: 1px solid var(--line); }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.switch small { display: block; color: var(--muted); font-size: 13px; }
+.toggle { appearance: none; width: 48px; height: 28px; border-radius: 999px; background: var(--line); position: relative; flex: none; cursor: pointer; margin: 0; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); transition: transform 0.15s; }
+.toggle:checked { background: var(--accent); }
+.toggle:checked::after { transform: translateX(20px); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.note b { color: var(--ink); }
+.alert { font-size: 14px; background: var(--chip); border-radius: 10px; padding: 10px 12px; margin: 0; }
+.capture { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.capture label { justify-content: center; }
+.capture input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.group + .group { margin-top: 14px; }
+.group h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 8px 13px; min-height: 40px; font-weight: 500; flex-direction: column; gap: 0;
+  align-items: flex-start; line-height: 1.2; text-align: left;
+}
+.chip small { font-size: 11px; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.chip[aria-pressed="true"] small { color: var(--accent-ink); opacity: 0.8; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+summary { list-style: none; cursor: pointer; padding: 14px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--muted); font-weight: 400; }
+details[open] summary::after { content: "–"; }
+.panel { padding: 0 14px 14px; display: grid; gap: 14px; }
+.slider { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; }
+.slider label { font-size: 14px; }
+.slider output { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right; }
+.slider input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; height: 28px; }
+.loud { background: var(--accent); color: var(--accent-ink); }
+
+.player {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding-top: 10px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.player .inner { max-width: 560px; margin: 0 auto; display: flex; gap: 8px; align-items: center; }
+.player .now { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player .now b { color: var(--ink); display: block; font-size: 15px; }
+.play { background: var(--ink); color: var(--bg); width: 48px; height: 48px; padding: 0; flex: none; }
+.play svg { width: 20px; height: 20px; fill: currentColor; }
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 6;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 999px; font-size: 14px;
+  max-width: calc(100% - 32px);
+}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Voice Changer</h1>
+    <p>32 голоса, громкий и чистый звук. Запишите фразу и нажмите на любой голос.</p>
+  </header>
+
+  <section class="source" aria-label="Запись">
+    <div class="wave">
+      <canvas id="wave"></canvas>
+      <div class="meta" id="wave-meta">Демо-фраза · 3,2 с</div>
+    </div>
+
+    <div class="row" id="mic-row">
+      <button class="rec-btn" id="rec"><span class="dot"></span><span id="rec-label">Записать голос</span></button>
+      <label class="btn ghost" for="pick-file">Загрузить аудио</label>
+      <button class="ghost" id="demo">Демо</button>
+    </div>
+
+    <div id="capture-box" hidden>
+      <p class="alert" id="capture-msg">Здесь браузер не даёт доступ к микрофону напрямую. Запишите голос через телефон, и он сразу загрузится:</p>
+      <div class="capture" style="margin-top:8px">
+        <label class="btn" for="cap-audio">Диктофон</label>
+        <label class="btn" for="cap-video">Камера (берём звук)</label>
+      </div>
+      <p class="note" style="margin-top:8px" id="full-link-note">Живой режим и прямая запись работают в <a id="full-link" href="#" target="_blank" rel="noopener">полной версии</a>.</p>
+    </div>
+    <input type="file" id="pick-file" accept="audio/*,video/*" hidden>
+    <input type="file" id="cap-audio" accept="audio/*" capture hidden>
+    <input type="file" id="cap-video" accept="video/*" capture="user" hidden>
+
+    <div class="switch" id="live-row">
+      <div>
+        <label for="live"><b>Живой режим</b></label>
+        <small>Слышите себя новым голосом сразу. Только в наушниках.</small>
+      </div>
+      <input type="checkbox" class="toggle" id="live" role="switch">
+    </div>
+  </section>
+
+  <section aria-label="Голоса">
+    <h2>Голоса</h2>
+    <div id="voices"></div>
+  </section>
+
+  <details id="loud-panel" open>
+    <summary>Громкость и качество</summary>
+    <div class="panel">
+      <div class="row">
+        <button class="loud" id="loud">Громкий и чистый</button>
+        <button id="max">Максимум</button>
+        <button class="ghost" id="reset-sound">Сбросить</button>
+      </div>
+      <p class="note">Улучшение убирает гул, добавляет разборчивость и выравнивает тихие и громкие слова. Лимитер не даёт голосу хрипеть даже на максимуме.</p>
+      <div id="sound-sliders" class="panel" style="padding:0"></div>
+    </div>
+  </details>
+
+  <details>
+    <summary>Тонкая настройка голоса</summary>
+    <div class="panel" id="voice-sliders"></div>
+  </details>
+</div>
+
+<div class="player">
+  <div class="inner">
+    <button class="play" id="play" aria-label="Слушать"><svg viewBox="0 0 24 24" id="play-icon"><path d="M7 4.5v15l13-7.5z"/></svg></button>
+    <div class="now"><b id="now-voice">Обычный</b><span id="now-status">Демо-фраза</span></div>
+    <button id="save">Сохранить</button>
+    <button id="share" hidden>Отправить</button>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// ============================================================ звуковой движок
+// Порт voice_changer.py: те же эффекты и те же 32 голоса.
+
+class Ring {
+  constructor(n) { let s = 1; while (s < n + 4) s <<= 1; this.b = new Float32Array(s); this.m = s - 1; this.w = 0; }
+  push(v) { this.b[this.w] = v; this.w = (this.w + 1) & this.m; }
+  // d = сколько сэмплов назад (1 = последний записанный), можно дробное
+  get(d) { const p = this.w - d, i = Math.floor(p), f = p - i, a = this.b[i & this.m]; return a + (this.b[(i + 1) & this.m] - a) * f; }
+}
+
+class FFT {
+  constructor(n) {
+    this.n = n; const bits = Math.log2(n);
+    this.rev = new Uint32Array(n);
+    for (let i = 0; i < n; i++) { let r = 0; for (let b = 0; b < bits; b++) r |= ((i >> b) & 1) << (bits - 1 - b); this.rev[i] = r; }
+    this.cos = new Float64Array(n / 2); this.sin = new Float64Array(n / 2);
+    for (let i = 0; i < n / 2; i++) { this.cos[i] = Math.cos(2 * Math.PI * i / n); this.sin[i] = Math.sin(2 * Math.PI * i / n); }
+  }
+  run(re, im, inverse) {
+    const n = this.n, rev = this.rev;
+    for (let i = 0; i < n; i++) { const j = rev[i]; if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    const sg = inverse ? 1 : -1;
+    for (let size = 2; size <= n; size <<= 1) {
+      const half = size >> 1, step = n / size;
+      for (let s = 0; s < n; s += size) {
+        for (let k = 0; k < half; k++) {
+          const c = this.cos[k * step], si = sg * this.sin[k * step], a = s + k, b = a + half;
+          const tr = re[b] * c - im[b] * si, ti = re[b] * si + im[b] * c;
+          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        }
+      }
+    }
+    if (inverse) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+  }
+}
+
+class PitchShifter {
+  constructor(sr) { this.W = Math.floor(sr * 0.04); this.r = new Ring(this.W + 4); this.ph = 0; }
+  process(x, semitones) {
+    const r = this.r, W = this.W;
+    if (Math.abs(semitones) < 0.01) { for (let i = 0; i < x.length; i++) r.push(x[i]); return; }
+    const step = (1 - 2 ** (semitones / 12)) / W;
+    let ph = this.ph;
+    for (let i = 0; i < x.length; i++) {
+      r.push(x[i]);
+      ph += step; ph -= Math.floor(ph);
+      const p2 = ph >= 0.5 ? ph - 0.5 : ph + 0.5;
+      const s1 = Math.sin(Math.PI * ph), s2 = Math.sin(Math.PI * p2);
+      x[i] = r.get(1 + ph * W) * s1 * s1 + r.get(1 + p2 * W) * s2 * s2;
+    }
+    this.ph = ph;
+  }
+}
+
+// Частотная обработка: форманты (тембр), шёпот, глухость и эквалайзер «улучшения»
+class Spectral {
+  constructor(sr, n = 1024, lifter = 40) {
+    this.sr = sr; this.n = n; this.hop = n / 4; this.L = lifter; this.fft = new FFT(n);
+    this.win = new Float32Array(n);
+    for (let i = 0; i < n; i++) this.win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / n);
+    this.frame = new Float32Array(n); this.acc = new Float32Array(n);
+    this.re = new Float64Array(n); this.im = new Float64Array(n);
+    this.cr = new Float64Array(n); this.ci = new Float64Array(n);
+    const h = n / 2 + 1;
+    this.env = new Float64Array(h); this.warp = new Float64Array(h); this.curve = new Float64Array(h);
+    this.key = "";
+  }
+  updateCurve(enhance, lowpass) {
+    const key = enhance.toFixed(3) + "|" + Math.round(lowpass);
+    if (key === this.key) return;
+    this.key = key;
+    for (let k = 0; k <= this.n / 2; k++) {
+      const f = Math.max(k * this.sr / this.n, 1);
+      const bell = (fc, w) => Math.exp(-0.5 * (Math.log2(f / fc) / w) ** 2);
+      const db = enhance * (-3 * bell(300, 0.8) + 4.5 * bell(3500, 1.0) + 3 / (1 + (9000 / f) ** 2));
+      let g = 10 ** (db / 20);
+      if (enhance > 0) g *= Math.pow(1 / Math.sqrt(1 + (90 / f) ** 4), enhance);
+      if (lowpass < 19000) g *= 1 / Math.sqrt(1 + (f / lowpass) ** 8);
+      this.curve[k] = g;
+    }
+  }
+  process(x, ratio, whisper, enhance, lowpass) {
+    const { n, hop, re, im, cr, ci, env, warp, win, frame, acc, fft } = this, h = n / 2;
+    this.updateCurve(enhance, lowpass);
+    const doFormant = Math.abs(ratio - 1) > 1e-3;
+    for (let o = 0; o < x.length; o += hop) {
+      frame.copyWithin(0, hop); frame.set(x.subarray(o, o + hop), n - hop);
+      for (let i = 0; i < n; i++) { re[i] = frame[i] * win[i]; im[i] = 0; }
+      fft.run(re, im, false);
+
+      if (doFormant || whisper > 0) {
+        // огибающая спектра через кепстр = форманты голоса
+        for (let k = 0; k <= h; k++) {
+          const m = Math.log(Math.hypot(re[k], im[k]) + 1e-7);
+          cr[k] = m; ci[k] = 0;
+          if (k > 0 && k < h) { cr[n - k] = m; ci[n - k] = 0; }
+        }
+        fft.run(cr, ci, true);
+        for (let i = this.L; i <= n - this.L; i++) cr[i] = 0;
+        ci.fill(0);
+        fft.run(cr, ci, false);
+        for (let k = 0; k <= h; k++) env[k] = cr[k];
+
+        if (doFormant) {
+          for (let k = 0; k <= h; k++) {
+            const pos = k / ratio;
+            let v;
+            if (pos >= h) v = env[h];
+            else { const i = Math.floor(pos); v = env[i] + (env[i + 1] - env[i]) * (pos - i); }
+            warp[k] = v;
+            const g = Math.exp(Math.max(-3, Math.min(3, v - env[k])));
+            re[k] *= g; im[k] *= g;
+          }
+          env.set(warp);
+        }
+        if (whisper > 0) {
+          // шёпот = шум, окрашенный формантами
+          let E = 0, En = 0;
+          for (let k = 0; k <= h; k++) {
+            E += re[k] * re[k] + im[k] * im[k];
+            const a = Math.exp(env[k]), p = Math.random() * 2 * Math.PI;
+            cr[k] = a * Math.cos(p); ci[k] = a * Math.sin(p);
+            En += a * a;
+          }
+          const s = Math.sqrt(E / (En + 1e-12)) * whisper, keep = 1 - whisper;
+          for (let k = 0; k <= h; k++) { re[k] = re[k] * keep + cr[k] * s; im[k] = im[k] * keep + ci[k] * s; }
+        }
+      }
+
+      for (let k = 0; k <= h; k++) { re[k] *= this.curve[k]; im[k] *= this.curve[k]; }
+      im[0] = 0; im[h] = 0;
+      for (let k = 1; k < h; k++) { re[n - k] = re[k]; im[n - k] = -im[k]; }
+      fft.run(re, im, true);
+      for (let i = 0; i < n; i++) acc[i] += re[i] * win[i] / 1.5;
+      x.set(acc.subarray(0, hop), o);
+      acc.copyWithin(0, hop); acc.fill(0, n - hop);
+    }
+  }
+}
+
+class Vibrato {
+  constructor(sr) { this.sr = sr; this.base = sr * 0.006; this.depth = sr * 0.005; this.r = new Ring(this.base + this.depth + 4); this.ph = 0; }
+  process(x, amount, rate) {
+    const r = this.r;
+    if (amount <= 0) { for (let i = 0; i < x.length; i++) r.push(x[i]); return; }
+    const inc = 2 * Math.PI * rate / this.sr;
+    for (let i = 0; i < x.length; i++) {
+      r.push(x[i]); this.ph += inc;
+      x[i] = r.get(1 + this.base + amount * this.depth * Math.sin(this.ph));
+    }
+    this.ph %= 2 * Math.PI;
+  }
+}
+
+class Chorus {
+  constructor(sr) {
+    this.sr = sr; this.depth = sr * 0.003; this.r = new Ring(sr * 0.03 + this.depth + 4);
+    this.voices = [[0.015, 0.6, 0], [0.021, 0.9, 2], [0.027, 1.3, 4]];
+  }
+  process(x, amount) {
+    const r = this.r;
+    if (amount <= 0) { for (let i = 0; i < x.length; i++) r.push(x[i]); return; }
+    for (let i = 0; i < x.length; i++) {
+      r.push(x[i]);
+      let wet = 0;
+      for (const v of this.voices) { v[2] += 2 * Math.PI * v[1] / this.sr; wet += r.get(1 + v[0] * this.sr + this.depth * Math.sin(v[2])); }
+      x[i] = (x[i] + wet * amount) / (1 + amount * 1.7);
+    }
+  }
+}
+
+class Reverb {
+  constructor(sr) {
+    this.combs = [29.7, 37.1, 41.1, 43.7].map(ms => ({ D: Math.floor(sr * ms / 1000), r: new Ring(sr * ms / 1000 + 2) }));
+    this.ap = [12.1, 17.3].map(ms => ({ D: Math.floor(sr * ms / 1000), r: new Ring(sr * ms / 1000 + 2) }));
+  }
+  process(x, amount) {
+    const fb = 0.72 + 0.22 * amount;
+    for (let i = 0; i < x.length; i++) {
+      let wet = 0;
+      for (const c of this.combs) {
+        const damped = 0.6 * c.r.get(c.D) + 0.4 * c.r.get(c.D + 1); // высокие затухают быстрее
+        c.r.push(x[i] + fb * damped); wet += damped;
+      }
+      wet *= 0.25;
+      for (const a of this.ap) { const vd = a.r.get(a.D), v = wet + 0.5 * vd; a.r.push(v); wet = -0.5 * v + vd; }
+      if (amount > 0) x[i] = x[i] * (1 - 0.45 * amount) + wet * amount * 0.9;
+    }
+  }
+}
+
+class Echo {
+  constructor(sr) { this.sr = sr; this.r = new Ring(sr + 2); }
+  process(x, amount, ms) {
+    const D = Math.max(1, Math.min(this.sr, Math.round(this.sr * ms / 1000)));
+    for (let i = 0; i < x.length; i++) { const y = x[i] + this.r.get(D) * amount; this.r.push(y); x[i] = y; }
+  }
+}
+
+class Robot {
+  constructor(sr) { this.sr = sr; this.ph = 0; }
+  process(x, amount, freq) {
+    if (amount <= 0) return;
+    const inc = 2 * Math.PI * freq / this.sr;
+    for (let i = 0; i < x.length; i++) { this.ph += inc; x[i] = x[i] * (1 - amount) + x[i] * Math.sin(this.ph) * amount * 1.6; }
+    this.ph %= 2 * Math.PI;
+  }
+}
+
+class Crush {
+  constructor() { this.n = 0; this.held = 0; }
+  process(x, amount) {
+    if (amount <= 0) return;
+    const k = [1, 2, 4, 8][Math.min(3, Math.floor(amount * 4))], levels = 2 ** (12 - 8 * amount);
+    for (let i = 0; i < x.length; i++) {
+      if (this.n++ % k === 0) this.held = x[i];
+      x[i] = x[i] * (1 - amount) + Math.round(this.held * levels) / levels * amount;
+    }
+  }
+}
+
+class Radio {
+  constructor(sr, taps = 129) {
+    this.h = new Float32Array(taps);
+    const sinc = v => v === 0 ? 1 : Math.sin(Math.PI * v) / (Math.PI * v);
+    for (let i = 0; i < taps; i++) {
+      const t = i - (taps - 1) / 2;
+      const lp = fc => 2 * fc / sr * sinc(2 * fc / sr * t);
+      this.h[i] = (lp(3400) - lp(300)) * (0.54 - 0.46 * Math.cos(2 * Math.PI * i / (taps - 1)));
+    }
+    this.buf = new Float32Array(taps); this.pos = 0;
+  }
+  process(x, amount) {
+    const h = this.h, b = this.buf, T = h.length;
+    for (let i = 0; i < x.length; i++) {
+      b[this.pos] = x[i];
+      if (amount > 0) {
+        let s = 0;
+        for (let k = 0, j = this.pos; k < T; k++, j = j === 0 ? T - 1 : j - 1) s += h[k] * b[j];
+        x[i] = x[i] * (1 - amount) + Math.tanh(s * 3) * 0.6 * amount;
+      }
+      this.pos = (this.pos + 1) % T;
+    }
+  }
+}
+
+class NoiseGate {
+  constructor() { this.gain = 1; }
+  process(x, threshold) {
+    if (threshold <= 0) return;
+    let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i];
+    const target = Math.sqrt(s / x.length) > threshold ? 1 : 0;
+    const next = this.gain + (target - this.gain) * (target > this.gain ? 0.5 : 0.15);
+    for (let i = 0; i < x.length; i++) x[i] *= this.gain + (next - this.gain) * (i + 1) / x.length;
+    this.gain = next;
+  }
+}
+
+// Компрессор + усиление + лимитер: громко, ровно и без хрипа
+class Dynamics {
+  constructor(sr) {
+    const t = 32 / sr;
+    this.att = Math.exp(-t / 0.005); this.rel = Math.exp(-t / 0.15); this.lrel = Math.exp(-t / 0.08);
+    this.env = -60; this.lim = 1; this.lastG = null; this.lastL = null;
+  }
+  process(x, enhance, boostDb) {
+    const C = 32, thr = -14 - 16 * enhance, ratio = 1 + 4 * enhance, makeup = -thr * (1 - 1 / ratio) * 0.7;
+    for (let o = 0; o < x.length; o += C) {
+      const end = Math.min(o + C, x.length), len = end - o;
+      let s = 0; for (let i = o; i < end; i++) s += x[i] * x[i];
+      const lvl = 10 * Math.log10(s / len + 1e-10);
+      const a = lvl > this.env ? this.att : this.rel;
+      this.env = a * this.env + (1 - a) * lvl;
+      const g = 10 ** ((makeup - Math.max(0, this.env - thr) * (1 - 1 / ratio) + boostDb) / 20);
+      const g0 = this.lastG ?? g; this.lastG = g;
+      let peak = 0;
+      for (let i = o; i < end; i++) { x[i] *= g0 + (g - g0) * (i - o + 1) / len; peak = Math.max(peak, Math.abs(x[i])); }
+      const target = Math.min(1, 0.89 / (peak + 1e-9));
+      this.lim = target < this.lim ? target : this.lrel * this.lim + (1 - this.lrel) * target;
+      const L = this.lim, L0 = Math.min(this.lastL ?? L, L); this.lastL = L;
+      for (let i = o; i < end; i++) {
+        let y = x[i] * (L0 + (L - L0) * (i - o + 1) / len);
+        const m = Math.abs(y);
+        if (m > 0.8) y = Math.sign(y) * (0.8 + 0.2 * Math.tanh((m - 0.8) / 0.2));
+        x[i] = y;
+      }
+    }
+  }
+}
+
+const VOICE_DEFAULTS = {
+  pitch: 0, formant: 0, whisper: 0, vibrato: 0, vibrato_rate: 5, robot: 0, robot_freq: 60,
+  crush: 0, radio: 0, distortion: 0, chorus: 0, echo: 0, echo_ms: 250, reverb: 0, lowpass: 20000,
+};
+const SOUND_DEFAULTS = { enhance: 0, boost_db: 0, gate: 0.01 };
+const LOUD = { enhance: 1, boost_db: 12, gate: 0.02 };
+
+const GROUPS = {
+  "Люди": {
+    "Обычный": {},
+    "Женский": { pitch: 5, formant: 2.5 },
+    "Мужской": { pitch: -5, formant: -2.5 },
+    "Ребёнок": { pitch: 7, formant: 4.5 },
+    "Подросток": { pitch: 2, formant: 2 },
+    "Бас": { pitch: -3, formant: -1.5, lowpass: 7000 },
+    "Старик": { pitch: -2, formant: -1, vibrato: 0.35, vibrato_rate: 5.5, whisper: 0.15, lowpass: 6000 },
+    "Бабушка": { pitch: 3, formant: 1.5, vibrato: 0.45, vibrato_rate: 6, whisper: 0.15, lowpass: 6500 },
+    "Диктор": { pitch: -2, formant: -1, reverb: 0.1 },
+    "Нервный": { vibrato: 1, vibrato_rate: 7 },
+  },
+  "Персонажи": {
+    "Великан": { pitch: -9, formant: -6, reverb: 0.4 },
+    "Гном": { pitch: -3, formant: 4 },
+    "Эльф": { pitch: 4, formant: 5, chorus: 0.25, reverb: 0.35 },
+    "Бурундук": { pitch: 9, formant: 9 },
+    "Мультяшка": { pitch: 12, formant: 3, vibrato: 0.15, vibrato_rate: 8 },
+    "Демон": { pitch: -8, formant: -4, distortion: 0.35, reverb: 0.3, chorus: 0.3 },
+    "Монстр": { pitch: -12, formant: -8, distortion: 0.5, chorus: 0.4 },
+    "Зомби": { pitch: -6, formant: -2, distortion: 0.3, vibrato: 0.6, vibrato_rate: 1.5, whisper: 0.3, lowpass: 3000 },
+    "Злодей в маске": { pitch: -4, formant: -3, radio: 0.3, reverb: 0.2, distortion: 0.15 },
+    "Призрак": { whisper: 0.7, pitch: -2, reverb: 0.7, vibrato: 0.3, vibrato_rate: 2, echo: 0.3, echo_ms: 400 },
+  },
+  "Техника": {
+    "Робот": { robot: 0.85, robot_freq: 55, echo: 0.15, echo_ms: 60 },
+    "Андроид": { robot: 0.5, robot_freq: 120, chorus: 0.5, crush: 0.3 },
+    "Инопланетянин": { pitch: 3, formant: 6, robot: 0.5, robot_freq: 220, vibrato: 0.3, vibrato_rate: 9 },
+    "Ретро 8-бит": { pitch: 2, crush: 1 },
+    "Рация": { radio: 1, distortion: 0.2 },
+    "Телефон": { radio: 0.8, crush: 0.2 },
+    "Мегафон": { radio: 0.7, distortion: 0.6, reverb: 0.15 },
+  },
+  "Атмосфера": {
+    "Шёпот": { whisper: 1 },
+    "Под водой": { lowpass: 600, vibrato: 0.6, vibrato_rate: 1.5, chorus: 0.5 },
+    "Хор": { chorus: 1, reverb: 0.3 },
+    "Пещера": { echo: 0.55, echo_ms: 350, reverb: 0.5 },
+    "Собор": { reverb: 0.9 },
+  },
+};
+const PRESETS = Object.assign({}, ...Object.values(GROUPS));
+const SPECTRAL_LATENCY = 768; // n - hop
+
+class VoiceEngine {
+  constructor(sr, params) {
+    this.p = params;
+    this.gate = new NoiseGate(); this.pitch = new PitchShifter(sr); this.spectral = new Spectral(sr);
+    this.vibrato = new Vibrato(sr); this.robot = new Robot(sr); this.crush = new Crush(); this.radio = new Radio(sr);
+    this.chorus = new Chorus(sr); this.echo = new Echo(sr); this.reverb = new Reverb(sr); this.dyn = new Dynamics(sr);
+  }
+  // x меняется на месте; длина кратна 256
+  process(x) {
+    const p = this.p;
+    this.gate.process(x, p.gate);
+    this.pitch.process(x, p.pitch);
+    // сдвиг тона двигает и форманты — компенсируем до нужного тембра
+    this.spectral.process(x, 2 ** ((p.formant - p.pitch) / 12), p.whisper, p.enhance, p.lowpass);
+    this.vibrato.process(x, p.vibrato, p.vibrato_rate);
+    this.robot.process(x, p.robot, p.robot_freq);
+    this.crush.process(x, p.crush);
+    this.radio.process(x, p.radio);
+    if (p.distortion > 0) {
+      const drive = 1 + p.distortion * 15, norm = Math.tanh(drive);
+      for (let i = 0; i < x.length; i++) x[i] = Math.tanh(x[i] * drive) / norm * 0.8;
+    }
+    this.chorus.process(x, p.chorus);
+    this.echo.process(x, p.echo, p.echo_ms);
+    this.reverb.process(x, p.reverb);
+    this.dyn.process(x, p.enhance, p.boost_db);
+  }
+}
+
+// Обработать целую запись; onProgress(0..1); возвращает null, если отменили
+async function renderOffline(src, sr, params, isCancelled, onProgress) {
+  const engine = new VoiceEngine(sr, { ...params });
+  const tail = Math.round(sr * (params.reverb > 0 || params.echo > 0 ? 1.2 : 0.05)) + SPECTRAL_LATENCY;
+  const total = Math.ceil((src.length + tail) / 512) * 512;
+  const buf = new Float32Array(total); buf.set(src);
+  const slice = 512 * 64;
+  for (let o = 0; o < total; o += 512) {
+    engine.process(buf.subarray(o, o + 512));
+    if (o % slice === 0 && o > 0) {
+      onProgress?.(o / total);
+      await new Promise(r => setTimeout(r, 0));
+      if (isCancelled()) return null;
+    }
+  }
+  return buf.subarray(SPECTRAL_LATENCY);
+}
+
+// Синтетическая демо-фраза: «голос» из импульсов и формант гласных
+function makeDemo(sr) {
+  const vowels = [[730, 1090, 2440], [270, 2290, 3010], [300, 870, 2240], [570, 840, 2410], [530, 1840, 2480], [730, 1090, 2440]];
+  const dur = 3.2, N = Math.round(sr * dur), out = new Float32Array(N);
+  const syl = dur / vowels.length;
+  const st = vowels[0].map(() => [0, 0]);
+  let ph = 0;
+  for (let i = 0; i < N; i++) {
+    const t = i / sr, si = Math.min(vowels.length - 1, Math.floor(t / syl)), ts = (t - si * syl) / syl;
+    const f0 = 135 * (1 + 0.12 * Math.sin(2 * Math.PI * t / dur) - 0.08 * ts);
+    ph += f0 / sr;
+    let src = 0; if (ph >= 1) { ph -= 1; src = 1; }
+    src += (Math.random() - 0.5) * 0.02;
+    const env = Math.sin(Math.PI * Math.min(1, ts * 1.15)) ** 0.6;
+    let y = 0;
+    vowels[si].forEach((fc, k) => {
+      const bw = 80 + 40 * k, r = Math.exp(-Math.PI * bw / sr), a1 = -2 * r * Math.cos(2 * Math.PI * fc / sr), a2 = r * r;
+      const s = st[k], v = src - a1 * s[0] - a2 * s[1];
+      s[1] = s[0]; s[0] = v; y += v * [1, 0.6, 0.3][k];
+    });
+    out[i] = y * env;
+  }
+  let m = 0; for (const v of out) m = Math.max(m, Math.abs(v));
+  for (let i = 0; i < N; i++) out[i] *= 0.3 / m;
+  return out;
+}
+
+function encodeWav(data, sr) {
+  const buf = new ArrayBuffer(44 + data.length * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + data.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true);
+  v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data");
+  v.setUint32(40, data.length * 2, true);
+  for (let i = 0; i < data.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, data[i])) * 32767, true);
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+// ============================================================ интерфейс
+const $ = id => document.getElementById(id);
+const FULL_URL = "https://raw.githack.com/sq1zyx/flashtrack/ccr-c9177474-i5ork0/voice-changer/mobile/index.html";
+const inClaude = !!(window.claude && window.claude.use);
+const params = { ...VOICE_DEFAULTS, ...SOUND_DEFAULTS };
+const state = { voice: "Обычный", src: null, srcName: "Демо-фраза", sr: 48000, out: null, renderId: 0, playing: null, rendering: false };
+let ctx = null;
+
+function store(k, v) { try { localStorage.setItem("vc." + k, JSON.stringify(v)); } catch (e) {} }
+function load(k) { try { return JSON.parse(localStorage.getItem("vc." + k)); } catch (e) { return null; } }
+
+function audio() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === "suspended") ctx.resume();
+  return ctx;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+}
+
+// --- голоса
+function voiceMeta(p) {
+  const parts = [];
+  if (p.pitch) parts.push("тон " + (p.pitch > 0 ? "+" : "−") + Math.abs(p.pitch));
+  if (p.formant) parts.push("тембр " + (p.formant > 0 ? "+" : "−") + Math.abs(p.formant));
+  return parts.join(" · ");
+}
+function buildVoices() {
+  const root = $("voices");
+  for (const [group, voices] of Object.entries(GROUPS)) {
+    const g = document.createElement("div"); g.className = "group";
+    g.innerHTML = `<h3>${group}</h3><div class="chips"></div>`;
+    for (const [name, p] of Object.entries(voices)) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.dataset.voice = name; b.setAttribute("aria-pressed", "false");
+      const meta = voiceMeta(p);
+      b.innerHTML = `<span></span>${meta ? "<small></small>" : ""}`;
+      b.firstChild.textContent = name;
+      if (meta) b.lastChild.textContent = meta;
+      b.addEventListener("click", () => { selectVoice(name); play(); });
+      g.lastChild.appendChild(b);
+    }
+    root.appendChild(g);
+  }
+}
+function selectVoice(name) {
+  state.voice = name;
+  Object.assign(params, VOICE_DEFAULTS, PRESETS[name]);
+  document.querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.voice === name)));
+  $("now-voice").textContent = name;
+  syncSliders(); store("voice", name);
+  invalidate();
+}
+
+// --- ползунки
+const VOICE_SLIDERS = [
+  ["pitch", "Высота тона", -12, 12, 0.5, v => (v > 0 ? "+" : "") + v + " пт"],
+  ["formant", "Тембр (форманты)", -12, 12, 0.5, v => (v > 0 ? "+" : "") + v + " пт"],
+  ["whisper", "Шёпот", 0, 1, 0.05, pct],
+  ["vibrato", "Дрожание", 0, 1, 0.05, pct],
+  ["vibrato_rate", "Скорость дрожания", 0.5, 10, 0.5, v => v + " Гц"],
+  ["lowpass", "Глухость, срез", 300, 20000, 100, v => v >= 19000 ? "выкл" : (v / 1000).toFixed(1) + " кГц"],
+  ["robot", "Робот", 0, 1, 0.05, pct],
+  ["robot_freq", "Частота робота", 20, 400, 5, v => v + " Гц"],
+  ["crush", "8-бит", 0, 1, 0.05, pct],
+  ["radio", "Рация", 0, 1, 0.05, pct],
+  ["distortion", "Искажение", 0, 1, 0.05, pct],
+  ["chorus", "Хор", 0, 1, 0.05, pct],
+  ["echo", "Эхо", 0, 0.9, 0.05, pct],
+  ["echo_ms", "Задержка эха", 30, 1000, 10, v => v + " мс"],
+  ["reverb", "Зал (реверберация)", 0, 1, 0.05, pct],
+];
+const SOUND_SLIDERS = [
+  ["enhance", "Улучшение голоса", 0, 1, 0.05, pct],
+  ["boost_db", "Усиление", -12, 30, 1, v => (v > 0 ? "+" : "") + v + " дБ"],
+  ["gate", "Шумодав", 0, 0.1, 0.005, v => v === 0 ? "выкл" : Math.round(v * 1000) + ""],
+];
+function pct(v) { return Math.round(v * 100) + "%"; }
+const sliderEls = {};
+function buildSliders(list, root) {
+  for (const [key, label, min, max, step, fmt] of list) {
+    const d = document.createElement("div"); d.className = "slider";
+    d.innerHTML = `<label for="s-${key}"></label><output for="s-${key}"></output><input type="range" id="s-${key}" min="${min}" max="${max}" step="${step}">`;
+    d.querySelector("label").textContent = label;
+    const input = d.querySelector("input"), out = d.querySelector("output");
+    input.addEventListener("input", () => {
+      params[key] = Number(input.value); out.textContent = fmt(params[key]);
+      if (key in SOUND_DEFAULTS) store("sound", pickSound());
+      invalidate(true);
+    });
+    sliderEls[key] = { input, out, fmt };
+    root.appendChild(d);
+  }
+}
+function syncSliders() {
+  for (const [key, s] of Object.entries(sliderEls)) { s.input.value = params[key]; s.out.textContent = s.fmt(params[key]); }
+}
+function pickSound() { return { enhance: params.enhance, boost_db: params.boost_db, gate: params.gate }; }
+function setSound(v) { Object.assign(params, v); syncSliders(); store("sound", pickSound()); invalidate(); play(); }
+
+// --- обработка и воспроизведение
+let debounce;
+function invalidate(fromSlider) {
+  state.out = null; state.renderId++;
+  clearTimeout(debounce);
+  if (fromSlider && state.playing) debounce = setTimeout(play, 350);
+}
+
+async function ensureRendered() {
+  if (state.out) return state.out;
+  const id = ++state.renderId;
+  state.rendering = true;
+  setStatus("Обработка…");
+  const out = await renderOffline(state.src, state.sr, params, () => id !== state.renderId,
+    p => setStatus("Обработка… " + Math.round(p * 100) + "%"));
+  state.rendering = false;
+  if (!out) return null;
+  state.out = out;
+  drawWave();
+  setStatus(state.srcName);
+  return out;
+}
+
+function stopPlayback() {
+  if (state.playing) { try { state.playing.src.stop(); } catch (e) {} state.playing = null; }
+  setPlayIcon(false); drawWave();
+}
+
+async function play() {
+  if (!state.src) return;
+  audio();
+  stopPlayback();
+  const out = await ensureRendered();
+  if (!out) return;
+  const b = ctx.createBuffer(1, out.length, state.sr); b.copyToChannel(out, 0);
+  const src = ctx.createBufferSource(); src.buffer = b; src.connect(ctx.destination);
+  const started = ctx.currentTime;
+  src.onended = () => { if (state.playing && state.playing.src === src) { state.playing = null; setPlayIcon(false); drawWave(); } };
+  src.start();
+  state.playing = { src, started, dur: b.duration };
+  setPlayIcon(true);
+  const tick = () => {
+    if (!state.playing || state.playing.src !== src) return;
+    drawWave((ctx.currentTime - started) / b.duration);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function setPlayIcon(on) {
+  $("play-icon").innerHTML = on ? '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>' : '<path d="M7 4.5v15l13-7.5z"/>';
+  $("play").setAttribute("aria-label", on ? "Стоп" : "Слушать");
+}
+function setStatus(s) { $("now-status").textContent = s; }
+
+function setSource(data, sr, name) {
+  stopPlayback();
+  state.src = data; state.sr = sr; state.srcName = name;
+  invalidate();
+  $("wave-meta").textContent = name + " · " + (data.length / sr).toFixed(1).replace(".", ",") + " с";
+  setStatus(name);
+  drawWave();
+}
+
+// --- волна
+function drawWave(progress) {
+  const c = $("wave"), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const data = state.out || state.src; if (!data) return;
+  const css = getComputedStyle(document.documentElement);
+  const base = css.getPropertyValue("--wave").trim(), acc = css.getPropertyValue("--accent").trim();
+  const step = data.length / w, mid = h / 2 + 8;
+  for (let x = 0; x < w; x++) {
+    let m = 0; const a = Math.floor(x * step), b = Math.min(data.length, Math.floor((x + 1) * step));
+    for (let i = a; i < b; i += 4) m = Math.max(m, Math.abs(data[i]));
+    const bar = Math.max(1, m * (h - 26));
+    g.fillStyle = progress !== undefined && x / w <= progress ? acc : (state.out ? acc : base);
+    if (progress !== undefined && x / w > progress) g.fillStyle = base;
+    g.fillRect(x, mid - bar / 2, 1, bar);
+  }
+}
+
+// --- микрофон: запись и живой режим
+const mic = { stream: null, node: null, srcNode: null, recording: false, chunks: [], live: null, startedAt: 0, timer: null };
+
+async function openMic() {
+  if (mic.node) return true;
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  try {
+    audio();
+    mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) { return false; }
+  mic.srcNode = ctx.createMediaStreamSource(mic.stream);
+  mic.node = ctx.createScriptProcessor(1024, 1, 1);
+  mic.node.onaudioprocess = ev => {
+    const inp = ev.inputBuffer.getChannelData(0), out = ev.outputBuffer.getChannelData(0);
+    if (mic.recording) mic.chunks.push(new Float32Array(inp));
+    if (mic.live) { out.set(inp); mic.live.process(out); } else out.fill(0);
+  };
+  mic.srcNode.connect(mic.node); mic.node.connect(ctx.destination);
+  return true;
+}
+function closeMicIfIdle() {
+  if (mic.recording || mic.live || !mic.node) return;
+  mic.node.disconnect(); mic.srcNode.disconnect(); mic.stream.getTracks().forEach(t => t.stop());
+  mic.node = mic.srcNode = mic.stream = null;
+}
+function showCaptureFallback() {
+  $("capture-box").hidden = false;
+  $("live-row").hidden = true;
+  $("full-link").href = FULL_URL;
+  $("full-link-note").hidden = location.href.startsWith(FULL_URL);
+}
+
+$("rec").addEventListener("click", async () => {
+  if (mic.recording) {
+    mic.recording = false; clearInterval(mic.timer);
+    $("rec").classList.remove("on"); $("rec-label").textContent = "Записать голос";
+    const len = mic.chunks.reduce((s, c) => s + c.length, 0), data = new Float32Array(len);
+    let o = 0; for (const c of mic.chunks) { data.set(c, o); o += c.length; }
+    mic.chunks = []; closeMicIfIdle();
+    if (len < ctx.sampleRate * 0.3) { toast("Запись слишком короткая"); return; }
+    setSource(data, ctx.sampleRate, "Ваша запись"); store("hint", 1); play();
+    return;
+  }
+  if (inClaude || !(await openMic())) { showCaptureFallback(); return; }
+  stopPlayback();
+  mic.chunks = []; mic.recording = true; mic.startedAt = Date.now();
+  $("rec").classList.add("on");
+  const upd = () => { const s = Math.floor((Date.now() - mic.startedAt) / 1000); $("rec-label").textContent = `Стоп · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  upd(); mic.timer = setInterval(upd, 250);
+});
+
+$("live").addEventListener("change", async e => {
+  if (e.target.checked) {
+    if (inClaude || !(await openMic())) { e.target.checked = false; showCaptureFallback(); return; }
+    stopPlayback();
+    mic.live = new VoiceEngine(ctx.sampleRate, params);
+    toast("Говорите. Голос идёт в наушники");
+  } else { mic.live = null; closeMicIfIdle(); }
+});
+
+async function loadFile(file) {
+  if (!file) return;
+  setStatus("Открываю файл…");
+  try {
+    audio();
+    const ab = await file.arrayBuffer();
+    const decoded = await new Promise((res, rej) => { const p = ctx.decodeAudioData(ab, res, rej); if (p && p.catch) p.catch(rej); });
+    const mono = new Float32Array(decoded.length);
+    for (let c = 0; c < decoded.numberOfChannels; c++) {
+      const d = decoded.getChannelData(c);
+      for (let i = 0; i < d.length; i++) mono[i] += d[i] / decoded.numberOfChannels;
+    }
+    setSource(mono, decoded.sampleRate, file.name ? file.name.replace(/\.[^.]+$/, "") : "Файл");
+    play();
+  } catch (err) {
+    setStatus(state.srcName);
+    toast("Не получилось открыть этот файл. Попробуйте другой формат (m4a, mp3, ogg, wav)");
+  }
+}
+for (const id of ["pick-file", "cap-audio", "cap-video"]) {
+  $(id).addEventListener("change", e => { loadFile(e.target.files[0]); e.target.value = ""; });
+}
+$("demo").addEventListener("click", () => { setSource(makeDemo(48000), 48000, "Демо-фраза"); play(); });
+
+$("play").addEventListener("click", () => { if (state.playing) stopPlayback(); else play(); });
+$("loud").addEventListener("click", () => setSound(LOUD));
+$("max").addEventListener("click", () => setSound({ ...LOUD, boost_db: 24 }));
+$("reset-sound").addEventListener("click", () => setSound(SOUND_DEFAULTS));
+
+// --- сохранение и отправка
+function fileBase() { return "voice-" + state.voice.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-"); }
+
+// Внутри Claude можно сохранить только webm/mp4: перекодируем через MediaRecorder в реальном времени
+async function encodeCompressed(out) {
+  const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type) throw new Error("no-recorder");
+  audio();
+  const dest = ctx.createMediaStreamDestination();
+  const b = ctx.createBuffer(1, out.length, state.sr); b.copyToChannel(out, 0);
+  const src = ctx.createBufferSource(); src.buffer = b; src.connect(dest);
+  const rec = new MediaRecorder(dest.stream, { mimeType: type }), parts = [];
+  rec.ondataavailable = e => e.data.size && parts.push(e.data);
+  const done = new Promise(r => { rec.onstop = r; });
+  rec.start(); src.start();
+  const t0 = ctx.currentTime, iv = setInterval(() => setStatus(`Готовлю файл… ${Math.min(100, Math.round((ctx.currentTime - t0) / b.duration * 100))}%`), 300);
+  await new Promise(r => { src.onended = r; });
+  rec.stop(); await done; clearInterval(iv); setStatus(state.srcName);
+  return { blob: new Blob(parts, { type }), ext: type.includes("mp4") ? "mp4" : "webm" };
+}
+
+$("save").addEventListener("click", async () => {
+  if (!state.src) return;
+  const out = await ensureRendered(); if (!out) return;
+  const btn = $("save"); btn.disabled = true;
+  try {
+    const downloads = inClaude ? await window.claude.use("downloads") : null;
+    if (downloads) {
+      const { blob, ext } = await encodeCompressed(out);
+      await downloads.save({ filename: `${fileBase()}.${ext}`, data: blob });
+      toast("Сохранено");
+    } else if (inClaude) {
+      toast("Сохранение здесь недоступно. Откройте полную версию");
+    } else {
+      const url = URL.createObjectURL(encodeWav(out, state.sr));
+      const a = document.createElement("a"); a.href = url; a.download = fileBase() + ".wav";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast("Файл сохранён в загрузки");
+    }
+  } catch (err) {
+    if (err && err.code === "declined") toast("Сохранение отменено");
+    else toast("Не получилось сохранить файл");
+  } finally { btn.disabled = false; setStatus(state.srcName); }
+});
+
+// Отправка в Telegram, WhatsApp и т.д. через системное меню телефона
+if (!inClaude && navigator.canShare && navigator.canShare({ files: [new File([""], "a.wav", { type: "audio/wav" })] })) {
+  $("share").hidden = false;
+  $("share").addEventListener("click", async () => {
+    const out = await ensureRendered(); if (!out) return;
+    try { await navigator.share({ files: [new File([encodeWav(out, state.sr)], fileBase() + ".wav", { type: "audio/wav" })], title: "Голос: " + state.voice }); }
+    catch (err) { if (err.name !== "AbortError") toast("Не получилось отправить"); }
+  });
+}
+
+// --- старт
+buildVoices();
+buildSliders(VOICE_SLIDERS, $("voice-sliders"));
+buildSliders(SOUND_SLIDERS, $("sound-sliders"));
+const savedSound = load("sound"); if (savedSound) Object.assign(params, savedSound);
+selectVoice(PRESETS[load("voice")] ? load("voice") : "Женский");
+setSource(makeDemo(48000), 48000, "Демо-фраза");
+if (inClaude) { $("live-row").hidden = true; $("rec-label").textContent = "Записать голос"; }
+window.addEventListener("resize", () => drawWave());
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => drawWave());
+if (!inClaude && "serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
