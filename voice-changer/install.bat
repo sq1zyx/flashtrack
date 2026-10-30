@@ -17,6 +17,7 @@ set "PYURL=https://www.python.org/ftp/python/%PYVER%/python-%PYVER%-amd64.exe"
 echo.
 echo  =============================================
 echo     Voice Changer - установка
+echo     32 голоса, эквалайзер, режим для Discord
 echo  =============================================
 echo.
 echo  Папка программы: %APPDIR%
@@ -48,17 +49,22 @@ echo       OK: %PY%
 if errorlevel 1 goto err_tkinter
 
 rem ---------------------------------------------------------- 2. файлы
-echo [2/5] Копирую программу...
+echo [2/5] Скачиваю последнюю версию программы...
 if not exist "%APPDIR%" mkdir "%APPDIR%"
-
+del "%APPDIR%\voice_changer.new" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/voice_changer.py' -OutFile '%APPDIR%\voice_changer.new'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/requirements.txt' -OutFile '%APPDIR%\requirements.txt'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/install_vbcable.bat' -OutFile '%APPDIR%\install_vbcable.bat'"
+if exist "%APPDIR%\voice_changer.new" (
+    move /y "%APPDIR%\voice_changer.new" "%APPDIR%\voice_changer.py" >nul
+    goto app_ready
+)
+rem без интернета берём файлы, лежащие рядом с установщиком
 if exist "%~dp0voice_changer.py" (
+    echo       Нет связи с GitHub - беру файлы из папки установщика.
     copy /y "%~dp0voice_changer.py" "%APPDIR%\voice_changer.py" >nul
     copy /y "%~dp0requirements.txt" "%APPDIR%\requirements.txt" >nul
     if exist "%~dp0install_vbcable.bat" copy /y "%~dp0install_vbcable.bat" "%APPDIR%\install_vbcable.bat" >nul
-) else (
-    echo       Скачиваю с GitHub...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; $ProgressPreference='SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/voice_changer.py' -OutFile '%APPDIR%\voice_changer.py'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/requirements.txt' -OutFile '%APPDIR%\requirements.txt'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/install_vbcable.bat' -OutFile '%APPDIR%\install_vbcable.bat'"
 )
+:app_ready
 if not exist "%APPDIR%\voice_changer.py" goto err_download_app
 if not exist "%APPDIR%\install_vbcable.bat" powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol='Tls12'; Invoke-WebRequest -UseBasicParsing -Uri '%REPO%/install_vbcable.bat' -OutFile '%APPDIR%\install_vbcable.bat'"
 
