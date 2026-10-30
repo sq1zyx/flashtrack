@@ -14,6 +14,7 @@ Voice Changer — изменение голоса в реальном време
 import argparse
 import sys
 import threading
+import time
 import wave
 from collections import deque
 
@@ -80,8 +81,8 @@ class Spectral:
         self._curve_key = None
         self._curve = None
 
-    def _eq_curve(self, enhance, lowpass):
-        key = (round(enhance, 3), round(lowpass))
+    def _eq_curve(self, enhance, lowpass, eq=None):
+        key = (round(enhance, 3), round(lowpass), eq)
         if key == self._curve_key:
             return self._curve
         f = np.maximum(self.freqs, 1.0)
@@ -92,6 +93,8 @@ class Spectral:
         # меньше «бубнения» на 300 Гц, больше разборчивости 2–5 кГц, немного «воздуха»
         db = enhance * (-3.0 * bell(300, 0.8) + 4.5 * bell(3500, 1.0)
                         + 3.0 / (1 + (9000 / f) ** 2))
+        if eq:
+            db = db + eq_db(f, eq)
         curve = 10 ** (db / 20)
         if enhance > 0:  # срезаем гул и стук по столу ниже ~90 Гц
             curve *= (1 / np.sqrt(1 + (90 / f) ** 4)) ** enhance
@@ -100,9 +103,9 @@ class Spectral:
         self._curve_key, self._curve = key, curve
         return curve
 
-    def process(self, x, formant_ratio, whisper, enhance, lowpass):
+    def process(self, x, formant_ratio, whisper, enhance, lowpass, eq=None):
         n, hop = self.n, self.hop
-        curve = self._eq_curve(enhance, lowpass)
+        curve = self._eq_curve(enhance, lowpass, eq)
         self.inq = np.concatenate([self.inq, x])
         outs = [self.outq]
         while len(self.inq) >= hop:
@@ -395,6 +398,83 @@ LOUD_PRESET = {"enhance": 1.0, "boost_db": 12.0, "gate": 0.008}
 # а шумодав почти выключен, чтобы не съедать тихий голос.
 CLEAR_PRESET = {"enhance": 1.0, "boost_db": 0.0, "gate": 0.0015}
 
+# ------------------------------------------------------------- эквалайзер ---
+
+# (частота, название, что меняет)
+EQ_BANDS = [
+    (60, "Бас", "гул и низ"),
+    (150, "Тело", "плотность"),
+    (300, "Тепло", "мягкость"),
+    (600, "Нос", "гнусавость"),
+    (1200, "Середина", "напор"),
+    (2500, "Разборчивость", "слова"),
+    (5000, "Чёткость", "чёткость, «с», «ш»"),
+    (10000, "Воздух", "лёгкость"),
+]
+EQ_DEFAULTS = {"eq_on": 1.0, **{f"eq{i}": 0.0 for i in range(len(EQ_BANDS))}}
+
+EQ_PRESETS = {
+    "Ровно": [0, 0, 0, 0, 0, 0, 0, 0],
+    "Радио-голос": [2, 4, 2, -2, 0, 2, 3, 2],
+    "Тёплый": [1, 3, 3, 0, -1, 0, -1, -2],
+    "Глубже": [3, 5, 2, -1, -1, 0, 0, 0],
+    "Яркий": [-2, -1, -1, 0, 1, 3, 4, 4],
+    "Без гнусавости": [0, 0, 0, -5, -3, 1, 1, 0],
+    "Без бубнения": [-4, -3, -3, -1, 0, 1, 1, 0],
+    "Без шипения": [0, 0, 0, 0, 0, -1, -5, -6],
+    "Подкаст": [-2, 2, 1, -2, 0, 3, 2, 1],
+}
+
+# Усреднённый спектр приятной речи (дБ относительно полосы 300 Гц),
+# к нему «Подобрать под мой голос» мягко подтягивает ваш голос.
+EQ_TARGET = [-10, -2, 0, -2, -6, -10, -13, -19]
+
+
+def eq_db(f, gains):
+    """Усиление в дБ на частотах f: крайние полосы — полки, остальные — колокола."""
+    db = np.zeros_like(f)
+    last = len(EQ_BANDS) - 1
+    for i, ((fc, _, _), g) in enumerate(zip(EQ_BANDS, gains)):
+        if not g:
+            continue
+        if i == 0:
+            db += g / (1 + (f / fc) ** 2)
+        elif i == last:
+            db += g / (1 + (fc / f) ** 2)
+        else:
+            db += g * np.exp(-0.5 * (np.log2(f / fc) / 0.55) ** 2)
+    return db
+
+
+def analyze_voice(x, sr, n=4096):
+    """Средний уровень голоса в каждой полосе эквалайзера, дБ. None — если речи почти не было."""
+    hop = n // 2
+    if len(x) < n * 4:
+        return None
+    frames = np.lib.stride_tricks.sliding_window_view(x, n)[::hop]
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    voiced = frames[rms > max(0.002, 0.25 * np.percentile(rms, 90))]
+    if len(voiced) < 5:
+        return None
+    power = np.mean(np.abs(np.fft.rfft(voiced * np.hanning(n), axis=1)) ** 2, axis=0)
+    freqs = np.fft.rfftfreq(n, 1 / sr)
+    centers = [b[0] for b in EQ_BANDS]
+    edges = [20] + [np.sqrt(a * b) for a, b in zip(centers, centers[1:])] + [16000]
+    return [10 * np.log10(np.mean(power[(freqs >= lo) & (freqs < hi)]) + 1e-20)
+            for lo, hi in zip(edges, edges[1:])]
+
+
+def suggest_eq(levels):
+    """Настройки эквалайзера, которые мягко приближают голос к EQ_TARGET (не больше ±6 дБ)."""
+    measured = np.array(levels) - np.mean(levels[1:4])
+    target = np.array(EQ_TARGET, dtype=float) - np.mean(EQ_TARGET[1:4])
+    diff = target - measured
+    diff -= np.mean(diff[1:7])  # меняем только окраску, а не общую громкость
+    diff = np.clip(diff * 0.7, -6, 6)
+    diff[0] = min(diff[0], 0)  # самый низ не поднимаем — вылезет гул и стук
+    return [float(round(v * 2) / 2) for v in diff]
+
+
 PRESETS = {
     "Обычный": {},
     "Женский": {"pitch": 5, "formant": 2.5},
@@ -441,7 +521,7 @@ class VoiceEngine:
     """Цепочка эффектов. Параметры можно менять на лету из другого потока."""
 
     def __init__(self, sr=SAMPLE_RATE):
-        self.params = {**VOICE_DEFAULTS, **SOUND_DEFAULTS}
+        self.params = {**VOICE_DEFAULTS, **SOUND_DEFAULTS, **EQ_DEFAULTS}
         self.gate = NoiseGate()
         self.pitch = PitchShifter(sr)
         self.spectral = Spectral(sr)
@@ -468,7 +548,8 @@ class VoiceEngine:
         x = self.pitch.process(x, p["pitch"])
         # сдвиг тона двигает и форманты — компенсируем до нужного тембра
         formant_ratio = 2.0 ** ((p["formant"] - p["pitch"]) / 12.0)
-        x = self.spectral.process(x, formant_ratio, p["whisper"], p["enhance"], p["lowpass"])
+        eq = tuple(p[f"eq{i}"] for i in range(len(EQ_BANDS))) if p["eq_on"] else None
+        x = self.spectral.process(x, formant_ratio, p["whisper"], p["enhance"], p["lowpass"], eq)
         x = self.vibrato.process(x, p["vibrato"], p["vibrato_rate"])
         x = self.robot.process(x, p["robot"], p["robot_freq"])
         x = bitcrush(x, p["crush"])
@@ -790,6 +871,58 @@ def run_gui():
                           segmented_button_unselected_hover_color=T["card"], text_color=T["text"])
     tabs.grid(row=3, column=0, sticky="nsew", pady=(18, 0))
     sliders = {}
+
+    eq_tab = tabs.add("Эквалайзер")
+    eq_tab.grid_columnconfigure(0, weight=1)
+    eq_top = ctk.CTkFrame(eq_tab, fg_color="transparent")
+    eq_top.grid(row=0, column=0, sticky="ew", padx=12, pady=(0, 4))
+    eq_on = ctk.BooleanVar(value=True)
+    eq_sw = ctk.CTkSwitch(eq_top, text="Эквалайзер", variable=eq_on, font=font(13, "bold"),
+                          text_color=T["text"], progress_color=T["live"], button_color=T["text"],
+                          button_hover_color=T["text"], fg_color=T["card"])
+    eq_sw.pack(side="left")
+    eq_preset = ctk.CTkOptionMenu(eq_top, values=list(EQ_PRESETS), width=170, height=32, font=font(13),
+                                  dynamic_resizing=False, fg_color=T["card"], button_color=T["card"],
+                                  button_hover_color=T["card_hover"], dropdown_fg_color=T["card"],
+                                  text_color=T["text"])
+    eq_preset.pack(side="left", padx=(16, 8))
+    eq_auto = ctk.CTkButton(eq_top, text="Подобрать под мой голос", height=32, font=font(13, "bold"),
+                            fg_color=T["accent"], hover_color=T["accent_hover"], text_color=T["accent_text"])
+    eq_auto.pack(side="left", padx=(0, 8))
+    eq_reset = ctk.CTkButton(eq_top, text="Сбросить", width=90, height=32, font=font(13),
+                             fg_color=T["card"], hover_color=T["card_hover"], text_color=T["text"])
+    eq_reset.pack(side="left")
+
+    eq_grid = ctk.CTkFrame(eq_tab, fg_color="transparent")
+    eq_grid.grid(row=1, column=0, sticky="nsew", padx=12)
+    eq_sliders = []
+    for i, (fc, name, what) in enumerate(EQ_BANDS):
+        eq_grid.grid_columnconfigure(i, weight=1, uniform="eq")
+        value = ctk.CTkLabel(eq_grid, text="0 дБ", font=font(12, "bold"), text_color=T["muted"], height=18)
+        value.grid(row=0, column=i)
+
+        def on_eq(v, i=i, value=value, manual=True):
+            v = round(float(v) * 2) / 2
+            engine.params[f"eq{i}"] = v
+            value.configure(text=_signed(v, "дБ") if v else "0 дБ",
+                            text_color=T["accent"] if v else T["muted"])
+            if manual:
+                eq_preset.set("Свои настройки")
+
+        sl = ctk.CTkSlider(eq_grid, from_=-12, to=12, number_of_steps=48, orientation="vertical",
+                           height=96, width=18, command=on_eq, button_color=T["accent"],
+                           button_hover_color=T["accent_hover"], progress_color=T["card"], fg_color=T["card"])
+        sl.set(0)
+        sl.grid(row=1, column=i, pady=4)
+        ctk.CTkLabel(eq_grid, text=name, font=font(12, "bold"), text_color=T["text"], height=16).grid(
+            row=2, column=i)
+        ctk.CTkLabel(eq_grid, text=f"{fc / 1000:g} кГц" if fc >= 1000 else f"{fc} Гц", font=font(11),
+                     text_color=T["muted"], height=14).grid(row=3, column=i)
+        eq_sliders.append((sl, on_eq))
+    eq_hint = hint(eq_tab, "Вверх — громче эта часть голоса, вниз — тише. "
+                           "Не знаете, с чего начать, — «Подобрать под мой голос».", wrap=760)
+    eq_hint.grid(row=2, column=0, sticky="ew", padx=16, pady=(4, 0))
+
     for tab_name, rows in SLIDER_TABS.items():
         tab = tabs.add(tab_name)
         tab.grid_columnconfigure(1, weight=1)
@@ -812,7 +945,7 @@ def run_gui():
             s.grid(row=r, column=c + 1, sticky="ew", pady=7)
             value.grid(row=r, column=c + 2, sticky="e", padx=(8, 16))
             sliders[key] = (s, on_change)
-    tabs.set("Голос")
+    tabs.set("Эквалайзер")
 
     # ------------------------------------------------ логика
     def sync_sliders():
@@ -934,6 +1067,7 @@ def run_gui():
     def on_route(choice):
         for w in (cable_btn, test_btn, help_btn):
             w.grid_forget()
+        route_box.grid_remove()  # пустой CTkFrame иначе занимает 200 пикселей
         monitor_sw.grid_forget()
         if choice == "Discord и игры":
             cable = find_cable()
@@ -948,6 +1082,7 @@ def run_gui():
                                      text_color=T["accent"])
                 cable_btn.grid(row=0, column=0, sticky="ew", pady=(8, 0), padx=(0, 4))
             help_btn.grid(row=0, column=1, sticky="ew", pady=(8, 0), padx=(4, 0))
+            route_box.grid()
         else:
             hp = find_headphones()
             name = next((n for n, i in outputs.items() if i == hp), None)
@@ -1006,9 +1141,62 @@ def run_gui():
         hotkey = None
         root.bind_all("<F8>", lambda e: toggle_effect())
 
+    # ---------- эквалайзер
+    def set_eq(gains, name):
+        for (sl, on_eq), g in zip(eq_sliders, gains):
+            sl.set(g)
+            on_eq(g, manual=False)
+        eq_preset.set(name)
+
+    eq_preset.configure(command=lambda name: set_eq(EQ_PRESETS[name], name))
+    eq_reset.configure(command=lambda: set_eq(EQ_PRESETS["Ровно"], "Ровно"))
+    eq_preset.set("Ровно")
+
+    def apply_eq_switch():
+        engine.params["eq_on"] = 1.0 if eq_on.get() else 0.0
+        eq_sw.configure(text="Эквалайзер" if eq_on.get() else "Эквалайзер выключен — сравните")
+
+    eq_sw.configure(command=apply_eq_switch)
+
+    ANALYZE_SECONDS = 6
+
+    def start_analysis():
+        if state["stream"] is None:
+            eq_hint.configure(text="Сначала нажмите «Старт» слева — мне нужно услышать ваш голос.",
+                              text_color=T["accent"])
+            return
+        state["analyze_buf"] = []
+        state["analyze_until"] = time.time() + ANALYZE_SECONDS
+        eq_auto.configure(state="disabled")
+        eq_hint.configure(text="Говорите обычным голосом 6 секунд: прочитайте что-нибудь вслух.",
+                          text_color=T["text"])
+
+    def finish_analysis():
+        buf = state.pop("analyze_buf")
+        state.pop("analyze_until")
+        eq_auto.configure(state="normal", text="Подобрать под мой голос")
+        levels = analyze_voice(np.concatenate(buf), SAMPLE_RATE) if buf else None
+        if levels is None:
+            eq_hint.configure(text="Почти не услышал голос. Проверьте полоску микрофона и попробуйте ещё раз.",
+                          text_color=T["accent"])
+            return
+        gains = suggest_eq(levels)
+        set_eq(gains, "Под мой голос")
+        changes = sorted(((g, EQ_BANDS[i][2]) for i, g in enumerate(gains) if abs(g) >= 2), key=lambda c: -abs(c[0]))
+        if changes:
+            text = "Готово: " + ", ".join(f"{'добавил' if g > 0 else 'убрал'} {what}" for g, what in changes[:3])
+            text += ". Сравните, выключив эквалайзер."
+        else:
+            text = "Готово. Ваш голос и так ровный — поправил совсем немного."
+        eq_hint.configure(text=text, text_color=T["live"])
+
+    eq_auto.configure(command=start_analysis)
+
     # ---------- звук
     def callback(indata, outdata, frames, time_info, status_flags):
         mic = indata[:, 0]
+        if "analyze_buf" in state:
+            state["analyze_buf"].append(mic.copy())
         state["in_level"] = max(state["in_level"], float(np.abs(mic).max()))
         y = engine.process(mic)
         outdata[:] = y[:, None]
@@ -1177,6 +1365,13 @@ def run_gui():
             else:
                 mic_hint.configure(text="Микрофон работает." if mic > 0.003 else mic_hint.cget("text"),
                                    text_color=T["muted"])
+
+        if "analyze_until" in state:
+            left = state["analyze_until"] - time.time()
+            if left <= 0 or state["stream"] is None:
+                finish_analysis()
+            else:
+                eq_auto.configure(text=f"Слушаю… {int(left) + 1}")
 
         if state.pop("hotkey_pressed", False):
             toggle_effect()

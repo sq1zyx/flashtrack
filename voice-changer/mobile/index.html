@@ -197,6 +197,23 @@ details[open] summary::after { content: "–"; }
     </div>
   </details>
 
+  <details id="eq-panel" open>
+    <summary>Эквалайзер</summary>
+    <div class="panel">
+      <div class="chips" id="eq-presets"></div>
+      <div class="row">
+        <button class="loud" id="eq-auto">Подобрать под мою запись</button>
+        <button class="ghost" id="eq-reset">Сбросить</button>
+      </div>
+      <p class="note" id="eq-note">Вверх — громче эта часть голоса, вниз — тише. Запишите голос и нажмите «Подобрать под мою запись».</p>
+      <div class="switch">
+        <div><label for="eq-on"><b>Эквалайзер включён</b></label><small>Выключите, чтобы сравнить</small></div>
+        <input type="checkbox" class="toggle" id="eq-on" role="switch" checked>
+      </div>
+      <div id="eq-sliders" class="panel" style="padding:0"></div>
+    </div>
+  </details>
+
   <details>
     <summary>Тонкая настройка голоса</summary>
     <div class="panel" id="voice-sliders"></div>
@@ -281,23 +298,24 @@ class Spectral {
     this.env = new Float64Array(h); this.warp = new Float64Array(h); this.curve = new Float64Array(h);
     this.key = "";
   }
-  updateCurve(enhance, lowpass) {
-    const key = enhance.toFixed(3) + "|" + Math.round(lowpass);
+  updateCurve(enhance, lowpass, eq) {
+    const key = enhance.toFixed(3) + "|" + Math.round(lowpass) + "|" + (eq ? eq.join(",") : "");
     if (key === this.key) return;
     this.key = key;
     for (let k = 0; k <= this.n / 2; k++) {
       const f = Math.max(k * this.sr / this.n, 1);
       const bell = (fc, w) => Math.exp(-0.5 * (Math.log2(f / fc) / w) ** 2);
-      const db = enhance * (-3 * bell(300, 0.8) + 4.5 * bell(3500, 1.0) + 3 / (1 + (9000 / f) ** 2));
+      let db = enhance * (-3 * bell(300, 0.8) + 4.5 * bell(3500, 1.0) + 3 / (1 + (9000 / f) ** 2));
+      if (eq) db += eqDb(f, eq);
       let g = 10 ** (db / 20);
       if (enhance > 0) g *= Math.pow(1 / Math.sqrt(1 + (90 / f) ** 4), enhance);
       if (lowpass < 19000) g *= 1 / Math.sqrt(1 + (f / lowpass) ** 8);
       this.curve[k] = g;
     }
   }
-  process(x, ratio, whisper, enhance, lowpass) {
+  process(x, ratio, whisper, enhance, lowpass, eq) {
     const { n, hop, re, im, cr, ci, env, warp, win, frame, acc, fft } = this, h = n / 2;
-    this.updateCurve(enhance, lowpass);
+    this.updateCurve(enhance, lowpass, eq);
     const doFormant = Math.abs(ratio - 1) > 1e-3;
     for (let o = 0; o < x.length; o += hop) {
       frame.copyWithin(0, hop); frame.set(x.subarray(o, o + hop), n - hop);
@@ -556,6 +574,78 @@ const GROUPS = {
   },
 };
 const PRESETS = Object.assign({}, ...Object.values(GROUPS));
+
+// ---------- эквалайзер (как в версии для ПК)
+const EQ_BANDS = [
+  [60, "Бас", "гул и низ"], [150, "Тело", "плотность"], [300, "Тепло", "мягкость"], [600, "Нос", "гнусавость"],
+  [1200, "Середина", "напор"], [2500, "Разборчивость", "слова"], [5000, "Чёткость", "чёткость"], [10000, "Воздух", "лёгкость"],
+];
+const EQ_KEYS = EQ_BANDS.map((_, i) => "eq" + i);
+const EQ_DEFAULTS = { eq_on: 1, ...Object.fromEntries(EQ_KEYS.map(k => [k, 0])) };
+const EQ_PRESETS = {
+  "Ровно": [0, 0, 0, 0, 0, 0, 0, 0],
+  "Радио-голос": [2, 4, 2, -2, 0, 2, 3, 2],
+  "Тёплый": [1, 3, 3, 0, -1, 0, -1, -2],
+  "Глубже": [3, 5, 2, -1, -1, 0, 0, 0],
+  "Яркий": [-2, -1, -1, 0, 1, 3, 4, 4],
+  "Без гнусавости": [0, 0, 0, -5, -3, 1, 1, 0],
+  "Без бубнения": [-4, -3, -3, -1, 0, 1, 1, 0],
+  "Без шипения": [0, 0, 0, 0, 0, -1, -5, -6],
+  "Подкаст": [-2, 2, 1, -2, 0, 3, 2, 1],
+};
+// усреднённый спектр приятной речи, к нему мягко подтягивает «Подобрать»
+const EQ_TARGET = [-10, -2, 0, -2, -6, -10, -13, -19];
+
+function eqDb(f, gains) {
+  let db = 0;
+  const last = EQ_BANDS.length - 1;
+  for (let i = 0; i <= last; i++) {
+    const g = gains[i], fc = EQ_BANDS[i][0];
+    if (!g) continue;
+    if (i === 0) db += g / (1 + (f / fc) ** 2);
+    else if (i === last) db += g / (1 + (fc / f) ** 2);
+    else db += g * Math.exp(-0.5 * (Math.log2(f / fc) / 0.55) ** 2);
+  }
+  return db;
+}
+
+// Средний уровень голоса в каждой полосе, дБ; null — если речи почти нет
+function analyzeVoice(x, sr, n = 4096) {
+  const hop = n / 2;
+  if (x.length < n * 4) return null;
+  const frames = [];
+  for (let o = 0; o + n <= x.length; o += hop) {
+    let s = 0; for (let i = o; i < o + n; i++) s += x[i] * x[i];
+    frames.push([o, Math.sqrt(s / n)]);
+  }
+  const sorted = frames.map(f => f[1]).sort((a, b) => a - b);
+  const thr = Math.max(0.002, 0.25 * sorted[Math.floor(sorted.length * 0.9)]);
+  const voiced = frames.filter(f => f[1] > thr);
+  if (voiced.length < 5) return null;
+  const fft = new FFT(n), re = new Float64Array(n), im = new Float64Array(n), power = new Float64Array(n / 2 + 1);
+  for (const [o] of voiced) {
+    for (let i = 0; i < n; i++) { re[i] = x[o + i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / n)); im[i] = 0; }
+    fft.run(re, im, false);
+    for (let k = 0; k <= n / 2; k++) power[k] += re[k] * re[k] + im[k] * im[k];
+  }
+  const c = EQ_BANDS.map(b => b[0]);
+  const edges = [20, ...c.slice(1).map((v, i) => Math.sqrt(v * c[i])), 16000];
+  return edges.slice(1).map((hi, b) => {
+    const lo = edges[b]; let s = 0, cnt = 0;
+    for (let k = 0; k <= n / 2; k++) { const f = k * sr / n; if (f >= lo && f < hi) { s += power[k]; cnt++; } }
+    return 10 * Math.log10(s / Math.max(cnt, 1) + 1e-20);
+  });
+}
+
+function suggestEq(levels) {
+  const mean = (a, i, j) => a.slice(i, j).reduce((s, v) => s + v, 0) / (j - i);
+  const m = levels.map(v => v - mean(levels, 1, 4)), t = EQ_TARGET.map(v => v - mean(EQ_TARGET, 1, 4));
+  let d = t.map((v, i) => v - m[i]);
+  const shift = mean(d, 1, 7);
+  d = d.map(v => Math.max(-6, Math.min(6, (v - shift) * 0.7)));
+  d[0] = Math.min(d[0], 0); // самый низ не поднимаем — вылезет гул
+  return d.map(v => Math.round(v * 2) / 2);
+}
 const SPECTRAL_LATENCY = 768; // n - hop
 
 class VoiceEngine {
@@ -571,7 +661,8 @@ class VoiceEngine {
     this.gate.process(x, p.gate);
     this.pitch.process(x, p.pitch);
     // сдвиг тона двигает и форманты — компенсируем до нужного тембра
-    this.spectral.process(x, 2 ** ((p.formant - p.pitch) / 12), p.whisper, p.enhance, p.lowpass);
+    const eq = p.eq_on ? EQ_KEYS.map(k => p[k]) : null;
+    this.spectral.process(x, 2 ** ((p.formant - p.pitch) / 12), p.whisper, p.enhance, p.lowpass, eq);
     this.vibrato.process(x, p.vibrato, p.vibrato_rate);
     this.robot.process(x, p.robot, p.robot_freq);
     this.crush.process(x, p.crush);
@@ -647,7 +738,7 @@ function encodeWav(data, sr) {
 const $ = id => document.getElementById(id);
 const FULL_URL = "https://raw.githack.com/sq1zyx/flashtrack/ccr-c9177474-i5ork0/voice-changer/mobile/index.html";
 const inClaude = !!(window.claude && window.claude.use);
-const params = { ...VOICE_DEFAULTS, ...SOUND_DEFAULTS };
+const params = { ...VOICE_DEFAULTS, ...SOUND_DEFAULTS, ...EQ_DEFAULTS };
 const state = { voice: "Обычный", src: null, srcName: "Демо-фраза", sr: 48000, out: null, renderId: 0, playing: null, rendering: false };
 let ctx = null;
 
@@ -734,6 +825,7 @@ function buildSliders(list, root) {
     input.addEventListener("input", () => {
       params[key] = Number(input.value); out.textContent = fmt(params[key]);
       if (key in SOUND_DEFAULTS) store("sound", pickSound());
+      if (key in EQ_DEFAULTS) { markEqPreset(null); store("eq", pickEq()); }
       invalidate(true);
     });
     sliderEls[key] = { input, out, fmt };
@@ -742,6 +834,14 @@ function buildSliders(list, root) {
 }
 function syncSliders() {
   for (const [key, s] of Object.entries(sliderEls)) { s.input.value = params[key]; s.out.textContent = s.fmt(params[key]); }
+}
+function pickEq() { return Object.fromEntries(Object.keys(EQ_DEFAULTS).map(k => [k, params[k]])); }
+function markEqPreset(name) {
+  document.querySelectorAll("#eq-presets .chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.eq === name)));
+}
+function setEq(gains, name) {
+  EQ_KEYS.forEach((k, i) => { params[k] = gains[i]; });
+  syncSliders(); markEqPreset(name); store("eq", pickEq()); invalidate(); play();
 }
 function pickSound() { return { enhance: params.enhance, boost_db: params.boost_db, gate: params.gate }; }
 function setSound(v) { Object.assign(params, v); syncSliders(); store("sound", pickSound()); invalidate(); play(); }
@@ -920,6 +1020,26 @@ $("loud").addEventListener("click", () => setSound(LOUD));
 $("max").addEventListener("click", () => setSound({ ...LOUD, boost_db: 24 }));
 $("reset-sound").addEventListener("click", () => setSound(SOUND_DEFAULTS));
 
+for (const name of Object.keys(EQ_PRESETS)) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.dataset.eq = name; b.textContent = name; b.setAttribute("aria-pressed", "false");
+  b.addEventListener("click", () => { setEq(EQ_PRESETS[name], name); $("eq-note").textContent = "Готовая настройка «" + name + "». Сравните, выключив эквалайзер."; });
+  $("eq-presets").appendChild(b);
+}
+$("eq-reset").addEventListener("click", () => setEq(EQ_PRESETS["Ровно"], "Ровно"));
+$("eq-on").addEventListener("change", e => { params.eq_on = e.target.checked ? 1 : 0; store("eq", pickEq()); invalidate(); play(); });
+$("eq-auto").addEventListener("click", () => {
+  if (state.srcName === "Демо-фраза") { $("eq-note").textContent = "Сначала запишите свой голос: подбор работает по вашей записи."; return; }
+  const levels = analyzeVoice(state.src, state.sr);
+  if (!levels) { $("eq-note").textContent = "В записи почти нет голоса. Запишите 5–10 секунд обычной речи."; return; }
+  const gains = suggestEq(levels);
+  setEq(gains, null);
+  const changes = gains.map((g, i) => [g, EQ_BANDS[i][2]]).filter(c => Math.abs(c[0]) >= 2).sort((a, b) => Math.abs(b[0]) - Math.abs(a[0]));
+  $("eq-note").textContent = changes.length
+    ? "Готово: " + changes.slice(0, 3).map(([g, w]) => (g > 0 ? "добавил " : "убрал ") + w).join(", ") + ". Сравните, выключив эквалайзер."
+    : "Готово: ваш голос и так ровный, поправил совсем немного.";
+});
+
 // --- сохранение и отправка
 function fileBase() { return "voice-" + state.voice.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, "-"); }
 
@@ -980,6 +1100,11 @@ if (!inClaude && navigator.canShare && navigator.canShare({ files: [new File([""
 buildVoices();
 buildSliders(VOICE_SLIDERS, $("voice-sliders"));
 buildSliders(SOUND_SLIDERS, $("sound-sliders"));
+buildSliders(EQ_BANDS.map(([fc, name], i) => ["eq" + i, `${name} · ${fc >= 1000 ? fc / 1000 + " кГц" : fc + " Гц"}`, -12, 12, 0.5,
+  v => v === 0 ? "0 дБ" : (v > 0 ? "+" : "") + v + " дБ"]), $("eq-sliders"));
+const savedEq = load("eq");
+if (savedEq) { Object.assign(params, savedEq); $("eq-on").checked = !!params.eq_on; }
+markEqPreset(savedEq ? null : "Ровно");
 const savedSound = load("sound"); if (savedSound) Object.assign(params, savedSound);
 selectVoice(PRESETS[load("voice")] ? load("voice") : "Женский");
 setSource(makeDemo(48000), 48000, "Демо-фраза");
