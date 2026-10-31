@@ -45,7 +45,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "5.0"
+APP_VERSION := "5.1"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -2850,13 +2850,6 @@ MenuShape() {
     else
         DllCall("SetWindowRgn", "ptr", UI.Hwnd, "ptr", 0, "int", 1)
 }
-; Окно как скруглённый прямоугольник размера k (0…1) от полного, по центру
-MenuClip(pw, ph, k) {
-    w := Max(6, Round(pw * k)), h := Max(6, Round(ph * k)), rad := Round(Min(w, h) * (1 - k) + 18 * DPI * k)
-    x := (pw - w) // 2, y := (ph - h) // 2
-    rgn := DllCall("CreateRoundRectRgn", "int", x, "int", y, "int", x + w + 1, "int", y + h + 1, "int", rad, "int", rad, "ptr")
-    DllCall("SetWindowRgn", "ptr", UI.Hwnd, "ptr", rgn, "int", 1)
-}
 ; Анимация по реальному времени: fn(k) получает долю 0…1, кадры идут так часто, как успевает система.
 ; timeBeginPeriod(1) делает Sleep точным до 1 мс — без него шаг ~16 мс и движение дёргается.
 Animate(ms, fn) {
@@ -2873,27 +2866,94 @@ Animate(ms, fn) {
     }
     DllCall("winmm\timeEndPeriod", "uint", 1)
 }
-; Открытие как у оверлеев (~0,2 с): меню раскрывается из точки в центре и проявляется; страница всплывает
+; ───── анимация открытия и закрытия ─────
+; Меню живёт во встроенном браузере, и любое изменение формы окна заставляет его перерисовываться — отсюда рывки.
+; Поэтому анимируем не само меню, а его снимок в отдельном прозрачном окне: видеокарта просто масштабирует
+; готовую картинку. Снимок берётся при закрытии, а при открытии меню тихо прорисовывается под ним.
+SnapBmp := 0, SnapW := 0, SnapH := 0
+MenuSnap() {
+    global SnapBmp, SnapW, SnapH
+    UI.GetPos(&x, &y, &w, &h)
+    sdc := DllCall("GetDC", "ptr", 0, "ptr")
+    mdc := DllCall("CreateCompatibleDC", "ptr", sdc, "ptr")
+    bmp := DllCall("CreateCompatibleBitmap", "ptr", sdc, "int", w, "int", h, "ptr")
+    old := DllCall("SelectObject", "ptr", mdc, "ptr", bmp, "ptr")
+    ; меню в этот момент поверх всего на экране — просто копируем пиксели экрана: мгновенно и без перерисовки браузера
+    ok := DllCall("BitBlt", "ptr", mdc, "int", 0, "int", 0, "int", w, "int", h, "ptr", sdc, "int", x, "int", y, "uint", 0xCC0020)
+    DllCall("SelectObject", "ptr", mdc, "ptr", old)
+    DllCall("DeleteDC", "ptr", mdc)
+    DllCall("ReleaseDC", "ptr", 0, "ptr", sdc)
+    if SnapBmp
+        DllCall("DeleteObject", "ptr", SnapBmp)
+    if ok {
+        SnapBmp := bmp, SnapW := w, SnapH := h
+    } else {
+        DllCall("DeleteObject", "ptr", bmp)
+        SnapBmp := 0
+    }
+    return ok
+}
+; Снимок раскрывается из точки (open) или схлопывается в точку (close) в прозрачном окне поверх всего
+ZoomAnim(x, y, w, h, open, ms) {
+    g := Gui("-Caption +ToolWindow +AlwaysOnTop -DPIScale +E0x80020")   ; WS_EX_LAYERED | WS_EX_TRANSPARENT
+    sdc := DllCall("GetDC", "ptr", 0, "ptr")
+    src := DllCall("CreateCompatibleDC", "ptr", sdc, "ptr"), so := DllCall("SelectObject", "ptr", src, "ptr", SnapBmp, "ptr")
+    dst := DllCall("CreateCompatibleDC", "ptr", sdc, "ptr")
+    canvas := DllCall("CreateCompatibleBitmap", "ptr", sdc, "int", w, "int", h, "ptr")
+    co := DllCall("SelectObject", "ptr", dst, "ptr", canvas, "ptr")
+    DllCall("SetStretchBltMode", "ptr", dst, "int", 3)              ; COLORONCOLOR — быстро; в движении «лесенки» не видно
+    pt := Buffer(8), sz := Buffer(8), zero := Buffer(8, 0)
+    shown := false
+    frame(k) {
+        e := open ? 1 - (1 - k) ** 3 : k * k
+        sc := open ? 0.3 + 0.7 * e : 1 - 0.7 * e
+        a := open ? Min(1, k * 1.7) : 1 - e
+        sw := Max(2, Round(w * sc)), sh := Max(2, Round(h * sc))
+        DllCall("StretchBlt", "ptr", dst, "int", 0, "int", 0, "int", sw, "int", sh, "ptr", src, "int", 0, "int", 0, "int", SnapW, "int", SnapH, "uint", 0xCC0020)
+        NumPut("int", x + (w - sw) // 2, "int", y + (h - sh) // 2, pt), NumPut("int", sw, "int", sh, sz)
+        DllCall("UpdateLayeredWindow", "ptr", g.Hwnd, "ptr", sdc, "ptr", pt, "ptr", sz, "ptr", dst, "ptr", zero, "uint", 0
+            , "uint*", Round(255 * a) << 16, "uint", 2)
+        rad := Round(18 * DPI * sc)
+        DllCall("SetWindowRgn", "ptr", g.Hwnd, "ptr", DllCall("CreateRoundRectRgn", "int", 0, "int", 0, "int", sw + 1, "int", sh + 1, "int", rad, "int", rad, "ptr"), "int", 1)
+        if !shown {                                                ; показать, не меняя размер и не забирая фокус
+            DllCall("ShowWindow", "ptr", g.Hwnd, "int", 8)
+            shown := true
+        }
+    }
+    try Animate(ms, frame)
+    DllCall("SelectObject", "ptr", dst, "ptr", co), DllCall("DeleteObject", "ptr", canvas), DllCall("DeleteDC", "ptr", dst)
+    DllCall("SelectObject", "ptr", src, "ptr", so), DllCall("DeleteDC", "ptr", src)
+    DllCall("ReleaseDC", "ptr", 0, "ptr", sdc)
+    return g
+}
+; Открытие: меню уже показано прозрачным и прорисовывается под снимком, в конце просто становится видимым.
+; Первый раз снимка ещё нет — тогда только плавное проявление (прозрачность считает видеокарта, без перерисовки).
 MenuOpenAnim() {
     try {
-        UI.GetPos(, , &pw, &ph)
-        MenuClip(pw, ph, 0)
-        WinSetTransparent(0, UI)
-        Wnd.menuIn()
-        Animate(200, (k) => (e := 1 - (1 - k) ** 3, MenuClip(pw, ph, e), WinSetTransparent(Round(255 * Min(1, k * 1.8)), UI)))
-        WinSetTransparent("Off", UI)
+        MenuShape()
+        UI.GetPos(&x, &y, &w, &h)
+        if (SnapBmp && SnapW = w && SnapH = h) {
+            g := ZoomAnim(x, y, w, h, true, 190)
+            WinSetTransparent("Off", UI)
+            g.Destroy()
+        } else {
+            Wnd.menuIn()
+            Animate(170, (k) => WinSetTransparent(Round(255 * (1 - (1 - k) ** 2)), UI))
+            WinSetTransparent("Off", UI)
+        }
     }
-    try MenuShape()
 }
-; Закрытие — обратно в точку с затуханием
+; Закрытие: снимок текущего вида, окно меню прячется сразу, а снимок схлопывается в точку
 MenuCloseAnim() {
+    ok := false
     try {
-        UI.GetPos(, , &pw, &ph)
-        Animate(130, (k) => (e := 1 - k * k, MenuClip(pw, ph, e), WinSetTransparent(Round(255 * e), UI)))
+        UI.GetPos(&x, &y, &w, &h)
+        ok := MenuSnap()
     }
     UI.Hide()
+    if ok
+        try ZoomAnim(x, y, w, h, false, 140).Destroy()
     try WinSetTransparent("Off", UI)
-    try MenuShape()
 }
 
 ToggleMenu(*) {
