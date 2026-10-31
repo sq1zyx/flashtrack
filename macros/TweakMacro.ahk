@@ -45,7 +45,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "5.2"
+APP_VERSION := "5.3"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -1285,7 +1285,7 @@ EditAssistTick() {
             open := false
     }
     ; нажал «Редактировать», но так и не выделял — скорее всего, редакт не открылся
-    if (open && !sel && A_TickCount - last > 2000)
+    if (open && !sel && A_TickCount - last > 1500)
         open := false
 }
 EditKeyIsMacro() {
@@ -1887,7 +1887,7 @@ class Bridge {
         return 1
     }
     hide() {
-        SetTimer(() => (UI.Hide(), HideUI()), -10)
+        SetTimer(() => (MenuCloseAnim(), HideUI()), -10)
         return 1
     }
     drag() {
@@ -2690,7 +2690,11 @@ PING_COUNT := 8
 ; чтобы не нагружать сеть). После проверки — ускорение сети (если есть права) и лучший регион в настройки игры.
 AutoNetTick() {
     SetTimer(AutoNetTick, -30 * 60000)
-    if !Bool("Tools", "AutoNet", true) || !Launched || FortniteRunning()
+    if !Launched {                          ; ещё в лаунчере — попробуем чуть позже, а не через полчаса
+        SetTimer(AutoNetTick, -15000)
+        return
+    }
+    if !Bool("Tools", "AutoNet", true) || FortniteRunning()
         return
     PingRegions(true)
 }
@@ -2838,6 +2842,7 @@ MenuGuard() {
     mine := false
     try mine := fg && WinGetPID("ahk_id " fg) = DllCall("GetCurrentProcessId")
     if !run || (fg && !mine && !IsGameWin(fg)) {
+        DropSnap()                          ; спрятали без снимка — старая картинка при открытии мелькнула бы
         UI.Hide()
         HideUI(true)
     }
@@ -2873,6 +2878,12 @@ Animate(ms, fn) {
 ; Поэтому анимируем не само меню, а его снимок в отдельном прозрачном окне: видеокарта просто масштабирует
 ; готовую картинку. Снимок берётся при закрытии, а при открытии меню тихо прорисовывается под ним.
 SnapBmp := 0, SnapW := 0, SnapH := 0
+DropSnap() {
+    global SnapBmp
+    if SnapBmp
+        DllCall("DeleteObject", "ptr", SnapBmp)
+    SnapBmp := 0
+}
 MenuSnap() {
     global SnapBmp, SnapW, SnapH
     UI.GetPos(&x, &y, &w, &h)
@@ -2936,21 +2947,27 @@ MenuOpenAnim() {
         UI.GetPos(&x, &y, &w, &h)
         if (SnapBmp && SnapW = w && SnapH = h) {
             g := ZoomAnim(x, y, w, h, true, 190)
-            WinSetTransparent("Off", UI)
+            try WinSetTransparent("Off", UI)
             g.Destroy()
         } else {
             Wnd.menuIn()
             Animate(170, (k) => WinSetTransparent(Round(255 * (1 - (1 - k) ** 2)), UI))
-            WinSetTransparent("Off", UI)
         }
     }
+    ; что бы ни случилось с анимацией, меню должно стать видимым
+    try WinSetTransparent("Off", UI)
 }
 ; Закрытие: снимок текущего вида, окно меню прячется сразу, а снимок схлопывается в точку
 MenuCloseAnim() {
     ok := false
     try {
         UI.GetPos(&x, &y, &w, &h)
-        ok := MenuSnap()
+        ; снимок с экрана честный, только если меню целиком видно и ничем не перекрыто
+        onScreen := x >= SysGet(76) && y >= SysGet(77) && x + w <= SysGet(76) + SysGet(78) && y + h <= SysGet(77) + SysGet(79)
+        if (onScreen && WinActive("ahk_id " UI.Hwnd))
+            ok := MenuSnap()
+        else
+            DropSnap()
     }
     UI.Hide()
     if ok
