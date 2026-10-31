@@ -7,6 +7,17 @@
 #MaxThreadsPerHotkey 1
 ; Работать должна одна копия: обычная, админская или старая версия-скрипт (TweakMacro.ahk / FlashMacro).
 ; Две копии перехватывают одни и те же клавиши — и макросы перестают срабатывать.
+; Запуск сразу от имени администратора (настройка RunAsAdmin): без прав Windows не пускает макросы в игру,
+; если Fortnite запущен с правами, и не даёт применить часть оптимизаций. Отказ в окне UAC — работаем как есть.
+if (!A_IsAdmin && IniRead(A_ScriptDir "\config.ini", "General", "RunAsAdmin", "1") = "1") {
+    elevArgs := ""
+    for a in A_Args
+        elevArgs .= ' "' a '"'
+    try {
+        Run(A_IsCompiled ? '*RunAs "' A_ScriptFullPath '"' elevArgs : '*RunAs "' A_AhkPath '" /restart "' A_ScriptFullPath '"' elevArgs)
+        ExitApp
+    }
+}
 CloseOtherCopies()
 InstallKeybdHook
 InstallMouseHook
@@ -34,7 +45,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.8"
+APP_VERSION := "4.9"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -73,6 +84,8 @@ ShowOSD=1
 Sound=1
 ; 1 = предложить перезапуск от администратора, если Fortnite запущен с правами администратора
 AskAdmin=1
+; 1 = сразу запускаться от имени администратора (Windows спросит разрешение при запуске)
+RunAsAdmin=1
 ; Клавиша, открывающая меню поверх игры
 MenuKey=Insert
 ; 1 = клавиша меню работает только в Fortnite (и в самом меню, чтобы закрыть его)
@@ -404,6 +417,8 @@ DVR_KEY2 := "HKCU\Software\Microsoft\Windows\CurrentVersion\GameDVR"
 GAMEBAR_KEY := "HKCU\Software\Microsoft\GameBar"
 GPUPREF_KEY := "HKCU\Software\Microsoft\DirectX\UserGpuPreferences"
 MMCSS_KEY := "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"
+TCPIF_KEY := "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+QOS_NLA_KEY := "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\QoS"
 MMCSS_GAMES := MMCSS_KEY "\Tasks\Games"
 PLAN_ULT := "e9a42b02-d5df-448d-aa00-03f14749eb61", PLAN_HIGH := "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", PLAN_BAL := "381b4222-f694-41f0-9685-ff5bb260df2e"
 OptCache := Map(), GameRunning := false, MemCleaned := 0
@@ -1781,6 +1796,16 @@ class Bridge {
         return 1
     }
     toolsState() => Json(ToolsState())
+    netBoost() {
+        if !A_IsAdmin
+            return Json(Map("ok", 0, "need", "admin"))
+        ok := 1
+        for id in ["qos", "netthrottle", "nagle"] {
+            res := OptApply(id, true, A_Index = 3)
+            ok := ok && res.ok
+        }
+        return Json(Map("ok", ok))
+    }
     pingRegions() {
         SetTimer(PingRegions, -10)
         return 1
@@ -2648,41 +2673,63 @@ JoinArr(a, sep) {
         out .= (A_Index > 1 ? sep : "") v
     return out
 }
-; Пинг до серверов Epic по регионам. Каждый ping — отдельный скрытый процесс, программа не ждёт ответа,
-; поэтому макросы не подвисают. Результат приходит в меню через пару секунд.
+; Лучшее соединение: пинг до серверов Epic по регионам — среднее, скачки (джиттер) и потери пакетов.
+; Каждый ping — отдельный скрытый процесс, программа не ждёт ответа, поэтому макросы не подвисают.
+; Заодно смотрим, не по Wi‑Fi ли подключение: кабель обычно даёт меньше скачков пинга.
 PING_REGIONS := [["eu", "Европа", "ping-eu.ds.on.epicgames.com"], ["me", "Ближний Восток", "ping-me.ds.on.epicgames.com"]
     , ["nae", "NA East", "ping-nae.ds.on.epicgames.com"], ["nac", "NA Central", "ping-nac.ds.on.epicgames.com"]
     , ["naw", "NA West", "ping-naw.ds.on.epicgames.com"], ["br", "Бразилия", "ping-br.ds.on.epicgames.com"]
     , ["asia", "Азия", "ping-asia.ds.on.epicgames.com"], ["oce", "Океания", "ping-oce.ds.on.epicgames.com"]]
+PING_COUNT := 8
 PingRegions() {
     global PingRes
     PingRes := Map()
     dir := A_Temp "\TweakMacroPing"
     DirCreate(dir)
     for reg in PING_REGIONS {
-        PingRes[reg[1]] := "…"
+        PingRes[reg[1]] := Map("state", "wait")
         try FileDelete(dir "\" reg[1] ".txt")
-        Run(A_ComSpec ' /c ping -n 3 -w 900 ' reg[3] ' > "' dir "\" reg[1] '.txt"', , "Hide")
+        Run(A_ComSpec ' /c ping -n ' PING_COUNT ' -w 900 ' reg[3] ' > "' dir "\" reg[1] '.txt"', , "Hide")
     }
+    try FileDelete(dir "\wifi.txt")
+    Run(A_ComSpec ' /c netsh wlan show interfaces > "' dir '\wifi.txt"', , "Hide")
     ToolsPush()
-    SetTimer(PingCollect, -4500)
+    SetTimer(PingCollect, -(PING_COUNT * 1000 + 1500))
 }
 PingCollect() {
     global PingRes
     dir := A_Temp "\TweakMacroPing"
+    best := "", bestScore := 1e9
     for reg in PING_REGIONS {
         txt := ""
         try txt := FileRead(dir "\" reg[1] ".txt")
-        ; последняя строка ответа ping — «Минимальное = 34 мсек, …, Среднее = 35 мсек» на любом языке Windows,
-        ; поэтому берём последнее «= число единица» в ней и не зависим от кодировки и языка
-        ms := "", last := ""
-        for line in StrSplit(txt, "`n", "`r `t")
-            if (line != "")
-                last := line
-        if RegExMatch(last, "=\s*(\d+)\s*\S{0,6}\s*$", &m)
-            ms := m[1]
-        PingRes[reg[1]] := ms != "" ? ms : "—"
+        ; строки ответов на любом языке: «…время=35мс TTL=55» / «…time=35ms TTL=55» / «time<1ms TTL=…»
+        times := [], pos := 1
+        while (pos := RegExMatch(txt, "[=<](\d+)\S*\s+TTL=", &m, pos))
+            times.Push(Integer(m[1])), pos += m.Len
+        if !times.Length {
+            PingRes[reg[1]] := Map("state", "none")
+            continue
+        }
+        sum := 0, jit := 0
+        for i, t in times {
+            sum += t
+            if (i > 1)
+                jit += Abs(t - times[i - 1])
+        }
+        avg := Round(sum / times.Length), jit := times.Length > 1 ? Round(jit / (times.Length - 1)) : 0
+        loss := Round((PING_COUNT - times.Length) * 100 / PING_COUNT)
+        ; оценка: пинг важнее всего, скачки и потери ощущаются как лаги сильнее, чем пара мс пинга
+        score := avg + jit * 2 + loss * 4
+        PingRes[reg[1]] := Map("state", "ok", "ms", avg, "jit", jit, "loss", loss)
+        if (score < bestScore)
+            bestScore := score, best := reg[1]
     }
+    wifi := ""
+    try wifi := FileRead(dir "\wifi.txt")
+    ; строка «SSID : имя» есть только у подключённого Wi‑Fi (BSSID отбрасываем)
+    PingRes["_best"] := best
+    PingRes["_wifi"] := RegExMatch(wifi, "m)^\s*SSID\s*:\s*\S") ? 1 : 0
     ToolsPush()
 }
 
@@ -3071,6 +3118,7 @@ InitHints() {
         , "KeyHoldMs", "Сколько миллисекунд макрос держит клавишу клавиатуры при одиночном нажатии."
         , "ClickHoldMs", "Сколько миллисекунд макрос держит кнопку мыши при одиночном клике."
         , "StartHidden", "Запускать TweakMacro свёрнутым в трей, без открытия меню."
+        , "RunAsAdmin", "Запускать TweakMacro сразу с правами администратора: макросы точно работают в игре, доступны все оптимизации. Windows будет спрашивать разрешение при запуске."
         , "AskAdmin", "Если Fortnite запущен с правами администратора, а TweakMacro — нет, Windows не пропускает макросы в игру. Тогда программа один раз предложит перезапуститься с правами."
         , "Sound", "Короткий звук при включении и выключении макросов и прицела."
         , "ShowOSD", "Показывать короткие уведомления внизу экрана, например «Макросы выключены»."
@@ -3229,6 +3277,9 @@ RefreshOpt(push := true) {
     st["gpupref"] := fp != "" && InStr(RegGet(GPUPREF_KEY, fp, ""), "GpuPreference=2") > 0
     st["mmcss"] := RegGet(MMCSS_KEY, "SystemResponsiveness", 20) = 10 && RegGet(MMCSS_GAMES, "Priority", 2) = 6
     st["defender"] := Bk("DefenderPath") != ""
+    st["netthrottle"] := RegGet(MMCSS_KEY, "NetworkThrottlingIndex", 10) = 0xFFFFFFFF
+    st["qos"] := Bk("QosOn") = "1"
+    st["nagle"] := Bk("NagleIfs") != ""
     st["memclean"] := Bool("Optimize", "MemClean")
     st["memCleaned"] := MemCleaned
     st["autogame"] := Bool("Optimize", "AutoGame")
@@ -3253,7 +3304,7 @@ Touch(id, on) {
 
 ; Включить/выключить пункт. Возвращает {ok, msg, need}
 OptApply(id, on, refresh := true) {
-    static adminIds := Map("priority", 1, "timer", 1, "hags", 1, "mmcss", 1, "defender", 1, "memclean", 1)
+    static adminIds := Map("priority", 1, "timer", 1, "hags", 1, "mmcss", 1, "defender", 1, "memclean", 1, "netthrottle", 1, "qos", 1, "nagle", 1)
     if adminIds.Has(id) && !A_IsAdmin
         return {ok: 0, need: "admin", msg: "Нужны права администратора"}
     msg := ""
@@ -3365,6 +3416,43 @@ OptApply(id, on, refresh := true) {
                     } else
                         RegWrite(Bk(bkName, v[5]), v[3], v[1], v[2])
                 }
+            case "netthrottle":
+                ; Windows по умолчанию притормаживает сеть, пока играет мультимедиа (NetworkThrottlingIndex = 10)
+                if on {
+                    if (Bk("NetThrottlePrev") = "")
+                        SetBk("NetThrottlePrev", RegGet(MMCSS_KEY, "NetworkThrottlingIndex", 10))
+                    RegWrite(0xFFFFFFFF, "REG_DWORD", MMCSS_KEY, "NetworkThrottlingIndex")
+                } else
+                    RegWrite(Integer(Bk("NetThrottlePrev", 10)), "REG_DWORD", MMCSS_KEY, "NetworkThrottlingIndex")
+            case "qos":
+                ; Пакеты Fortnite помечаются высшим приоритетом (DSCP 46). Помогает, если роутер учитывает QoS,
+                ; и когда в сети кто-то качает или смотрит видео.
+                if on {
+                    RegWrite("1", "REG_SZ", QOS_NLA_KEY, "Do not use NLA")
+                    RunWait('powershell -NoProfile -Command "Remove-NetQosPolicy -Name TweakMacroFortnite -Confirm:$false -ErrorAction SilentlyContinue; '
+                        . 'New-NetQosPolicy -Name TweakMacroFortnite -AppPathNameMatchCondition FortniteClient-Win64-Shipping.exe -DSCPAction 46 -NetworkProfile All"', , "Hide")
+                    SetBk("QosOn", "1")
+                } else {
+                    RunWait('powershell -NoProfile -Command "Remove-NetQosPolicy -Name TweakMacroFortnite -Confirm:$false -ErrorAction SilentlyContinue"', , "Hide")
+                    SetBk("QosOn", "")
+                }
+            case "nagle":
+                ; Без склейки мелких TCP-пакетов: быстрее доходят ответы сервера по TCP (вход, лобби, чат, часть данных матча)
+                done := []
+                loop reg, TCPIF_KEY, "K" {
+                    k := TCPIF_KEY "\" A_LoopRegName
+                    if (RegGet(k, "DhcpIPAddress", "") = "" && RegGet(k, "IPAddress", "") = "")
+                        continue
+                    if on {
+                        RegWrite(1, "REG_DWORD", k, "TcpAckFrequency")
+                        RegWrite(1, "REG_DWORD", k, "TCPNoDelay")
+                        done.Push(A_LoopRegName)
+                    } else {
+                        try RegDelete(k, "TcpAckFrequency")
+                        try RegDelete(k, "TCPNoDelay")
+                    }
+                }
+                SetBk("NagleIfs", on ? JoinArr(done, ",") : "")
             case "defender":
                 ; Исключение папки Fortnite из проверки Защитником: меньше подлагиваний при подгрузке файлов игры
                 if on {
@@ -3436,12 +3524,14 @@ OptRevertAll() {
 OptName(id) {
     static e := Map("priority", "priority", "power", "power plan", "gamedvr", "Game DVR", "timer", "timer", "mouseaccel", "mouse acceleration"
         , "hags", "GPU scheduling", "gamemode", "game mode", "fso", "fullscreen optimizations", "autogame", "TweakMacro game mode"
-        , "gpupref", "high-performance GPU", "mmcss", "game scheduling", "defender", "Defender exclusion", "memclean", "memory cleaning")
+        , "gpupref", "high-performance GPU", "mmcss", "game scheduling", "defender", "Defender exclusion", "memclean", "memory cleaning"
+        , "netthrottle", "network throttling", "qos", "Fortnite packet priority", "nagle", "TCP without delay")
     if (Lang() = "en")
         return e.Has(id) ? e[id] : id
     static n := Map("priority", "приоритет", "power", "схема питания", "gamedvr", "Game DVR", "timer", "таймер", "mouseaccel", "ускорение мыши"
         , "hags", "планирование GPU", "gamemode", "игровой режим", "fso", "оптимизация во весь экран", "autogame", "игровой режим TweakMacro"
-        , "gpupref", "мощная видеокарта", "mmcss", "приоритет игр", "defender", "исключение Защитника", "memclean", "очистка памяти")
+        , "gpupref", "мощная видеокарта", "mmcss", "приоритет игр", "defender", "исключение Защитника", "memclean", "очистка памяти"
+        , "netthrottle", "ограничение сети", "qos", "приоритет пакетов Fortnite", "nagle", "TCP без задержки")
     return n.Has(id) ? n[id] : id
 }
 
