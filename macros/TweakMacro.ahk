@@ -45,7 +45,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "4.9"
+APP_VERSION := "5.0"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -155,6 +155,8 @@ AutoCloseOn=0
 AutoClose=
 ; Напоминание о перерыве: каждые N минут игры, 0 = выключено
 BreakMins=0
+; 1 = само искать лучшее соединение: при запуске и раз в 30 минут, пока Fortnite закрыт
+AutoNet=1
 
 [Game]
 ; Твои бинды из настроек Fortnite
@@ -472,6 +474,7 @@ OnError(ReportError)
 SetTimer(SafetyTick, 100)
 SetTimer(MenuGuard, 500)
 SetTimer(ToolsTick, 1000)
+SetTimer(AutoNetTick, -8000)
 SetTimer(UpdateIndicator, 1000)
 SetTimer(GameAccessTick, 2000)
 OnExit((*) => ReleaseAll())
@@ -2681,7 +2684,15 @@ PING_REGIONS := [["eu", "Европа", "ping-eu.ds.on.epicgames.com"], ["me", "
     , ["naw", "NA West", "ping-naw.ds.on.epicgames.com"], ["br", "Бразилия", "ping-br.ds.on.epicgames.com"]
     , ["asia", "Азия", "ping-asia.ds.on.epicgames.com"], ["oce", "Океания", "ping-oce.ds.on.epicgames.com"]]
 PING_COUNT := 8
-PingRegions() {
+; Автоматический режим: проверка сама при запуске и раз в 30 минут, пока игра закрыта (в матче ping не гоняем,
+; чтобы не нагружать сеть). После проверки — ускорение сети (если есть права) и лучший регион в настройки игры.
+AutoNetTick() {
+    SetTimer(AutoNetTick, -30 * 60000)
+    if !Bool("Tools", "AutoNet", true) || !Launched || FortniteRunning()
+        return
+    PingRegions(true)
+}
+PingRegions(auto := false) {
     global PingRes
     PingRes := Map()
     dir := A_Temp "\TweakMacroPing"
@@ -2730,7 +2741,62 @@ PingCollect() {
     ; строка «SSID : имя» есть только у подключённого Wi‑Fi (BSSID отбрасываем)
     PingRes["_best"] := best
     PingRes["_wifi"] := RegExMatch(wifi, "m)^\s*SSID\s*:\s*\S") ? 1 : 0
+    AutoNetApply(best)
     ToolsPush()
+}
+; Что делаем сами после автоматической проверки
+AutoNetApply(best) {
+    global PingRes
+    done := []
+    ; ускорение сети — один раз, если есть права администратора и пункты ещё не включены
+    if A_IsAdmin {
+        for id in ["qos", "netthrottle", "nagle"]
+            if !OptCache.Get(id, 0) && !Bk("AutoNetDone" id)
+                if OptApply(id, true, false).ok
+                    SetBk("AutoNetDone" id, "1"), done.Push(id)
+        if done.Length
+            RefreshOpt()
+    }
+    if (best = "")
+        return
+    name := ""
+    for reg in PING_REGIONS
+        if (reg[1] = best)
+            name := Tr(reg[2])
+    ms := PingRes[best]["ms"]
+    set := SetGameRegion(best)
+    PingRes["_set"] := set ? 1 : 0
+    if (best != Bk("AutoNetLast")) {
+        SetBk("AutoNetLast", best)
+        Notify(set ? Format(Tr("Лучшее соединение: {} ({} мс) — регион выставлен в Fortnite"), name, ms)
+            : Format(Tr("Лучшее соединение: {} ({} мс). Выбери его в Fortnite: Настройки → Игра → Регион"), name, ms), 4000)
+    }
+}
+; Регион подбора матчей в настройках Fortnite. Пишем только если игра закрыта и сама хранит регион в файле
+; (ключ с «Region» в имени и кодом региона в значении) — иначе ничего не трогаем.
+SetGameRegion(code) {
+    static codes := Map("eu", "EU", "me", "ME", "nae", "NAE", "nac", "NAC", "naw", "NAW", "br", "BR", "asia", "ASIA", "oce", "OCE")
+    f := GameIni(), sec := "/Script/FortniteGame.FortGameUserSettings"
+    if FortniteRunning() || !FileExist(f) || !codes.Has(code)
+        return false
+    try lines := IniRead(f, sec)
+    catch
+        return false
+    for line in StrSplit(lines, "`n", "`r") {
+        p := InStr(line, "=")
+        if !p
+            continue
+        k := SubStr(line, 1, p - 1), v := SubStr(line, p + 1)
+        if (k ~= "i)region" && v ~= "i)^(auto|eu|me|nae|nac|naw|br|asia|oce)$") {
+            if (v != codes[code]) {
+                if !FileExist(GfxBackup())
+                    try DirCreate(A_ScriptDir "\backup"), FileCopy(f, GfxBackup())
+                IniWrite(codes[code], f, sec, k)
+            }
+            return true
+        }
+    }
+    return false
 }
 
 ; ───── меню только в Fortnite ─────
@@ -3161,6 +3227,7 @@ InitHints() {
         , "NewMatchKey", "Сбросить счётчик килов и таймер матча — нажми в начале нового матча."
         , "AutoCloseOn", "При запуске Fortnite закрыть программы из списка ниже. Несохранённое в них пропадёт."
         , "AutoClose", "Имена процессов через запятую, как в Диспетчере задач: chrome.exe, Spotify.exe."
+        , "AutoNet", "Само проверяет регионы при запуске TweakMacro и раз в 30 минут, пока Fortnite закрыт. С правами администратора один раз включает ускорение сети, лучший регион выставляет в настройки игры, если она его там хранит."
         , "BreakMins", "Каждые N минут игры напоминать сделать перерыв. 0 — не напоминать."
         , "WatermarkKills", "Счётчик килов текущего матча."
         , "WatermarkMatch", "Сколько минут идёт текущий матч."
@@ -4632,6 +4699,8 @@ Tr(msg) {
             , "Меню открывается в Fortnite: запусти игру и нажми {}", "The menu opens in Fortnite: start the game and press {}"
             , "Fortnite запущен. Меню TweakMacro — клавиша {}", "Fortnite is running. TweakMacro menu key: {}"
             , "Запустить Fortnite", "Launch Fortnite"
+            , "Лучшее соединение: {} ({} мс) — регион выставлен в Fortnite", "Best connection: {} ({} ms), region set in Fortnite"
+            , "Лучшее соединение: {} ({} мс). Выбери его в Fortnite: Настройки → Игра → Регион", "Best connection: {} ({} ms). Pick it in Fortnite: Settings → Game → Region"
             , "Эту форму нельзя выделить одним движением — включи «Подтверждение: клавишей»", "This shape can't be selected in one stroke, set “Confirm: by key”"
             , "Драг-эдит может стрелять: выбор в редактировании стоит на ЛКМ. Исправить — Macros → Drag edit", "Drag edit may shoot: edit select is on LMB. Fix it in Macros → Drag edit"
             , "Клавиша выбора: {}. Поставь её же в Fortnite: Управление → Строительство → «Выбор при редактировании»", "Select key: {}. Set the same key in Fortnite: Keyboard controls → Building → “Select building edit”"
