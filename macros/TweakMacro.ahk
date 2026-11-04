@@ -45,7 +45,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "5.4"
+APP_VERSION := "5.5"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -1813,6 +1813,19 @@ class Bridge {
     }
     addChest() {
         SetTimer(AddChest, -10)
+        return 1
+    }
+    setChests(match, total) {
+        global MatchChests
+        if (match >= 0) {
+            if !MatchStart
+                NewMatch(true)
+            MatchChests := Integer(match)
+        }
+        if (total >= 0)
+            SetVal("Farm", "Chests", Integer(total))
+        SaveIni()
+        SetTimer(ToolsPush, -10)
         return 1
     }
     resetChests() {
