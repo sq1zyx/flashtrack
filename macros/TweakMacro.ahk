@@ -45,7 +45,7 @@ OnExit((*) => DllCall("winmm\timeEndPeriod", "UInt", 1))
 ; Адрес сервера оплаты и проверки ключей (папка tweakmacro-server), например "https://tweakmacro.ru".
 ; Пусто — проверка подписки выключена и всё работает без ключа (для разработки).
 LICENSE_API := ""
-APP_VERSION := "5.3"
+APP_VERSION := "5.4"
 LIC_GRACE_H := 72      ; сколько часов программа работает без интернета после последней проверки
 ; SHA-256 админ-кода. Сам код хранится только у владельца (admin.key рядом с программой или ввод в лаунчере)
 ; и на сервере в ADMIN_TOKEN. Сменить код: python3 macros/build-installer.py --set-admin НОВЫЙ-КОД
@@ -157,6 +157,11 @@ AutoCloseOn=0
 AutoClose=
 ; Напоминание о перерыве: каждые N минут игры, 0 = выключено
 BreakMins=0
+
+[Farm]
+; Фарм сундуков (токен пиратского магазина): клавиша +1 сундук и всего открыто
+ChestKey=NumpadMult
+Chests=0
 ; 1 = само искать лучшее соединение: при запуске и раз в 30 минут, пока Fortnite закрыт
 AutoNet=1
 
@@ -409,7 +414,7 @@ Holding := Map(), Holding.CaseSense := "Off"
 OwnMods := Map(), OwnMods.CaseSense := "Off"
 MODS := ["LCtrl", "RCtrl", "LAlt", "RAlt", "LShift", "RShift", "LWin", "RWin"]
 Stats := NewMap(), StatsVer := 0
-Kills := 0, MatchStart := 0, PlayStart := 0, PlayMs := 0, PingRes := Map()
+Kills := 0, MatchStart := 0, PlayStart := 0, PlayMs := 0, PingRes := Map(), MatchChests := 0, FarmMapRaw := ""
 PROF_DEFAULT := "Основной"
 PrevWin := 0
 IFEO_KEY := "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions"
@@ -892,6 +897,7 @@ ApplyEngine() {
         Reg("", Get("Crosshair", "ToggleKey"), ToggleCrosshair, "Crosshair toggle")
     Reg("game", Get("Tools", "KillKey"), AddKill, "Kill counter", "S")
     Reg("game", Get("Tools", "NewMatchKey"), NewMatch, "New match", "S")
+    Reg("game", Get("Farm", "ChestKey"), AddChest, "Chest counter", "S")
 
     ; Без активной подписки работают только меню, клавиши меню и оптимизация
     if !Lic.ok {
@@ -1801,6 +1807,21 @@ class Bridge {
         return 1
     }
     toolsState() => Json(ToolsState())
+    farmLoad() {
+        SetTimer(FarmLoad, -10)
+        return 1
+    }
+    addChest() {
+        SetTimer(AddChest, -10)
+        return 1
+    }
+    resetChests() {
+        SetVal("Farm", "Chests", 0)
+        SaveIni()
+        global MatchChests := 0
+        SetTimer(ToolsPush, -10)
+        return 1
+    }
     netBoost() {
         if !A_IsAdmin
             return Json(Map("ok", 0, "need", "admin"))
@@ -2626,8 +2647,8 @@ AddKill(*) {
     ToolsPush()
 }
 NewMatch(quiet := false, *) {
-    global Kills, MatchStart
-    Kills := 0, MatchStart := A_TickCount
+    global Kills, MatchStart, MatchChests
+    Kills := 0, MatchStart := A_TickCount, MatchChests := 0
     if (quiet != true)
         Notify(Tr("Новый матч: счётчик килов и таймер сброшены"), 1500)
     ToolsPush()
@@ -2638,7 +2659,29 @@ ToolsPush() {
     if (UI && UIShown && Wnd)
         try Wnd.toolsState(Json(ToolsState()))
 }
+; Сундуки для фарма токена: считаешь клавишей сам — игра не сообщает, что ты открыл
+AddChest(*) {
+    global MatchChests
+    if !MatchStart
+        NewMatch(true)
+    MatchChests++
+    SetVal("Farm", "Chests", Integer(Get("Farm", "Chests", 0)) + 1)
+    SaveIni()
+    ToolsPush()
+}
+; Карта и локации текущего сезона — из открытого API fortnite-api.com (загружается один раз, не в матче)
+FarmLoad() {
+    global FarmMapRaw
+    if (FarmMapRaw = "") {
+        res := Http("GET", "https://fortnite-api.com/v1/map")
+        if InStr(res, '"pois"')
+            FarmMapRaw := res
+    }
+    if (UI && UIShown && Wnd)
+        try Wnd.farmMap(FarmMapRaw)
+}
 ToolsState() => Map("kills", Kills, "best", Integer(Get("Tools", "BestKills", 0)), "match", MatchMins()
+    , "chests", MatchChests, "chestsTotal", Integer(Get("Farm", "Chests", 0))
     , "play", (PlayMs + (PlayStart ? A_TickCount - PlayStart : 0)) // 60000, "ping", PingRes)
 ; Раз в секунду: время в игре, автозакрытие программ при запуске Fortnite, напоминание о перерыве
 ToolsTick() {
@@ -3311,6 +3354,8 @@ InitHints() {
         , "BreakMins", "Каждые N минут игры напоминать сделать перерыв. 0 — не напоминать."
         , "WatermarkKills", "Счётчик килов текущего матча."
         , "WatermarkMatch", "Сколько минут идёт текущий матч."
+        , "page.Farm", "Фарм сундуков для токена пиратского магазина: карта, маршруты, счётчик сундуков и шанс."
+        , "ChestKey", "Нажимай после каждого открытого сундука — так видно, сколько ты уже прошёл. Работает только в окне Fortnite."
         , "page.Watermark", "Водяной знак поверх игры: угол, размер, прозрачность и что показывать."
         , "page.Graphics", "Пресет графики Fortnite, лимит FPS, Reflex, задержки под твой FPS и оверлеи."
         , "page.Optimize", "Оптимизация Windows и игры: приоритет, питание, ускорение мыши, Game DVR, очистка кэша, тяжёлые программы."
