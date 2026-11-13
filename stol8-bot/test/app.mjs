@@ -42,6 +42,19 @@ r = await api('unset', { key: 'squat' }); assert(r.state.workout.list.find((x) =
 r = await api('note', { t: 'болел живот' }); assert(r.state.notes.length === 1, 'заметка');
 r = await api('remind', { g: 'water' }); assert(r.state.settings.off.includes('water'), 'выключить напоминания о воде');
 r = await api('quiet', { from: '22:30', to: '07:00' }); assert(r.state.settings.quiet.from === 1350, 'тихие часы');
+r = await api('settings', { patch: { goalWeight: 100, proteinGoal: 160, waterGoal: 3000, gymDays: [1, 4], gymLead: 30, bedLead: 45, waterReminders: 4, sex: 'm', ui: { accent: '#8b5cf6', hide: ['plan'] } } });
+assert(r.state.profile.goalWeight === 100 && r.state.macros.p === 160 && r.state.water.goal === 3000 && r.state.ui.accent === '#8b5cf6', 'настройки сохраняются');
+r = await api('settings', { patch: { kcalOverride: 1500 } });
+assert(r.msg && !r.state.profile.kcalOverride, 'норму ниже 2200 не ставит');
+r = await api('settings', { patch: { kcalAdjust: -500 } });
+assert(r.state.target >= 2700, 'поправка не опускает ниже 2700');
+await api('settings', { patch: { kcalAdjust: 0 } });
+r = await api('workout', { w: 'C' }); assert(r.state.workout.which === 'C' || r.state.workout.which === 'A', 'выбор тренировки');
+r = await api('tomine', { i: 0, n: 'моя гречка' }); assert(r.state.myFoods.some((m) => m.n === 'моя гречка'), 'в мои продукты');
+const u0 = JSON.parse(store.get('u:42')); const yd = new Date(Date.now() + 3 * 3600e3 - 864e5).toISOString().slice(0, 10);
+u0.yesterday = { d: yd, items: [{ name: 'Овсянка 60 г', base: 'Овсянка', g: 60, u: 'г', k: 222, p: 7, fat: 4, c: 36 }] }; store.set('u:42', JSON.stringify(u0));
+const n0 = (await api('state')).state.items.length;
+r = await api('yadd', { i: 0 }); assert(r.state.items.length === n0 + 1, 'добавить как вчера');
 // пара прошлых дней для графиков
 const u = JSON.parse(store.get('u:42'));
 u.days = Array.from({ length: 14 }, (_, i) => ({ d: `2026-11-${String(i + 1).padStart(2, '0')}`, k: 2600 + ((i * 337) % 900), p: 110 + ((i * 13) % 60) }));
@@ -71,6 +84,8 @@ for (const scheme of ['light', 'dark']) {
     await page.click(`#tabs [data-t="${t}"]`); await page.waitForTimeout(250);
     await page.screenshot({ path: `${out}/app-${scheme}-${t}.png`, fullPage: true });
   }
+  await page.click('#tabs [data-t="more"]'); await page.click('[data-edit="goalWeight"]'); await page.waitForTimeout(350);
+  await page.screenshot({ path: `${out}/app-${scheme}-setting.png` }); await page.click('#nok'); await page.waitForTimeout(300);
   await page.click('#tabs [data-t="diary"]'); await page.fill('#q', 'твор'); await page.waitForTimeout(100);
   await page.click('[data-res="0"]'); await page.waitForTimeout(300);
   await page.screenshot({ path: `${out}/app-${scheme}-sheet.png` });

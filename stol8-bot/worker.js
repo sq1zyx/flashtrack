@@ -19,6 +19,8 @@ const DEFAULTS = {
   myFoods: [], lastMeal: null, pendingMeal: null, pendingProduct: null, pendingPhoto: null,
   restAt: null, timer: true, timerMin: 2, autoHol: true,
   recent: [], notes: [], off: [], quiet: null, mealShift: {}, mealSeen: {},
+  sex: 'm', goalWeight: null, proteinGoal: 150, fatGoal: 90, waterGoal: 2500, stepsGoal: 10000,
+  gymLead: 60, bedLead: 30, waterReminders: 3, ui: { accent: null, hide: [] }, yesterday: null,
   gymDays: [1, 3, 5], gymTime: 1020, home: 900,
   height: 191, age: 16, startWeight: 118,
   kcalAdjust: 0, kcalOverride: null,
@@ -272,7 +274,7 @@ function workoutText(u, w) {
 function lastWeight(u) { return u.weights.length ? u.weights[u.weights.length - 1].kg : u.startWeight; }
 function calc(u) {
   const w = lastWeight(u);
-  const bmr = 10 * w + 6.25 * u.height - 5 * u.age + 5;
+  const bmr = 10 * w + 6.25 * u.height - 5 * u.age + (u.sex === 'f' ? -161 : 5);
   const act = activity(u);
   const tdee = bmr * act.f;
   let target = Math.round((tdee - 500) / 50) * 50 + (u.kcalAdjust || 0);
@@ -286,6 +288,7 @@ function archiveFood(u, info) {
   if (f.date && f.date !== info.date && f.items.length) {
     u.days = (u.days || []).filter((x) => x.d !== f.date);
     u.days.push({ d: f.date, k: f.items.reduce((a, x) => a + x.k, 0), p: f.items.reduce((a, x) => a + (x.p || 0), 0), n: f.items.length });
+    if (f.date === shiftDay(info, -1).date) u.yesterday = { d: f.date, items: f.items.slice(-30) };
     u.days.sort((a, b) => (a.d < b.d ? -1 : 1));
     if (u.days.length > 60) u.days.splice(0, u.days.length - 60);
   }
@@ -523,6 +526,8 @@ function holidayName(date) {
 
 // ---------------------------------------------------------------- вода, шаги, сон
 const WATER_GOAL = 2500;
+const wGoal = (u) => u.waterGoal || WATER_GOAL;
+const pGoal = (u) => u.proteinGoal || 150;
 function waterToday(u, info) {
   if (!u.water || u.water.d !== info.date) {
     if (u.water && u.water.ml > 0) {
@@ -538,7 +543,7 @@ const waterKb = { inline_keyboard: [[{ text: '💧 +250 мл', callback_data: 'v
 function addWater(u, info, ml) {
   const w = waterToday(u, info);
   w.ml = Math.max(0, Math.min(8000, w.ml + ml));
-  return `💧 Вода сегодня: <b>${w.ml}</b> из ${WATER_GOAL} мл${w.ml >= WATER_GOAL ? ' ✅' : ''}`;
+  return `💧 Вода сегодня: <b>${w.ml}</b> из ${wGoal(u)} мл${w.ml >= wGoal(u) ? ' ✅' : ''}`;
 }
 function setDaily(arr, info, rec, max = 60) {
   const a = (arr || []).filter((x) => x.d !== info.date);
@@ -593,7 +598,7 @@ const ACH = [
   ['gym30', '🏋️ 30 тренировок', (u) => (u.workoutDates || []).length >= 30],
   ['gym100', '🦾 100 тренировок!', (u) => (u.workoutDates || []).length >= 100],
   ['pr10', '💪 +10 кг в упражнении с первой записи', (u) => Object.entries(u.lifts).some(([k, h]) => EX[k] && !EX[k].bw && h.length > 1 && maxW(h[h.length - 1].sets) - maxW(h[0].sets) >= 10)],
-  ['water7', '💧 7 дней с нормой воды', (u) => (u.waterDays || []).filter((x) => x.ml >= WATER_GOAL).length + (u.water && u.water.ml >= WATER_GOAL ? 1 : 0) >= 7],
+  ['water7', '💧 7 дней с нормой воды', (u) => (u.waterDays || []).filter((x) => x.ml >= wGoal(u)).length + (u.water && u.water.ml >= wGoal(u) ? 1 : 0) >= 7],
   ['bus5', '🚏 5 отметок автобуса', (u) => (u.busLog || []).length >= 5],
 ];
 async function checkAch(env, id, info) {
@@ -941,7 +946,7 @@ async function aiMealConfirm(env, id, u, text, title) {
 // ---------------------------------------------------------------- умное меню под остаток
 function smartMeal(u, info, slot) {
   const c = calc(u), s = foodSum(u, info);
-  const leftK = c.target - s.k, leftP = Math.max(0, 150 - s.p);
+  const leftK = c.target - s.k, leftP = Math.max(0, pGoal(u) - s.p);
   const pool = [...MENU.dinner, ...MENU.lunch, ...MENU.snack2, ...MENU.late].map((v) => ({ ...v }));
   if (leftK < 150) {
     return { leftK, leftP, rest: 0, want: 0, opts: [], text: `Сегодня уже ${s.k} из ${c.target} ккал — норма почти закрыта.${leftK < -300 ? ' Это ок, завтра обычный день.' : ''} Если голоден — кефир или творог 100 г (100–120 ккал), без голодовок.` };
@@ -1083,7 +1088,7 @@ async function checkInitData(env, initData) {
 // ---------------------------------------------------------------- мини-приложение: данные
 function appState(u, info) {
   const c = calc(u), s = foodSum(u, info);
-  const pT = 150, fT = 90, cT = Math.max(150, Math.round((c.target - pT * 4 - fT * 9) / 4));
+  const pT = pGoal(u), fT = u.fatGoal || 90, cT = Math.max(150, Math.round((c.target - pT * 4 - fT * 9) / 4));
   const items = (u.food.date === info.date ? u.food.items : []).map((x, i) => ({
     i, name: x.base || x.name, g: x.g ?? null, u: x.u ?? null, k: x.k, p: x.p || 0, f: x.fat || 0, c: x.c || 0, at: x.at,
   }));
@@ -1104,7 +1109,7 @@ function appState(u, info) {
     name: u.name || '', date: info.date, dow: info.dow, min: info.min, holiday: holidayName(info.date),
     target: c.target, tdee: c.tdee, act: c.act, eaten: { k: s.k, p: s.p, f: s.fat, c: s.c }, macros: { p: pT, f: fT, c: cT },
     items, days, meals,
-    water: { ml: u.water && u.water.d === info.date ? u.water.ml : 0, goal: WATER_GOAL },
+    water: { ml: u.water && u.water.d === info.date ? u.water.ml : 0, goal: wGoal(u) },
     waterDays: (u.waterDays || []).slice(-30),
     steps: (u.steps || []).slice(-30), sleep: (u.sleepLog || []).slice(-30),
     weights: u.weights.slice(-120), waist: u.waist.slice(-36), startWeight: u.startWeight,
@@ -1116,9 +1121,19 @@ function appState(u, info) {
     settings: { off: u.off || [], quiet: u.quiet || null, groups: Object.fromEntries(Object.entries(REMIND_GROUPS).map(([k, v]) => [k, v[0]])), autoHol: u.autoHol !== false, holidays: !!u.holidays },
     myFoods: (u.myFoods || []).map((m) => ({ key: m.key, n: m.n, k: m.k, p: m.p, f: m.f, c: m.c })),
     recent: (u.recent || []).slice(0, 15),
-    foods: FOODS.map((f) => ({ n: f.n, k: f.k, p: f.p, f: f.f, c: f.c, pc: f.pc || null, d: f.d || null, ml: !!f.ml })),
+    foods: FOODS.map((f) => ({ s: f.s, n: f.n, k: f.k, p: f.p, f: f.f, c: f.c, pc: f.pc || null, d: f.d || null, ml: !!f.ml })),
     photos: u.photos.length ? [u.photos[0], u.photos[u.photos.length - 1]].filter((x, i, a) => i === 0 || x !== a[0]).map((x) => ({ d: x.d, f: x.f })) : [],
     notes: (u.notes || []).slice(-15).reverse(),
+    profile: {
+      name: u.name || '', height: u.height, age: u.age, sex: u.sex || 'm', goalWeight: u.goalWeight, startWeight: u.startWeight,
+      proteinGoal: pGoal(u), fatGoal: u.fatGoal || 90, waterGoal: wGoal(u), stepsGoal: u.stepsGoal || 10000, meals: u.meals,
+      kcalOverride: u.kcalOverride || null, kcalAdjust: u.kcalAdjust || 0, floor: KCAL_FLOOR,
+      wakeWd: u.wakeWd, wakeWe: u.wakeWe, sleepH: u.sleepH, schoolStart: u.schoolStart, home: u.home,
+      gymDays: u.gymDays, gymTime: u.gymTime, gymLead: u.gymLead ?? 60, bedLead: u.bedLead ?? 30, waterReminders: u.waterReminders ?? 3,
+      busTime: u.busTime, walk: u.walk, busNumber: u.busNumber || '', paused: !!u.paused,
+    },
+    ui: u.ui || { accent: null, hide: [] },
+    yesterday: u.yesterday && u.yesterday.d === shiftDay(info, -1).date ? u.yesterday.items.map((x, i) => ({ i, name: x.base || x.name, g: x.g ?? null, u: x.u ?? null, k: x.k, p: x.p || 0 })) : [],
     smart: (() => { const sm = smartMeal(u, info, info.min > 1230 ? 'late' : 'dinner'); return { leftK: sm.leftK, leftP: sm.leftP, rest: sm.rest, want: sm.want, opts: sm.opts, text: sm.text.replace(/<[^>]+>/g, '') }; })(),
   };
 }
@@ -1191,6 +1206,40 @@ async function apiHandle(env, req, origin) {
   } else if (a === 'quiet') {
     const f = parseTime(body.from), t = parseTime(body.to);
     u.quiet = f != null && t != null && f !== t ? { from: f, to: t } : null;
+  } else if (a === 'settings') {
+    const p = body.patch || {};
+    const num = (k, lo, hi, step) => { if (p[k] === undefined) return; if (p[k] === null && ['goalWeight', 'kcalOverride', 'gymTime', 'busTime', 'home'].includes(k)) { u[k] = null; return; } const v = +p[k]; if (Number.isFinite(v) && v >= lo && v <= hi) u[k] = step ? Math.round(v / step) * step : v; else msg = 'Проверь значение: ' + k; };
+    num('height', 120, 230); num('age', 10, 99); num('goalWeight', 40, 250, 0.1);
+    num('proteinGoal', 60, 250); num('fatGoal', 40, 160); num('waterGoal', 1000, 5000, 100); num('stepsGoal', 2000, 30000, 500);
+    num('meals', 4, 6); num('kcalAdjust', -500, 800, 50); num('sleepH', 8, 10, 0.5);
+    num('gymLead', 0, 180, 5); num('bedLead', 0, 120, 5); num('waterReminders', 0, 6); num('walk', 0, 90);
+    for (const k of ['wakeWd', 'wakeWe', 'schoolStart', 'home', 'gymTime', 'busTime']) num(k, 0, 1439);
+    if (p.kcalOverride !== undefined) { const v = p.kcalOverride === null ? null : +p.kcalOverride; if (v === null) u.kcalOverride = null; else if (v >= 2200 && v <= 5000) u.kcalOverride = Math.round(v / 50) * 50; else msg = 'Ручная норма — от 2200 (уточни у врача)'; }
+    if (p.sex === 'm' || p.sex === 'f') u.sex = p.sex;
+    if (typeof p.name === 'string') u.name = p.name.trim().slice(0, 40);
+    if (typeof p.busNumber === 'string') u.busNumber = p.busNumber.trim().slice(0, 10);
+    if (Array.isArray(p.gymDays)) u.gymDays = [...new Set(p.gymDays.map(Number).filter((d) => d >= 0 && d <= 6))];
+    if (typeof p.paused === 'boolean') u.paused = p.paused;
+    if (typeof p.holidays === 'boolean') u.holidays = p.holidays;
+    if (typeof p.autoHol === 'boolean') u.autoHol = p.autoHol;
+    if (p.ui && typeof p.ui === 'object') {
+      u.ui = u.ui || { accent: null, hide: [] };
+      if (p.ui.accent === null || /^#[0-9a-f]{6}$/i.test(p.ui.accent || '')) u.ui.accent = p.ui.accent;
+      if (Array.isArray(p.ui.hide)) u.ui.hide = p.ui.hide.filter((x) => typeof x === 'string').slice(0, 10);
+    }
+  } else if (a === 'workout') {
+    if (PROG[body.w]) { if (u.lastWorkoutDate === info.date) u.curWorkout = body.w; else u.nextWorkout = body.w; }
+  } else if (a === 'tomine') {
+    const it = u.food.date === info.date ? u.food.items[body.i] : null;
+    if (it) {
+      const n = String(body.n || it.base || it.name).trim().slice(0, 40);
+      const m = { n, key: norm(n).replace(/ё/g, 'е'), k: it.k, p: it.p || 0, f: it.fat || 0, c: it.c || 0 };
+      u.myFoods = (u.myFoods || []).filter((x) => x.key !== m.key).concat(m).slice(-50);
+      msg = '⭐ Добавил в «Мои продукты»';
+    }
+  } else if (a === 'yadd') {
+    const it = u.yesterday && u.yesterday.items[body.i];
+    if (it) { addItems(u, info, [{ name: it.base || it.name, g: it.g ?? 1, u: it.u || 'порц.', k: it.k, p: it.p || 0, fat: it.fat || 0, c: it.c || 0 }]); learnMeal(u, info); }
   } else if (a === 'timer') { const n = +body.n; if (n >= 1 && n <= 5) { u.timerMin = n; u.timer = true; } else if (n === 0) u.timer = false; }
   else if (a === 'export') { await exportCsv(env, id, u, info); changed = false; msg = 'Таблица отправлена в чат'; }
   else { changed = false; msg = 'Неизвестное действие'; }
@@ -1256,7 +1305,7 @@ function buildDay(u, info, raw = false) {
     ev.push({ t: leave - 10, kind: 'bus10', bt });
     ev.push({ t: leave, kind: 'busgo', bt });
   }
-  if (gymToday) ev.push({ t: u.gymTime - 60, kind: 'gym' });
+  if (gymToday) ev.push({ t: u.gymTime - (u.gymLead ?? 60), kind: 'gym' });
   if (info.dow === 0) {
     ev.push({ t: wake + 5, kind: 'weigh' });
     ev.push({ t: Math.max(720, wake + 120), kind: 'prep' });
@@ -1265,11 +1314,13 @@ function buildDay(u, info, raw = false) {
   if (info.dom === 1) ev.push({ t: wake + 15, kind: 'month' });
   if (info.dow === 0) ev.push({ t: bed - 90, kind: 'weekly' });
   const wEnd = bed - 120;
-  for (const t of [wake + 180, wake + 360, wake + 540]) {
+  const wn = Math.max(0, Math.min(6, u.waterReminders ?? 3));
+  for (let k = 1; k <= wn; k++) {
+    const t = r5(wake + ((wEnd - 30 - wake) * k) / (wn + 1));
     if (t < wEnd - 30) ev.push({ t, kind: 'water', frac: Math.min(1, (t - wake) / (wEnd - wake)) });
   }
   ev.push({ t: bed - 60, kind: 'foodcheck' });
-  ev.push({ t: bed - 30, kind: 'bed30' });
+  ev.push({ t: bed - (u.bedLead ?? 30), kind: 'bed30' });
   ev.push({ t: bed, kind: 'bed' });
   return ev.filter((e) => e.t >= 0).sort((a, b) => a.t - b.t);
 }
@@ -1500,7 +1551,7 @@ async function fire(env, id, u, e, info) {
         { text: '🚏 Автобус пришёл', callback_data: `b|${info.date}|${e.bt}` },
         { text: '🚫 Уехал без меня', callback_data: `x|${info.date}|${e.bt}` },
       ]] } });
-    case 'gym': return send(env, id, `🏋️ Через час зал (${fmt(u.gymTime)}).\n\n${workoutText(u, u.nextWorkout)}\n\nВозьми воду и форму. Если не ел 3+ часа — перекуси сейчас (полдник).`);
+    case 'gym': return send(env, id, `🏋️ Через ${(u.gymLead ?? 60) === 60 ? 'час' : (u.gymLead ?? 60) + ' мин'} зал (${fmt(u.gymTime)}).\n\n${workoutText(u, u.nextWorkout)}\n\nВозьми воду и форму. Если не ел 3+ часа — перекуси сейчас (полдник).`);
     case 'prep': return send(env, id, PREP_SUN);
     case 'prep2': return send(env, id, PREP_WED);
     case 'weigh': return send(env, id, '⚖️ Воскресенье — взвешивание. Утром натощак, после туалета, без одежды. Нажми свой вес или пришли точно: <code>/ves 117.4</code>\nСмотрим на тренд, а не на одну цифру 🙂', { reply_markup: weightKb(u) });
@@ -1508,8 +1559,8 @@ async function fire(env, id, u, e, info) {
     case 'water': {
       if (u.waterOff) return;
       const w = u.water && u.water.d === info.date ? u.water.ml : 0;
-      if (w >= WATER_GOAL * e.frac * 0.75) return;
-      return send(env, id, `💧 Попей воды! Сегодня выпито ${w} из ${WATER_GOAL} мл.`, { reply_markup: waterKb });
+      if (w >= wGoal(u) * e.frac * 0.75) return;
+      return send(env, id, `💧 Попей воды! Сегодня выпито ${w} из ${wGoal(u)} мл.`, { reply_markup: waterKb });
     }
     case 'month': return send(env, id, '📏 Новый месяц — замеры!\n1. Талия на уровне пупка, на выдохе: <code>/talia 108</code>\n2. Фото в полный рост (спереди и сбоку) при одинаковом свете — просто пришли сюда, я сохраню для сравнения.');
     case 'foodcheck': {
@@ -1520,7 +1571,7 @@ async function fire(env, id, u, e, info) {
       const kb = { reply_markup: { inline_keyboard: (askSteps ? stepsKb.inline_keyboard : []).concat(appBtn) } };
       if (s.n === 0) return send(env, id, '🍽 Сегодня ничего не записано. Если не лень — напиши, что ел, одним сообщением: <code>гречка 250, курица 180, 2 яйца, кефир</code> или пришли фото еды. Не обязательно точно, примерно тоже полезно.' + stepsQ, kb);
       const wml = u.water && u.water.d === info.date ? u.water.ml : 0;
-      let t = `🧾 <b>Итог дня</b>\n<code>ккал  ${bar(s.k, target)} ${s.k}/${target}</code>\n<code>белок ${bar(s.p, 150)} ${s.p}/150 г</code>\n<code>вода  ${bar(wml, WATER_GOAL)} ${(wml / 1000).toFixed(1).replace('.', ',')}/${WATER_GOAL / 1000} л</code>\n🔥 серия ${foodStreak(u, info)} дн.`;
+      let t = `🧾 <b>Итог дня</b>\n<code>ккал  ${bar(s.k, target)} ${s.k}/${target}</code>\n<code>белок ${bar(s.p, pGoal(u))} ${s.p}/${pGoal(u)} г</code>\n<code>вода  ${bar(wml, wGoal(u))} ${(wml / 1000).toFixed(1).replace('.', ',')}/${wGoal(u) / 1000} л</code>\n🔥 серия ${foodStreak(u, info)} дн.`;
       if (s.k < target - 900) t += '\n\nЕсли ты правда мало поел — съешь творог или выпей кефир, не ложись голодным. Недоедание мешает расти и тормозит прогресс.';
       else if (s.k <= target + 400) t += '\nОтличный день 👍';
       else t += '\nЧуть больше нормы — ничего страшного, завтра просто обычный день по меню.';
@@ -1528,7 +1579,7 @@ async function fire(env, id, u, e, info) {
     }
     case 'bed30': {
       const next = shiftDay(info, 1);
-      return send(env, id, `🌙 Через 30 минут отбой. Убери телефон, собери вещи на завтра.\nЗавтра подъём в ${fmt(isWorkday(u, next) ? u.wakeWd : u.wakeWe)}.`);
+      return send(env, id, `🌙 Через ${u.bedLead ?? 30} мин отбой. Убери телефон, собери вещи на завтра.\nЗавтра подъём в ${fmt(isWorkday(u, next) ? u.wakeWd : u.wakeWe)}.`);
     }
     case 'bed': return send(env, id, `😴 Отбой. Сон ${String(u.sleepH).replace('.', ',')} ч — тоже часть похудения: меньше тянет на сладкое и лучше растут мышцы.`);
   }
@@ -1725,7 +1776,8 @@ async function command(env, id, u, cmd, args, info) {
       u.wiz = 0; return wizAsk(env, id, u);
     case 'nastroika': u.wiz = 0; return wizAsk(env, id, u);
     case 'help': return say(HELP, { reply_markup: KEYBOARD });
-    case 'nastroiki': return say(settingsText(u));
+    case 'nastroiki': return say(settingsText(u) + '\n\n⚙️ Удобнее всё менять в приложении: «📊 Дневник» → «Ещё» → «Настройки» (цели, распорядок, зал, напоминания, цвет).',
+      env.APP_URL ? { reply_markup: { inline_keyboard: [[{ text: '⚙️ Открыть настройки', web_app: { url: env.APP_URL } }]] } } : {});
     case 'segodnya': {
       const s = foodSum(u, info);
       return say(scheduleText(u, info, `📅 <b>Сегодня, ${DAYNAMES[info.dow]} ${ddmm(info.date)}</b>${isWorkday(u, info) ? '' : ` (${(info.dow >= 1 && info.dow <= 5 && holidayName(info.date)) || 'выходной'})`}`) +
@@ -1801,7 +1853,7 @@ async function command(env, id, u, cmd, args, info) {
       return say(`🔥 <b>Норма: ${c.target} ккал</b>
 Съедено: <b>${s.k}</b> ккал (Б ~${s.p} г${s.fat || s.c ? ` · Ж ~${s.fat} · У ~${s.c}` : ''}) · осталось ~${Math.max(0, c.target - s.k)}
 ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${x.k}`).join('\n') + '\n' : ''}
-Ориентиры: белок от 150 г · жиры 85–100 г · углеводы — остальное (крупы, хлеб, овощи, фрукты).
+Ориентиры: белок от ${pGoal(u)} г · жиры ~${u.fatGoal || 90} г · углеводы — остальное (крупы, хлеб, овощи, фрукты).
 
 <i>Как считается: вес ${kg(c.w)} кг, рост ${u.height}, ${u.age} лет → обмен ~${c.bmr}, × активность ${String(c.act.f).replace('.', ',')}${c.act.avg ? ` (шаги в среднем ${c.act.avg})` : ' (зал + шаги)'} = ~${c.tdee}, минус ~500. Ниже ${KCAL_FLOOR} не опускаю — ты растёшь. Это прикидка, финальную цифру согласуй с эндокринологом.</i>
 Поправить: <code>/kkal +200</code> · <code>/kkal -150</code> · цифра от врача: <code>/kkal 2900</code>
