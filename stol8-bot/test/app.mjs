@@ -22,7 +22,7 @@ const msg = (text) => bot.fetch(new Request('https://x/webhook', { method: 'POST
 
 await msg('/start');
 for (const a of ['6:30', '9:00', '8:30', 'нет', 'пн ср пт 17:00', '15:00']) await msg(a);
-const bad = await (await bot.fetch(new Request('https://x/api', { method: 'POST', body: JSON.stringify({ initData: initData.replace(/hash=\w/, 'hash=0'), action: 'state' }) }), env)).json();
+const bad = await (await bot.fetch(new Request('https://x/api', { method: 'POST', body: JSON.stringify({ initData: initData.replace(/hash=[0-9a-f]+/, 'hash=' + 'ab'.repeat(32)), action: 'state' }) }), env)).json();
 assert(bad.error === 'auth', 'поддельная подпись отклонена');
 let r = await api('state');
 assert(r.state && r.state.target === 3050, 'state: норма 3050');

@@ -944,7 +944,7 @@ function smartMeal(u, info, slot) {
   const leftK = c.target - s.k, leftP = Math.max(0, 150 - s.p);
   const pool = [...MENU.dinner, ...MENU.lunch, ...MENU.snack2, ...MENU.late].map((v) => ({ ...v }));
   if (leftK < 150) {
-    return { leftK, leftP, text: `Сегодня уже ${s.k} из ${c.target} ккал — норма почти закрыта.${leftK < -300 ? ' Это ок, завтра обычный день.' : ''} Если голоден — кефир или творог 100 г (100–120 ккал), без голодовок.` };
+    return { leftK, leftP, rest: 0, want: 0, opts: [], text: `Сегодня уже ${s.k} из ${c.target} ккал — норма почти закрыта.${leftK < -300 ? ' Это ок, завтра обычный день.' : ''} Если голоден — кефир или творог 100 г (100–120 ккал), без голодовок.` };
   }
   const rest = buildDay(u, info).filter((e) => e.kind === 'meal' && e.t >= info.min - 30).length || 1;
   const want = slot === 'late' ? Math.min(leftK, 300) : Math.round(leftK / rest);
@@ -962,7 +962,7 @@ function smartMeal(u, info, slot) {
   for (const o of opts) { if (seen.has(o.t)) continue; seen.add(o.t); best.push(o); if (best.length === 3) break; }
   const portion = (f) => (f === 1 ? '' : f < 1 ? ` <i>(порция ×${String(f).replace('.', ',')} — поменьше)</i>` : ` <i>(порция ×${String(f).replace('.', ',')} — побольше)</i>`);
   return {
-    leftK, leftP,
+    leftK, leftP, rest, want, opts: best.map((o) => ({ t: o.t, f: o.f, k: o.k, p: o.p })),
     text: `🎯 Осталось <b>${leftK} ккал</b>${leftP ? ` и ~${leftP} г белка` : ''}${rest > 1 && slot !== 'late' ? ` на ${rest} приёма — на ближайший ~${want}` : ''}. Подойдёт:\n` +
       best.map((o, i) => `${i + 1}. ${esc(o.t)}${portion(o.f)} — ${o.k} ккал, белок ${o.p} г`).join('\n'),
   };
@@ -1109,6 +1109,7 @@ function appState(u, info) {
     steps: (u.steps || []).slice(-30), sleep: (u.sleepLog || []).slice(-30),
     weights: u.weights.slice(-120), waist: u.waist.slice(-36), startWeight: u.startWeight,
     streak: foodStreak(u, info),
+    workoutsWeek: (u.workoutDates || []).filter((d) => d >= shiftDay(info, -6).date).length,
     workout: { which, list: workout, timerMin: u.timerMin || 2, timer: u.timer !== false, gymDays: u.gymDays, gymTime: u.gymTime },
     lifts,
     ach: ACH.map(([k, t]) => ({ k, t, got: (u.ach || []).includes(k) })),
@@ -1118,7 +1119,7 @@ function appState(u, info) {
     foods: FOODS.map((f) => ({ n: f.n, k: f.k, p: f.p, f: f.f, c: f.c, pc: f.pc || null, d: f.d || null, ml: !!f.ml })),
     photos: u.photos.length ? [u.photos[0], u.photos[u.photos.length - 1]].filter((x, i, a) => i === 0 || x !== a[0]).map((x) => ({ d: x.d, f: x.f })) : [],
     notes: (u.notes || []).slice(-15).reverse(),
-    smart: smartMeal(u, info, 'dinner').text.replace(/<[^>]+>/g, ''),
+    smart: (() => { const sm = smartMeal(u, info, info.min > 1230 ? 'late' : 'dinner'); return { leftK: sm.leftK, leftP: sm.leftP, rest: sm.rest, want: sm.want, opts: sm.opts, text: sm.text.replace(/<[^>]+>/g, '') }; })(),
   };
 }
 function itemFromFood(f, g) {
