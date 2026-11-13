@@ -1,0 +1,19 @@
+name = "stol8-bot"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# Хранилище: создай командой  npx wrangler kv namespace create DB
+# и вставь сюда id, который она выведет
+[[kv_namespaces]]
+binding = "DB"
+id = "ВСТАВЬ_СЮДА_ID_KV"
+
+# Напоминания: Cloudflare запускает бота каждую минуту
+[triggers]
+crons = ["* * * * *"]
+
+# Секреты (НЕ пиши их в этот файл):
+#   npx wrangler secret put BOT_TOKEN       — токен от @BotFather
+#   npx wrangler secret put WEBHOOK_SECRET  — любая строка из латиницы и цифр
+#   npx wrangler secret put YANDEX_KEY      — (необязательно) ключ Яндекс.Расписаний
+#   npx wrangler secret put ALLOWED_IDS     — (необязательно) твой Telegram ID, чтобы бот отвечал только тебе

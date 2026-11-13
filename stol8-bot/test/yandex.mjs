@@ -1,0 +1,17 @@
+import bot from '../worker.js';
+const store=new Map();const env={BOT_TOKEN:'T',WEBHOOK_SECRET:'sec',YANDEX_KEY:'k',DB:{get:async k=>store.get(k)??null,put:async(k,v)=>store.set(k,v)}};
+const out=[];
+globalThis.fetch=async(url,o)=>{url=String(url);
+ if(url.includes('nearest_stations'))return{ok:true,json:async()=>({stations:[{code:'s9600001',title:'Школа',distance:0.12}]})};
+ if(url.includes('/schedule/'))return{ok:true,json:async()=>({schedule:[{thread:{number:'123'},departure:'2026-11-16T07:31:00+03:00'},{thread:{number:'123'},departure:'2026-11-16T07:39:00+03:00'},{thread:{number:'55'},departure:'2026-11-16T07:41:00+03:00'},{thread:{number:'123'},departure:'2026-11-16T07:52:00+03:00'}]})};
+ out.push(JSON.parse(o.body));return{ok:true,json:async()=>({ok:true})};};
+const call=b=>bot.fetch(new Request('https://x/webhook',{method:'POST',headers:{'X-Telegram-Bot-Api-Secret-Token':'sec'},body:JSON.stringify(b)}),env);
+Date.now=()=>Date.parse('2026-11-16T06:30:00+03:00');
+await call({message:{chat:{id:1},text:'/avtobus 7:42 7'}});
+await call({message:{chat:{id:1},text:'/avtobus_nomer 123'}});
+await call({message:{chat:{id:1},location:{latitude:55.7,longitude:37.6}}});
+await call({callback_query:{id:'q',data:'s|s9600001',message:{message_id:1,chat:{id:1},reply_markup:{inline_keyboard:[[{text:'Школа (120 м)',callback_data:'s|s9600001'}]]}}}});
+await call({message:{chat:{id:1},text:'/avtobus'}});
+await bot.scheduled({},env,{waitUntil:p=>p}); await new Promise(r=>setTimeout(r,50));
+for(const b of out) console.log('>',(b.text||JSON.stringify(b.reply_markup||b)).split('\n').slice(0,3).join(' / '));
+console.log(JSON.parse(store.get('u:1')).busToday);
