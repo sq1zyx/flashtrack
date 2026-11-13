@@ -11,6 +11,8 @@ const DEFAULTS = {
   wakeWd: 390, wakeWe: 540, sleepH: 9, meals: 6,
   schoolStart: 510, busTime: null, walk: 7, buffer: 2,
   busInfo: '', busNumber: '', station: '', stationTitle: '', busToday: null,
+  busLog: [], // отметки «автобус пришёл»: { d, diff } — diff = факт − расписание, мин
+  name: '',
   gymDays: [1, 3, 5], gymTime: 1020, home: 900,
   height: 191, age: 16, startWeight: 118,
   kcalAdjust: 0, kcalOverride: null,
@@ -533,7 +535,8 @@ function buildDay(u, info) {
 
   if (work && u.busTime != null) {
     const bt = u.busToday && u.busToday.date === info.date ? u.busToday.t : u.busTime;
-    const leave = bt - u.walk - u.buffer;
+    const leave = bt - u.walk - u.buffer - busEarly(u);
+    ev.push({ t: leave - 30, kind: 'buscheck', bt });
     ev.push({ t: leave - 10, kind: 'bus10', bt });
     ev.push({ t: leave, kind: 'busgo', bt });
   }
@@ -700,6 +703,36 @@ function pickBus(deps, want) {
   return near.length ? near[0] : null;
 }
 
+// ---------------------------------------------------------------- автобус: статистика по отметкам
+function busStats(u) {
+  const log = (u.busLog || []).slice(-10);
+  if (log.length < 3) return null;
+  const d = log.map((x) => x.diff).sort((a, b) => a - b);
+  const med = d[Math.floor(d.length / 2)];
+  const early = log.filter((x) => x.diff <= -1).length;
+  return { n: log.length, med, early, min: d[0], max: d[d.length - 1] };
+}
+// если автобус часто приходит раньше — выходим раньше на столько минут (максимум 5)
+function busEarly(u) {
+  const s = busStats(u);
+  if (!s) return 0;
+  if (s.med < 0) return Math.min(5, -s.med);
+  if (s.early >= 2 && s.early >= Math.ceil(s.n / 3)) return Math.min(5, Math.max(1, -s.min));
+  return 0;
+}
+function busStatsLine(u) {
+  const s = busStats(u);
+  if (!s) return '';
+  const how = s.med > 0 ? `обычно приходит на ~${s.med} мин <b>позже</b>` : s.med < 0 ? `обычно приходит на ~${-s.med} мин <b>раньше</b>` : 'обычно приходит вовремя';
+  const sh = busEarly(u);
+  const why = !sh ? '' : s.med < 0 ? `, поэтому зову выходить на ${sh} мин раньше` : `, но ${s.early} раз приходил раньше — зову выходить на ${sh} мин раньше`;
+  return `\n📊 По твоим отметкам (${s.n}) ${how}${why}.`;
+}
+function busDiffText(t, usual) {
+  const d = t - usual;
+  return d < 0 ? `на ${-d} мин <b>раньше</b> обычного` : `на ${d} мин <b>позже</b> обычного`;
+}
+
 // ---------------------------------------------------------------- напоминания (cron)
 async function fire(env, id, u, e, info) {
   const work = isWorkday(u, info);
@@ -711,7 +744,8 @@ async function fire(env, id, u, e, info) {
         if (t != null) {
           u.busToday = { date: info.date, t };
           await saveUser(env, id, u);
-          busLine = `\n🚌 По расписанию Яндекса автобус в ${fmt(t)}.`;
+          busLine = t === u.busTime ? `\n🚌 По расписанию Яндекса автобус в ${fmt(t)}, как обычно.`
+            : `\n⚠️ Автобус сегодня в <b>${fmt(t)}</b> — ${busDiffText(t, u.busTime)}. Выходи в ${fmt(t - u.walk - u.buffer - busEarly(u))}.`;
         }
       }
       const plan = buildDay(u, info).filter((x) => ['meal', 'busgo', 'gym', 'bed'].includes(x.kind));
@@ -724,8 +758,22 @@ async function fire(env, id, u, e, info) {
       const i = variantFor(info, e.slot);
       return send(env, id, mealText(e.slot, i, e.t), { reply_markup: mealButtons(e.slot, i, e.t) });
     }
-    case 'bus10': return send(env, id, `🚌 Через 10 минут выходить к автобусу${u.busNumber ? ' №' + esc(u.busNumber) : ''} (отправление ${fmt(e.bt)}, идти ${u.walk} мин).\n<i>Пробки и опоздания я не вижу — это по расписанию.</i>`);
-    case 'busgo': return send(env, id, `🏃 <b>Выходи!</b> Автобус${u.busNumber ? ' №' + esc(u.busNumber) : ''} в ${fmt(e.bt)}.`);
+    case 'buscheck': {
+      // за 30 мин до выхода перепроверяем расписание Яндекса на сегодня
+      if (!env.YANDEX_KEY || !u.station) return;
+      const t = pickBus(await yandexDepartures(env, u, info), u.busTime);
+      if (t == null || t === e.bt) return;
+      u.busToday = { date: info.date, t };
+      await saveUser(env, id, u);
+      const leave = t - u.walk - u.buffer - busEarly(u);
+      return send(env, id, `⚠️ <b>Автобус${u.busNumber ? ' №' + esc(u.busNumber) : ''} сегодня в ${fmt(t)}</b> — ${busDiffText(t, e.bt)} (${fmt(e.bt)}).\nВыходи в <b>${fmt(leave)}</b>. Напомню за 10 минут и в момент выхода.`);
+    }
+    case 'bus10': return send(env, id, `🚌 Через 10 минут выходить к автобусу${u.busNumber ? ' №' + esc(u.busNumber) : ''} (отправление ${fmt(e.bt)}, идти ${u.walk} мин).${busStatsLine(u)}`);
+    case 'busgo': return send(env, id, `🏃 <b>Выходи!</b> Автобус${u.busNumber ? ' №' + esc(u.busNumber) : ''} в ${fmt(e.bt)}.\nКогда он подъедет к остановке — нажми кнопку, я запомню, опаздывает ли он обычно.`,
+      { reply_markup: { inline_keyboard: [[
+        { text: '🚏 Автобус пришёл', callback_data: `b|${info.date}|${e.bt}` },
+        { text: '🚫 Уехал без меня', callback_data: `x|${info.date}|${e.bt}` },
+      ]] } });
     case 'gym': return send(env, id, `🏋️ Через час зал (${fmt(u.gymTime)}).\n\n${workoutText(u, u.nextWorkout)}\n\nВозьми воду и форму. Если не ел 3+ часа — перекуси сейчас (полдник).`);
     case 'prep': return send(env, id, PREP_SUN);
     case 'prep2': return send(env, id, PREP_WED);
@@ -881,7 +929,7 @@ async function command(env, id, u, cmd, args, info) {
   const say = (t, x) => send(env, id, t, x);
   switch (cmd) {
     case 'start':
-      await say('Привет, Степан! 👋 Я помогу спокойно худеть по столу №8: расписание с напоминаниями, меню из магазинных продуктов почти без готовки, зал и прогресс.\n\nТон у меня простой: срыв — не провал. Давай настроим расписание (8 коротких вопросов).', { reply_markup: KEYBOARD });
+      await say(`Привет${u.name ? ', ' + esc(u.name) : ''}! 👋 Я помогу спокойно худеть по столу №8: расписание с напоминаниями, меню из магазинных продуктов почти без готовки, зал и прогресс.\n\nТон у меня простой: срыв — не провал. Давай настроим расписание (8 коротких вопросов).`, { reply_markup: KEYBOARD });
       u.wiz = 0; return wizAsk(env, id, u);
     case 'nastroika': u.wiz = 0; return wizAsk(env, id, u);
     case 'help': return say(HELP, { reply_markup: KEYBOARD });
@@ -909,7 +957,7 @@ async function command(env, id, u, cmd, args, info) {
     case 'avtobus': {
       if (!args) {
         if (u.busTime == null) return say('Автобус не задан. Например: <code>/avtobus 7:42 7</code> — время отправления и сколько минут идти.');
-        let text = `🚌 Автобус${u.busNumber ? ' №' + esc(u.busNumber) : ''} в ${fmt(u.busTime)}, идти ${u.walk} мин → выход в ${fmt(u.busTime - u.walk - u.buffer)}.`;
+        let text = `🚌 Автобус${u.busNumber ? ' №' + esc(u.busNumber) : ''} в ${fmt(u.busTime)}, идти ${u.walk} мин → выход в ${fmt(u.busTime - u.walk - u.buffer - busEarly(u))}.`;
         const deps = await yandexDepartures(env, u, info);
         if (deps && deps.length) {
           const near = deps.filter((t) => Math.abs(t - u.busTime) <= 40).map(fmt);
@@ -917,7 +965,7 @@ async function command(env, id, u, cmd, args, info) {
         } else if (env.YANDEX_KEY && u.station) {
           text += '\nЯндекс не вернул рейсы для этой остановки/номера — использую твоё время.';
         }
-        return say(text + '\n<i>Пробки и опоздания я не вижу.</i>');
+        return say(text + busStatsLine(u) + '\n\nКак я слежу: за 30 мин до выхода проверяю расписание Яндекса (если подключён) и пишу, если сегодня автобус раньше или позже. А по кнопке «🚏 Автобус пришёл» запоминаю, насколько он обычно опаздывает.\n<i>Где автобус едет прямо сейчас, я не вижу — открытых данных о движении автобусов в Москве нет.</i>');
       }
       if (/^нет/i.test(args)) { u.busTime = null; return say('Ок, напоминания об автобусе выключены.'); }
       const [t, w] = args.split(/\s+/);
@@ -950,7 +998,7 @@ async function command(env, id, u, cmd, args, info) {
       }
       if (/^\d{4}$/.test(a)) {
         const n = +a;
-        if (n < 2200) return say('Так мало ставить не буду — для растущего парня с залом это опасно. Если врач правда назначил такую цифру, уточни у него ещё раз.');
+        if (n < 2200) return say('Так мало ставить не буду — для растущего организма с залом это опасно. Если врач правда назначил такую цифру, уточни у него ещё раз.');
         u.kcalOverride = n; return say(`Ок, норма <b>${n} ккал</b> (как назначил врач). Вернуть расчёт — <code>/kkal сброс</code>`);
       }
       if (/^сброс/i.test(a)) { u.kcalOverride = null; u.kcalAdjust = 0; return say(`Ок, норма снова по расчёту: ${calc(u).target} ккал.`); }
@@ -1052,6 +1100,28 @@ async function onCallback(env, cq) {
     const off = +a;
     await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: dayMenuText(u, info, off),
       reply_markup: { inline_keyboard: [[{ text: '🔁 Другое меню', callback_data: `m|${off + 1}` }]] } });
+  } else if (type === 'b' || type === 'x') {
+    const date = a, planned = +b;
+    if (date !== info.date) toast = 'Это была вчерашняя поездка';
+    else if (type === 'x') {
+      toast = 'Понял, учту';
+      u.busLog = (u.busLog || []).filter((x) => x.d !== date);
+      u.busLog.push({ d: date, diff: -3 }); // ушёл раньше, чем ты дошёл — считаем как «раньше»
+      if (u.busLog.length > 30) u.busLog.shift();
+      await saveUser(env, id, u);
+      await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML',
+        text: `😕 Автобус уехал без тебя. Запомнил — если так будет повторяться, начну звать выходить раньше.${busStatsLine(u)}` });
+    } else {
+      const diff = Math.max(-30, Math.min(60, info.min - planned));
+      u.busLog = (u.busLog || []).filter((x) => x.d !== date);
+      u.busLog.push({ d: date, diff });
+      if (u.busLog.length > 30) u.busLog.shift();
+      await saveUser(env, id, u);
+      const t = diff === 0 ? 'точно по расписанию' : diff > 0 ? `на ${diff} мин позже расписания` : `на ${-diff} мин раньше расписания`;
+      toast = 'Записал ✅';
+      await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML',
+        text: `🚏 Автобус пришёл в ${fmt(info.min)} — ${t}.${busStatsLine(u) || '\nЕщё пару отметок — и я пойму, опаздывает ли он обычно.'}` });
+    }
   } else if (type === 's') {
     u.station = a; u.stationTitle = (cq.message.reply_markup?.inline_keyboard || []).flat().find((x) => x.callback_data === cq.data)?.text || a;
     await saveUser(env, id, u);
@@ -1065,6 +1135,9 @@ async function onMessage(env, msg) {
   const id = msg.chat.id;
   const { u, exists } = await loadUser(env, id);
   if (!exists) await addToIndex(env, id);
+  const from = msg.from || {};
+  const nm = (from.first_name || (from.username ? '@' + from.username : '') || '').slice(0, 40);
+  if (nm && u.name !== nm) { u.name = nm; await saveUser(env, id, u); }
   const info = nowMsk();
   const say = (t, x) => send(env, id, t, x);
 
