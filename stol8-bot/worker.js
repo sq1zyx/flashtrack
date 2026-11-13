@@ -765,8 +765,11 @@ async function visionAsk(env, bytes, prompt) {
         : typeof r?.response === 'string' ? r.response
         : r?.response ? JSON.stringify(r.response)
         : r?.choices?.[0]?.message?.content || '';
-      if (out) return out;
-    } catch (e) { lastErr = e; console.error('vision', m, e?.message); }
+      if (out) { try { await env.DB.put('lastai', JSON.stringify({ at: new Date().toISOString(), model: m, out: out.slice(0, 800) })); } catch { /* ignore */ } return out; }
+    } catch (e) {
+      lastErr = e; console.error('vision', m, e?.message);
+      try { await env.DB.put('lasterr', JSON.stringify({ at: new Date().toISOString(), model: m, err: String(e?.message || e).slice(0, 500) })); } catch { /* ignore */ }
+    }
   }
   throw lastErr || new Error('empty');
 }
