@@ -6,7 +6,7 @@ compatibility_date = "2026-11-01"
 # и вставь сюда id, который она выведет
 [[kv_namespaces]]
 binding = "DB"
-id = "ВСТАВЬ_СЮДА_ID_KV"
+id = "a03549c2eef54413b0bd22d73b1beab6"
 
 # Напоминания: Cloudflare запускает бота каждую минуту
 [triggers]
