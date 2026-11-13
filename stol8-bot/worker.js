@@ -4,6 +4,8 @@
 //  Секреты: BOT_TOKEN, WEBHOOK_SECRET. Необязательно: YANDEX_KEY, ALLOWED_IDS
 // =====================================================================
 
+import APP_HTML from './app.js';
+
 const TZ_OFFSET_MIN = 180; // Москва, UTC+3 (перехода на летнее время нет)
 const KCAL_FLOOR = 2700;   // ниже бот не опускает норму: подросток, ещё растёт
 
@@ -16,6 +18,7 @@ const DEFAULTS = {
   water: null, waterDays: [], waterOff: false, steps: [], sleepLog: [], workoutDates: [], ach: [],
   myFoods: [], lastMeal: null, pendingMeal: null, pendingProduct: null, pendingPhoto: null,
   restAt: null, timer: true, timerMin: 2, autoHol: true,
+  recent: [], notes: [], off: [], quiet: null, mealShift: {}, mealSeen: {},
   gymDays: [1, 3, 5], gymTime: 1020, home: 900,
   height: 191, age: 16, startWeight: 118,
   kcalAdjust: 0, kcalOverride: null,
@@ -650,6 +653,8 @@ function weeklyReport(u, info) {
   const bs = busStatsLine(u);
   if (bs) L.push('🚌' + bs.replace('\n📊', ''));
   L.push(`🔥 Серия записей еды: ${foodStreak(u, info)} дн.`);
+  const nn = (u.notes || []).filter(inWeek);
+  if (nn.length) L.push(`📝 Заметок о самочувствии: ${nn.length} — /zametka`);
   L.push('\nНеделя — это шаг, а не экзамен. Следующая будет ещё чуть лучше 💪');
   return L.join('\n');
 }
@@ -719,11 +724,12 @@ async function exportCsv(env, id, u, info) {
   (u.waterDays || []).concat(u.water && u.water.ml ? [u.water] : []).forEach((x) => (row(x.d).wa = x.ml));
   (u.sleepLog || []).forEach((x) => (row(x.d).sl = ['плохо', 'так себе', 'хорошо'][x.q]));
   (u.workoutDates || []).forEach((d) => (row(d).gym = 'да'));
+  (u.notes || []).forEach((x) => { const r = row(x.d); r.note = (r.note ? r.note + ' | ' : '') + x.t.replace(/[;\n]/g, ','); });
   const num = (v) => (v == null ? '' : String(v).replace('.', ','));
-  const lines = ['Дата;Вес, кг;Талия, см;Ккал;Белок, г;Шаги;Вода, мл;Сон;Зал'];
+  const lines = ['Дата;Вес, кг;Талия, см;Ккал;Белок, г;Шаги;Вода, мл;Сон;Зал;Заметки'];
   [...map.keys()].sort().forEach((d) => {
     const r = map.get(d);
-    lines.push([d, num(r.w), num(r.waist), num(r.k), num(r.p), num(r.st), num(r.wa), r.sl || '', r.gym || ''].join(';'));
+    lines.push([d, num(r.w), num(r.waist), num(r.k), num(r.p), num(r.st), num(r.wa), r.sl || '', r.gym || '', r.note || ''].join(';'));
   });
   const c = calc(u);
   const fd = new FormData();
@@ -885,8 +891,325 @@ function myFoodPart(t, u) {
   return null;
 }
 
+// ---------------------------------------------------------------- ИИ для текста и голоса (Workers AI)
+const TEXT_MODELS = ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.1-8b-instruct'];
+const WHISPER_MODELS = ['@cf/openai/whisper-large-v3-turbo', '@cf/openai/whisper'];
+const aiOut = (r) => (typeof r === 'string' ? r
+  : typeof r?.response === 'string' ? r.response
+  : r?.response ? JSON.stringify(r.response)
+  : r?.choices?.[0]?.message?.content || '');
+async function aiLog(env, key, obj) { try { await env.DB.put(key, JSON.stringify({ at: new Date().toISOString(), ...obj })); } catch { /* ignore */ } }
+async function textAsk(env, prompt) {
+  if (!env.AI) throw new Error('no AI binding');
+  let lastErr = null;
+  for (const m of TEXT_MODELS) {
+    try {
+      const out = aiOut(await env.AI.run(m, { messages: [{ role: 'user', content: prompt }], max_tokens: 700, temperature: 0.2 }));
+      if (out) { await aiLog(env, 'lastai', { model: m, out: out.slice(0, 800) }); return out; }
+    } catch (e) { lastErr = e; await aiLog(env, 'lasterr', { model: m, err: String(e?.message || e).slice(0, 500) }); }
+  }
+  throw lastErr || new Error('empty');
+}
+async function transcribe(env, bytes) {
+  if (!env.AI) throw new Error('no AI binding');
+  let lastErr = null;
+  for (const m of WHISPER_MODELS) {
+    try {
+      const r = m.includes('turbo')
+        ? await env.AI.run(m, { audio: b64(bytes), language: 'ru' })
+        : await env.AI.run(m, { audio: [...bytes] });
+      const t = (r?.text || '').trim();
+      if (t) return t;
+    } catch (e) { lastErr = e; await aiLog(env, 'lasterr', { model: m, err: String(e?.message || e).slice(0, 500) }); }
+  }
+  throw lastErr || new Error('empty');
+}
+const TEXT_FOOD_PROMPT = 'Ты диетолог. Человек описал, что съел. Разбери на продукты/блюда и оцени вес каждой порции в граммах (если не указан — обычная порция). ' +
+  'Ответь ТОЛЬКО JSON без пояснений и без markdown: {"items":[{"name":"шаурма","grams":350,"kcal":770,"protein":35,"fat":35,"carbs":77}]}. ' +
+  'Названия коротко по-русски. Если это не про еду — {"items":[]}. Текст: ';
+async function aiMealConfirm(env, id, u, text, title) {
+  let items = null;
+  try { items = parseAiItems(await textAsk(env, TEXT_FOOD_PROMPT + JSON.stringify(text.slice(0, 400)))); } catch (e) { console.error('aiMeal', e); }
+  if (!items || !items.length) return false;
+  u.pendingMeal = items;
+  await saveUser(env, id, u);
+  await send(env, id, `${title}\n${mealSummary(items)}\n\nЗаписать?`,
+    { reply_markup: { inline_keyboard: [[{ text: '✅ Записать', callback_data: 'pm|ok' }, { text: '✏️ Не то', callback_data: 'pm|no' }]] } });
+  return true;
+}
+
+// ---------------------------------------------------------------- умное меню под остаток
+function smartMeal(u, info, slot) {
+  const c = calc(u), s = foodSum(u, info);
+  const leftK = c.target - s.k, leftP = Math.max(0, 150 - s.p);
+  const pool = [...MENU.dinner, ...MENU.lunch, ...MENU.snack2, ...MENU.late].map((v) => ({ ...v }));
+  if (leftK < 150) {
+    return { leftK, leftP, text: `Сегодня уже ${s.k} из ${c.target} ккал — норма почти закрыта.${leftK < -300 ? ' Это ок, завтра обычный день.' : ''} Если голоден — кефир или творог 100 г (100–120 ккал), без голодовок.` };
+  }
+  const rest = buildDay(u, info).filter((e) => e.kind === 'meal' && e.t >= info.min - 30).length || 1;
+  const want = slot === 'late' ? Math.min(leftK, 300) : Math.round(leftK / rest);
+  const opts = [];
+  for (const v of pool) {
+    for (const f of [0.5, 0.75, 1, 1.25, 1.5]) {
+      const k = Math.round(v.k * f), p = Math.round(v.p * f);
+      if (k > want + 100) continue;
+      const score = Math.abs(want - k) / 100 + Math.max(0, Math.min(leftP, 60) - p) / 10;
+      opts.push({ t: v.t, f, k, p, score });
+    }
+  }
+  opts.sort((a, b) => a.score - b.score);
+  const seen = new Set(), best = [];
+  for (const o of opts) { if (seen.has(o.t)) continue; seen.add(o.t); best.push(o); if (best.length === 3) break; }
+  const portion = (f) => (f === 1 ? '' : f < 1 ? ` <i>(порция ×${String(f).replace('.', ',')} — поменьше)</i>` : ` <i>(порция ×${String(f).replace('.', ',')} — побольше)</i>`);
+  return {
+    leftK, leftP,
+    text: `🎯 Осталось <b>${leftK} ккал</b>${leftP ? ` и ~${leftP} г белка` : ''}${rest > 1 && slot !== 'late' ? ` на ${rest} приёма — на ближайший ~${want}` : ''}. Подойдёт:\n` +
+      best.map((o, i) => `${i + 1}. ${esc(o.t)}${portion(o.f)} — ${o.k} ккал, белок ${o.p} г`).join('\n'),
+  };
+}
+
+// ---------------------------------------------------------------- подстройка времени еды
+const median = (a) => { const d = [...a].sort((x, y) => x - y); return d[Math.floor(d.length / 2)]; };
+function mealShift(u, slot) {
+  const l = (u.mealShift || {})[slot];
+  if (!l || l.length < 3) return 0;
+  const m = median(l);
+  return Math.abs(m) < 10 ? 0 : Math.max(-60, Math.min(60, r5(m)));
+}
+function learnMeal(u, info, slot) {
+  // запоминаем, во сколько реально ешь относительно расписания
+  const evs = buildDay(u, info, true).filter((e) => e.kind === 'meal');
+  let e = slot ? evs.find((x) => x.slot === slot) : null;
+  if (!e) {
+    let bd = 1e9;
+    for (const x of evs) { const d = Math.abs(info.min - x.t); if (d < bd) { bd = d; e = x; } }
+    if (!e || bd > 90) return;
+  }
+  u.mealSeen = u.mealSeen || {};
+  if (u.mealSeen[e.slot] === info.date) return;
+  u.mealSeen[e.slot] = info.date;
+  const diff = info.min - e.t;
+  if (Math.abs(diff) > 120) return;
+  u.mealShift = u.mealShift || {};
+  u.mealShift[e.slot] = (u.mealShift[e.slot] || []).concat(diff).slice(-10);
+}
+
+// ---------------------------------------------------------------- настройки напоминаний
+const REMIND_GROUPS = {
+  meals: ['🍽 Еда', ['meal']], water: ['💧 Вода', ['water']], bus: ['🚌 Автобус', ['bus10', 'busgo', 'buscheck']],
+  gym: ['🏋️ Зал', ['gym']], exercise: ['🤸 Зарядка', ['exercise']], bed: ['😴 Отбой', ['bed30', 'bed']],
+  prep: ['🧺 Заготовка', ['prep', 'prep2']], progress: ['📈 Вес, замеры, отчёт', ['weigh', 'month', 'weekly']],
+  evening: ['🧾 Итог дня', ['foodcheck']],
+};
+const KIND_GROUP = Object.fromEntries(Object.entries(REMIND_GROUPS).flatMap(([g, [, ks]]) => ks.map((k) => [k, g])));
+function inQuiet(u, t) {
+  const q = u.quiet;
+  if (!q || q.from == null || q.to == null) return false;
+  const m = ((t % 1440) + 1440) % 1440;
+  return q.from <= q.to ? m >= q.from && m < q.to : m >= q.from || m < q.to;
+}
+function eventMuted(u, e) {
+  const g = KIND_GROUP[e.kind];
+  if (g && (u.off || []).includes(g)) return true;
+  if (['wake', 'bus10', 'busgo', 'buscheck'].includes(e.kind)) return false; // подъём и автобус — всегда
+  return inQuiet(u, e.t);
+}
+function remindKb(u) {
+  const off = u.off || [];
+  const rows = [], keys = Object.keys(REMIND_GROUPS);
+  for (let i = 0; i < keys.length; i += 2) {
+    rows.push(keys.slice(i, i + 2).map((k) => ({ text: `${off.includes(k) ? '🔕' : '🔔'} ${REMIND_GROUPS[k][0]}`, callback_data: `n|${k}` })));
+  }
+  return { inline_keyboard: rows };
+}
+const remindText = (u) => '🔔 <b>Напоминания</b> — нажми, чтобы включить/выключить.\n' +
+  `Тихие часы: ${u.quiet ? `<b>${fmt(u.quiet.from)}–${fmt(u.quiet.to)}</b> (кроме подъёма и автобуса)` : 'нет'} — <code>/tishina 22:30 7:00</code> или <code>/tishina нет</code>`;
+
+// ---------------------------------------------------------------- дневник с удалением
+function diaryText(u, info) {
+  const items = u.food.date === info.date ? u.food.items : [];
+  if (!items.length) return { text: '📒 Сегодня записей нет. Пиши текстом, голосом 🎤 или пришли фото 📷' };
+  const s = foodSum(u, info), c = calc(u);
+  const text = `📒 <b>Дневник за сегодня</b>\n` + items.map((x, i) => `${i + 1}. <code>${fmt(x.at)}</code> ${esc(x.name)} — <b>${x.k}</b>`).join('\n') +
+    `\n\nИтого ${s.k} из ${c.target} ккал. Нажми номер, чтобы удалить. Граммы удобнее менять в приложении 📊`;
+  const btns = items.map((_, i) => ({ text: `❌ ${i + 1}`, callback_data: `dl|${i}` })).slice(-24);
+  const rows = []; for (let i = 0; i < btns.length; i += 6) rows.push(btns.slice(i, i + 6));
+  return { text, kb: { inline_keyboard: rows } };
+}
+function bar(v, max, n = 10) {
+  const f = Math.max(0, Math.min(n, Math.round((v / (max || 1)) * n)));
+  return '▰'.repeat(f) + '▱'.repeat(n - f);
+}
+
+// ---------------------------------------------------------------- подходы в зале (общая логика для чата и приложения)
+function logSets(u, info, key, sets) {
+  if (u.lastWorkoutDate !== info.date) {
+    const w = Object.keys(PROG).find((k) => PROG[k].includes(key)) || u.nextWorkout;
+    u.curWorkout = w; u.nextWorkout = NEXT_W[w]; u.lastWorkoutDate = info.date;
+    u.workoutDates = (u.workoutDates || []).filter((d) => d !== info.date).concat(info.date).slice(-300);
+  }
+  if (u.timer !== false) u.restAt = { d: info.date, m: info.min + (u.timerMin || 2) };
+  const hist = (u.lifts[key] = u.lifts[key] || []);
+  const prev = hist.length && hist[hist.length - 1].d !== info.date ? hist[hist.length - 1] : (hist.length > 1 ? hist[hist.length - 2] : null);
+  if (hist.length && hist[hist.length - 1].d === info.date) hist[hist.length - 1].sets.push(...sets);
+  else hist.push({ d: info.date, sets });
+  if (hist.length > 20) hist.shift();
+  return { today: hist[hist.length - 1], prev };
+}
+
+// ---------------------------------------------------------------- мини-приложение: авторизация Telegram WebApp
+const APP_PATH = '/app';
+const appUrl = (origin) => origin + APP_PATH;
+const enc = new TextEncoder();
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+async function hmac(key, data) {
+  const k = await crypto.subtle.importKey('raw', typeof key === 'string' ? enc.encode(key) : key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return crypto.subtle.sign('HMAC', k, enc.encode(data));
+}
+async function checkInitData(env, initData) {
+  if (!initData || typeof initData !== 'string') return null;
+  const p = new URLSearchParams(initData);
+  const hash = p.get('hash');
+  if (!hash) return null;
+  p.delete('hash');
+  const dcs = [...p.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('\n');
+  const secret = await hmac('WebAppData', env.BOT_TOKEN);
+  if (hex(await hmac(secret, dcs)) !== hash) return null;
+  const age = Date.now() / 1000 - +(p.get('auth_date') || 0);
+  if (!(age < 7 * 86400)) return null;
+  try { return JSON.parse(p.get('user') || 'null'); } catch { return null; }
+}
+
+// ---------------------------------------------------------------- мини-приложение: данные
+function appState(u, info) {
+  const c = calc(u), s = foodSum(u, info);
+  const pT = 150, fT = 90, cT = Math.max(150, Math.round((c.target - pT * 4 - fT * 9) / 4));
+  const items = (u.food.date === info.date ? u.food.items : []).map((x, i) => ({
+    i, name: x.base || x.name, g: x.g ?? null, u: x.u ?? null, k: x.k, p: x.p || 0, f: x.fat || 0, c: x.c || 0, at: x.at,
+  }));
+  const days = (u.days || []).slice(-60).map((x) => ({ d: x.d, k: x.k, p: x.p || 0 }));
+  if (s.n) days.push({ d: info.date, k: s.k, p: s.p, today: true });
+  const which = u.lastWorkoutDate === info.date ? u.curWorkout : u.nextWorkout;
+  const workout = PROG[which].map((key) => {
+    const h = u.lifts[key] || [], e = EX[key];
+    const todayRec = h.length && h[h.length - 1].d === info.date ? h[h.length - 1] : null;
+    const last = h.filter((x) => x.d !== info.date).slice(-1)[0] || null;
+    return { key, n: e.n, s: e.s, r: e.r, bw: !!e.bw, step: e.step || 0, last, today: todayRec ? todayRec.sets : [], hint: last ? nextHint(key, last.sets).replace(/<[^>]+>/g, '') : '', subs: SUBS[key] };
+  });
+  const lifts = Object.entries(u.lifts).filter(([k, h]) => EX[k] && h.length).map(([k, h]) => ({
+    key: k, n: EX[k].n, bw: !!EX[k].bw, hist: h.map((x) => ({ d: x.d, v: EX[k].bw ? Math.max(...x.sets.map((s2) => s2[1])) : maxW(x.sets) })),
+  }));
+  const meals = buildDay(u, info).filter((e) => e.kind === 'meal').map((e) => ({ t: e.t, slot: e.slot, n: SLOT_NAMES[e.slot] }));
+  return {
+    name: u.name || '', date: info.date, dow: info.dow, min: info.min, holiday: holidayName(info.date),
+    target: c.target, tdee: c.tdee, act: c.act, eaten: { k: s.k, p: s.p, f: s.fat, c: s.c }, macros: { p: pT, f: fT, c: cT },
+    items, days, meals,
+    water: { ml: u.water && u.water.d === info.date ? u.water.ml : 0, goal: WATER_GOAL },
+    waterDays: (u.waterDays || []).slice(-30),
+    steps: (u.steps || []).slice(-30), sleep: (u.sleepLog || []).slice(-30),
+    weights: u.weights.slice(-120), waist: u.waist.slice(-36), startWeight: u.startWeight,
+    streak: foodStreak(u, info),
+    workout: { which, list: workout, timerMin: u.timerMin || 2, timer: u.timer !== false, gymDays: u.gymDays, gymTime: u.gymTime },
+    lifts,
+    ach: ACH.map(([k, t]) => ({ k, t, got: (u.ach || []).includes(k) })),
+    settings: { off: u.off || [], quiet: u.quiet || null, groups: Object.fromEntries(Object.entries(REMIND_GROUPS).map(([k, v]) => [k, v[0]])), autoHol: u.autoHol !== false, holidays: !!u.holidays },
+    myFoods: (u.myFoods || []).map((m) => ({ key: m.key, n: m.n, k: m.k, p: m.p, f: m.f, c: m.c })),
+    recent: (u.recent || []).slice(0, 15),
+    foods: FOODS.map((f) => ({ n: f.n, k: f.k, p: f.p, f: f.f, c: f.c, pc: f.pc || null, d: f.d || null, ml: !!f.ml })),
+    photos: u.photos.length ? [u.photos[0], u.photos[u.photos.length - 1]].filter((x, i, a) => i === 0 || x !== a[0]).map((x) => ({ d: x.d, f: x.f })) : [],
+    notes: (u.notes || []).slice(-15).reverse(),
+    smart: smartMeal(u, info, 'dinner').text.replace(/<[^>]+>/g, ''),
+  };
+}
+function itemFromFood(f, g) {
+  const x = g / 100;
+  return { name: f.n, g: Math.round(g), u: f.ml ? 'мл' : 'г', k: Math.round(f.k * x), p: Math.round(f.p * x), fat: Math.round(f.f * x), c: Math.round(f.c * x) };
+}
+async function apiHandle(env, req, origin) {
+  let body = {};
+  try { body = await req.json(); } catch { /* пусто */ }
+  const user = await checkInitData(env, body.initData);
+  if (!user) return Response.json({ error: 'auth' }, { status: 401 });
+  const id = user.id;
+  if (!(await allowed(env, id))) return Response.json({ error: 'forbidden' }, { status: 403 });
+  const { u, exists } = await loadUser(env, id);
+  if (!exists) return Response.json({ error: 'start' }, { status: 404 });
+  const info = nowMsk();
+  const a = body.action;
+  let msg = '';
+  let changed = true;
+  if (a === 'state') changed = false;
+  else if (a === 'add') {
+    let items = [];
+    if (body.fi != null && FOODS[body.fi] && body.g > 0 && body.g <= 3000) items = [itemFromFood(FOODS[body.fi], +body.g)];
+    else if (body.mine) {
+      const m = (u.myFoods || []).find((x) => x.key === body.mine);
+      const cnt = +body.cnt || 1;
+      if (m && cnt > 0 && cnt <= 20) items = [{ name: m.n, g: cnt, u: 'порц.', k: Math.round(m.k * cnt), p: Math.round(m.p * cnt), fat: Math.round(m.f * cnt), c: Math.round(m.c * cnt) }];
+    } else if (body.recent != null && (u.recent || [])[body.recent]) {
+      const r = u.recent[body.recent], f = (+body.g > 0 && r.g) ? +body.g / r.g : 1;
+      items = [{ ...r, g: Math.round(r.g * f * 10) / 10, k: Math.round(r.k * f), p: Math.round(r.p * f), fat: Math.round(r.fat * f), c: Math.round(r.c * f) }];
+    } else if (body.text) {
+      const pm = parseMeal(String(body.text).slice(0, 300), u);
+      items = pm.ok;
+      if (pm.bad.length) {
+        let ai = null;
+        try { ai = parseAiItems(await textAsk(env, TEXT_FOOD_PROMPT + JSON.stringify(pm.bad.join(', ')))); } catch { /* нет ИИ */ }
+        if (ai && ai.length) items = items.concat(ai);
+        else msg = 'Не узнал: ' + pm.bad.join(', ');
+      }
+    }
+    if (items.length) { addItems(u, info, items); learnMeal(u, info); } else if (!msg) msg = 'Не понял, что добавить';
+  } else if (a === 'edit') {
+    const it = u.food.date === info.date ? u.food.items[body.i] : null;
+    const g = +body.g;
+    if (it && it.g && g > 0 && g <= 3000) {
+      const f = g / it.g;
+      Object.assign(it, { g: Math.round(g * 10) / 10, k: Math.round(it.k * f), p: Math.round((it.p || 0) * f), fat: Math.round((it.fat || 0) * f), c: Math.round((it.c || 0) * f) });
+      it.name = `${it.base || it.name} ${it.g} ${it.u}`;
+    } else msg = 'Эту запись можно только удалить';
+  } else if (a === 'del') {
+    if (u.food.date === info.date && u.food.items[body.i]) u.food.items.splice(body.i, 1);
+  } else if (a === 'water') addWater(u, info, Math.max(-1000, Math.min(1000, +body.ml || 0)));
+  else if (a === 'steps') { const n = +body.n; if (n >= 0 && n <= 80000) u.steps = setDaily(u.steps, info, { n }); }
+  else if (a === 'weight') { const v = +body.kg; if (v > 30 && v < 300) recordWeight(u, info, v); else msg = 'Странный вес'; }
+  else if (a === 'waist') { const v = +body.cm; if (v > 40 && v < 200) { u.waist = u.waist.filter((x) => x.d !== info.date); u.waist.push({ d: info.date, cm: v }); } }
+  else if (a === 'sleep') u.sleepLog = setDaily(u.sleepLog, info, { q: Math.max(0, Math.min(2, +body.q)) });
+  else if (a === 'set') {
+    const key = body.key, w = +body.w || 0, r = +body.r;
+    if (EX[key] && r > 0 && r <= 300 && w >= 0 && w <= 500) logSets(u, info, key, [[w, r]]);
+    else msg = 'Проверь вес и повторы';
+  } else if (a === 'unset') {
+    const h = u.lifts[body.key] || [];
+    if (h.length && h[h.length - 1].d === info.date) { h[h.length - 1].sets.pop(); if (!h[h.length - 1].sets.length) h.pop(); }
+  } else if (a === 'note') {
+    const t = String(body.t || '').trim().slice(0, 300);
+    if (t) { u.notes = (u.notes || []).concat({ d: info.date, m: info.min, t }).slice(-200); }
+  } else if (a === 'remind') {
+    if (REMIND_GROUPS[body.g]) { const off = new Set(u.off || []); off.has(body.g) ? off.delete(body.g) : off.add(body.g); u.off = [...off]; }
+  } else if (a === 'quiet') {
+    const f = parseTime(body.from), t = parseTime(body.to);
+    u.quiet = f != null && t != null && f !== t ? { from: f, to: t } : null;
+  } else if (a === 'timer') { const n = +body.n; if (n >= 1 && n <= 5) { u.timerMin = n; u.timer = true; } else if (n === 0) u.timer = false; }
+  else if (a === 'export') { await exportCsv(env, id, u, info); changed = false; msg = 'Таблица отправлена в чат'; }
+  else { changed = false; msg = 'Неизвестное действие'; }
+  if (changed) { await saveUser(env, id, u); await checkAch(env, id, info); }
+  const fresh = changed ? (await loadUser(env, id)).u : u;
+  return Response.json({ ok: true, msg, state: appState(fresh, info) });
+}
+async function photoProxy(env, url) {
+  const user = await checkInitData(env, url.searchParams.get('a'));
+  if (!user || !(await allowed(env, user.id))) return new Response('forbidden', { status: 403 });
+  const { u } = await loadUser(env, user.id);
+  const f = url.searchParams.get('f');
+  if (!u.photos.some((x) => x.f === f)) return new Response('not found', { status: 404 });
+  const bytes = await tgFileBytes(env, f);
+  if (!bytes) return new Response('not found', { status: 404 });
+  return new Response(bytes, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=86400' } });
+}
+
 // ---------------------------------------------------------------- расписание
-function buildDay(u, info) {
+function buildDay(u, info, raw = false) {
   const ev = [];
   const work = isWorkday(u, info);
   const wake = work ? u.wakeWd : u.wakeWe;
@@ -906,6 +1229,11 @@ function buildDay(u, info) {
     let best = 1, bd = 1e9;
     for (let i = 1; i < n - 1; i++) { const d = Math.abs(times[i] - target); if (d < bd) { bd = d; best = i; } }
     if (target > times[best - 1] + 90 && target < times[best + 1] - 90) times[best] = target;
+  }
+  if (!raw) {
+    // подстройка под то, когда ты реально ешь (медиана последних отметок)
+    slots.forEach((slot, i) => { times[i] += mealShift(u, slot); });
+    for (let i = 1; i < n; i++) if (times[i] < times[i - 1] + 60) times[i] = times[i - 1] + 60;
   }
   const gymToday = u.gymTime != null && u.gymDays.includes(info.dow);
   if (gymToday) {
@@ -1009,6 +1337,8 @@ function mealButtons(slot, i, t) {
   return { inline_keyboard: [[
     { text: '✅ Съел', callback_data: `e|${slot}|${i}` },
     { text: '🔁 Другой вариант', callback_data: `a|${slot}|${i}|${t ?? ''}` },
+  ], [
+    { text: '📷 Фото', callback_data: 'mf|photo' }, { text: '🎤 / ✏️ Другое', callback_data: 'mf|text' },
   ]] };
 }
 function variantFor(info, slot) {
@@ -1149,7 +1479,9 @@ async function fire(env, id, u, e, info) {
     case 'exercise': return send(env, id, EXERCISE_TEXT);
     case 'meal': {
       const i = variantFor(info, e.slot);
-      return send(env, id, mealText(e.slot, i, e.t), { reply_markup: mealButtons(e.slot, i, e.t) });
+      const s = foodSum(u, info);
+      const smart = (e.slot === 'dinner' || e.slot === 'late') && s.n ? '\n\n' + smartMeal(u, info, e.slot).text : '';
+      return send(env, id, mealText(e.slot, i, e.t) + smart, { reply_markup: mealButtons(e.slot, i, e.t) });
     }
     case 'buscheck': {
       // за 30 мин до выхода перепроверяем расписание Яндекса на сегодня
@@ -1183,9 +1515,11 @@ async function fire(env, id, u, e, info) {
       const s = foodSum(u, info), target = calc(u).target;
       const askSteps = !(u.steps || []).some((x) => x.d === info.date);
       const stepsQ = askSteps ? '\n\n👣 Сколько примерно шагов сегодня? (или <code>/shagi 12345</code>)' : '';
-      const kb = askSteps ? { reply_markup: stepsKb } : {};
+      const appBtn = env.APP_URL ? [[{ text: '📊 Открыть дневник', web_app: { url: env.APP_URL } }]] : [];
+      const kb = { reply_markup: { inline_keyboard: (askSteps ? stepsKb.inline_keyboard : []).concat(appBtn) } };
       if (s.n === 0) return send(env, id, '🍽 Сегодня ничего не записано. Если не лень — напиши, что ел, одним сообщением: <code>гречка 250, курица 180, 2 яйца, кефир</code> или пришли фото еды. Не обязательно точно, примерно тоже полезно.' + stepsQ, kb);
-      let t = `🧾 <b>Итог дня:</b> ${s.k} из ${target} ккал · белок ${s.p} г${s.p < 150 ? ' (цель от 150)' : ' ✅'}`;
+      const wml = u.water && u.water.d === info.date ? u.water.ml : 0;
+      let t = `🧾 <b>Итог дня</b>\n<code>ккал  ${bar(s.k, target)} ${s.k}/${target}</code>\n<code>белок ${bar(s.p, 150)} ${s.p}/150 г</code>\n<code>вода  ${bar(wml, WATER_GOAL)} ${(wml / 1000).toFixed(1).replace('.', ',')}/${WATER_GOAL / 1000} л</code>\n🔥 серия ${foodStreak(u, info)} дн.`;
       if (s.k < target - 900) t += '\n\nЕсли ты правда мало поел — съешь творог или выпей кефир, не ложись голодным. Недоедание мешает расти и тормозит прогресс.';
       else if (s.k <= target + 400) t += '\nОтличный день 👍';
       else t += '\nЧуть больше нормы — ничего страшного, завтра просто обычный день по меню.';
@@ -1208,7 +1542,7 @@ async function cron(env) {
       if (u.paused || u.wiz != null && !u.wakeWdSet) continue;
       const evs = buildDay(u, today).filter((e) => e.t === today.min)
         .concat(buildDay(u, yest).filter((e) => e.t - 1440 === today.min));
-      for (const e of evs) await fire(env, id, u, e, today);
+      for (const e of evs) if (!eventMuted(u, e)) await fire(env, id, u, e, today);
       if (u.restAt && u.restAt.d === today.date && u.restAt.m <= today.min) {
         const late = today.min - u.restAt.m;
         const fresh = (await loadUser(env, id)).u;
@@ -1280,6 +1614,11 @@ const HELP = `<b>Что я умею</b>
 🏷 <b>Штрихкод</b> — фото штрихкода или просто цифры под ним
 ⭐ /moe — свои продукты и блюда (<code>/moe сырники мамы 220 б12</code>)
 🔁 /povtor — съел то же, что в прошлый раз
+🎤 <b>Голосом</b> — «съел тарелку гречки и две котлеты»
+📒 /dnevnik — записи за сегодня (удалить любую)
+🎯 /uzhin — что съесть под оставшиеся калории
+📝 /zametka — самочувствие (для врача)
+📊 /app — приложение: дневник, графики, зал
 /otmena — удалить последнюю запись
 /zameny — чем заменить
 /pokupki — список покупок на неделю
@@ -1311,7 +1650,8 @@ const HELP = `<b>Что я умею</b>
 
 /pauza — выключить/включить напоминания
 /kanikuly — режим каникул вручную · <code>/kanikuly авто</code> — учитывать каникулы и праздники Москвы самому
-/dostup — кто может пользоваться ботом`;
+/dostup — кто может пользоваться ботом
+/napominaniya — какие напоминания присылать · /tishina 22:30 7:00 — тихие часы`;
 
 function settingsText(u) {
   const c = calc(u);
@@ -1334,16 +1674,22 @@ function settingsText(u) {
 // strict=false (обычное сообщение): если ни один продукт не узнан — возвращает false, чтобы бот ответил «не понял»
 async function logMealText(env, id, u, info, text, strict) {
   const { ok, bad } = parseMeal(text, u);
+  if (!ok.length && env.AI && /[а-яё]{3}/i.test(text) && text.length <= 400) {
+    // в базе ничего — пробуем понять свободный текст нейросетью (с подтверждением)
+    if (await aiMealConfirm(env, id, u, text, '🤖 <b>Понял так</b> (оценка, ±20 %):')) return true;
+  }
   if (!ok.length) {
     if (!strict) return false;
     return send(env, id, `Не нашёл в базе: ${esc(bad.join(', ') || text)}.\nЗапиши вручную: <code>/el 300 ${esc(bad[0] || 'название')}</code> · что есть в базе — /produkt`);
   }
   const before = foodSum(u, info).k, target = calc(u).target;
   addItems(u, info, ok);
+  learnMeal(u, info);
   const after = foodSum(u, info);
   await saveUser(env, id, u);
+  if (bad.length && env.AI) await aiMealConfirm(env, id, u, bad.join(', '), `🤖 Остальное (${esc(bad.join(', '))}) понял так:`);
   let t = `✅ Записал:\n${mealSummary(ok)}\n\nСегодня: <b>${after.k}</b> из ${target} ккал · белок ${after.p} г`;
-  if (bad.length) t += `\n\n❓ Не узнал: ${esc(bad.join(', '))} — запиши вручную: <code>/el 300 ${esc(bad[0])}</code>`;
+  if (bad.length && !env.AI) t += `\n\n❓ Не узнал: ${esc(bad.join(', '))} — запиши вручную: <code>/el 300 ${esc(bad[0])}</code>`;
   if (before <= target + 400 && after.k > target + 400) t += '\n\nСегодня вышло больше нормы — это нормально, так бывает. Ничего не «отрабатывай» и не пропускай еду: следующий приём пищи просто сделай обычным 💪';
   t += `\n<i>Ошибся — /otmena (удаляет последнюю позицию)</i>`;
   return send(env, id, t, { reply_markup: repeatKb });
@@ -1351,13 +1697,17 @@ async function logMealText(env, id, u, info, text, strict) {
 const repeatKb = { inline_keyboard: [[{ text: '🔁 Съел это ещё раз', callback_data: 'r' }]] };
 function addItems(u, info, items) {
   todayFood(u, info);
-  for (const x of items) u.food.items.push({ name: `${x.name} ${x.g} ${x.u}`, k: x.k, p: x.p, fat: x.fat, c: x.c, at: info.min });
+  for (const x of items) {
+    u.food.items.push({ name: `${x.name} ${x.g} ${x.u}`, base: x.name, g: x.g, u: x.u, k: x.k, p: x.p, fat: x.fat, c: x.c, at: info.min });
+    u.recent = [{ name: x.name, g: x.g, u: x.u, k: x.k, p: x.p, fat: x.fat, c: x.c }].concat((u.recent || []).filter((r) => r.name !== x.name)).slice(0, 15);
+  }
   if (u.food.items.length > 60) u.food.items.splice(0, u.food.items.length - 60);
   u.lastMeal = items;
 }
 async function logItems(env, id, u, info, items, title) {
   const before = foodSum(u, info).k, target = calc(u).target;
   addItems(u, info, items);
+  learnMeal(u, info);
   const after = foodSum(u, info);
   await saveUser(env, id, u);
   let t = `${title}\n${mealSummary(items)}\n\nСегодня: <b>${after.k}</b> из ${target} ккал · белок ${after.p} г`;
@@ -1468,6 +1818,28 @@ ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${
     }
     case 'nedelya': return say(weekText(u, info));
     case 'otchet': return say(weeklyReport(u, info));
+    case 'app': case 'prilozhenie':
+      if (!env.APP_URL) return say('Приложение ещё не настроено.');
+      return say('📊 Дневник, графики и зал — в приложении:', { reply_markup: { inline_keyboard: [[{ text: '📊 Открыть', web_app: { url: env.APP_URL } }]] } });
+    case 'dnevnik': { const d = diaryText(u, info); return say(d.text, d.kb ? { reply_markup: d.kb } : {}); }
+    case 'uzhin': return say(smartMeal(u, info, info.min > 1200 ? 'late' : 'dinner').text);
+    case 'zametka': {
+      const t = args.trim().slice(0, 300);
+      if (!t) {
+        const l = (u.notes || []).slice(-10);
+        return say(l.length ? '📝 <b>Заметки</b>\n' + l.map((x) => `${ddmm(x.d)} — ${esc(x.t)}`).join('\n') : '📝 Заметки о самочувствии попадут в таблицу для врача.\nНапример: <code>/zametka болел живот после обеда</code>');
+      }
+      u.notes = (u.notes || []).concat({ d: info.date, m: info.min, t }).slice(-200);
+      return say('📝 Записал. Попадёт в таблицу для врача (/eksport).');
+    }
+    case 'napominaniya': return say(remindText(u), { reply_markup: remindKb(u) });
+    case 'tishina': {
+      if (/^(нет|выкл|off)/i.test(args.trim())) { u.quiet = null; return say('Ок, тихих часов нет.'); }
+      const [a1, b1] = args.split(/[\s\-–—]+/).map(parseTime);
+      if (a1 == null || b1 == null || a1 === b1) return say('Например: <code>/tishina 22:30 7:00</code> — в это время не пишу (кроме подъёма и автобуса).');
+      u.quiet = { from: a1, to: b1 };
+      return say(`🤫 Тихие часы: ${fmt(a1)}–${fmt(b1)}. Подъём и автобус всё равно напомню.`);
+    }
     case 'dostizheniya': return say(achText(u, info));
     case 'eksport': return exportCsv(env, id, u, info);
     case 'povtor':
@@ -1605,6 +1977,7 @@ async function onCallbackInner(env, cq) {
   if (type === 'e' && MENU[a]) {
     const v = MENU[a][+b % MENU[a].length];
     const r = logFood(u, info, { k: v.k, p: v.p, name: SLOT_NAMES[a] });
+    learnMeal(u, info, a);
     await saveUser(env, id, u);
     toast = `Записал ✅ ${v.k} ккал`;
     await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML',
@@ -1616,6 +1989,21 @@ async function onCallbackInner(env, cq) {
     const off = +a;
     await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: dayMenuText(u, info, off),
       reply_markup: { inline_keyboard: [[{ text: '🔁 Другое меню', callback_data: `m|${off + 1}` }]] } });
+  } else if (type === 'dl') {
+    const items = u.food.date === info.date ? u.food.items : [];
+    const it = items[+a];
+    if (it) { items.splice(+a, 1); await saveUser(env, id, u); toast = 'Удалил'; }
+    const d = diaryText(u, info);
+    await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: d.text, reply_markup: d.kb || { inline_keyboard: [] } });
+  } else if (type === 'n') {
+    if (REMIND_GROUPS[a]) {
+      const off = new Set(u.off || []); off.has(a) ? off.delete(a) : off.add(a); u.off = [...off];
+      await saveUser(env, id, u);
+      toast = `${REMIND_GROUPS[a][0]}: ${off.has(a) ? 'выкл' : 'вкл'}`;
+      await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: remindText(u), reply_markup: remindKb(u) });
+    }
+  } else if (type === 'mf') {
+    await send(env, id, a === 'photo' ? '📷 Пришли фото тарелки — посчитаю.' : '✏️ Напиши, что съел (например <code>гречка 250, котлета</code>) или скажи голосом 🎤');
   } else if (type === 'r') {
     if (u.lastMeal && u.lastMeal.length) { await logItems(env, id, u, info, u.lastMeal, '🔁 Записал ещё раз:'); toast = 'Записал ✅'; }
   } else if (type === 'pm') {
@@ -1732,6 +2120,23 @@ async function onMessageInner(env, msg) {
       [{ text: '📸 Фото прогресса (тело)', callback_data: 'ph|prog' }],
     ] } });
   }
+  if (msg.voice || msg.audio) {
+    const v = msg.voice || msg.audio;
+    if (!env.AI) return say('Голосовые пока не подключены. Напиши текстом: <code>гречка 250, курица 180</code>');
+    if ((v.duration || 0) > 60) return say('Слишком длинное голосовое — давай до минуты 🙂');
+    await tg(env, 'sendChatAction', { chat_id: id, action: 'typing' });
+    const bytes = await tgFileBytes(env, v.file_id);
+    if (!bytes) return say('Не смог скачать голосовое, попробуй ещё раз.');
+    let text = '';
+    try { text = await transcribe(env, bytes); } catch (e) { console.error('voice', e); }
+    if (!text) return say('Не разобрал голосовое 😕 Попробуй ещё раз или напиши текстом.');
+    await say(`🎤 «${esc(text.slice(0, 300))}»`);
+    const pm = parseMeal(text, u);
+    if (pm.ok.length && !pm.bad.length) return logItems(env, id, u, info, pm.ok, '✅ Записал:');
+    if (await aiMealConfirm(env, id, u, text, '🤖 <b>Понял так</b> (оценка, ±20 %):')) return;
+    if (pm.ok.length) return logItems(env, id, u, info, pm.ok, '✅ Записал, что узнал:');
+    return say('Не понял, что из этого еда 🙂 Попробуй: «тарелка гречки и две котлеты».');
+  }
   if (msg.location) {
     if (!env.YANDEX_KEY) return say('Чтобы искать остановки, добавь ключ Яндекс.Расписаний (секрет YANDEX_KEY) — см. инструкцию. А пока бот работает по времени, которое ты указал в /avtobus.');
     const { latitude: lat, longitude: lng } = msg.location;
@@ -1788,18 +2193,7 @@ async function onMessageInner(env, msg) {
   if (ex) {
     const sets = parseSets(ex.rest);
     if (!sets) return say(`Формат: <code>${esc(EX[ex.key].a[0])} 60x8 60x8 60x7</code> (вес×повторы) или <code>${esc(EX[ex.key].a[0])} 60x8x3</code>`);
-    if (u.lastWorkoutDate !== info.date) {
-      const w = Object.keys(PROG).find((k) => PROG[k].includes(ex.key)) || u.nextWorkout;
-      u.curWorkout = w; u.nextWorkout = NEXT_W[w]; u.lastWorkoutDate = info.date;
-      u.workoutDates = (u.workoutDates || []).filter((d) => d !== info.date).concat(info.date).slice(-300);
-    }
-    if (u.timer !== false) u.restAt = { d: info.date, m: info.min + (u.timerMin || 2) };
-    const hist = (u.lifts[ex.key] = u.lifts[ex.key] || []);
-    const prev = hist.length && hist[hist.length - 1].d !== info.date ? hist[hist.length - 1] : (hist.length > 1 ? hist[hist.length - 2] : null);
-    if (hist.length && hist[hist.length - 1].d === info.date) hist[hist.length - 1].sets.push(...sets);
-    else hist.push({ d: info.date, sets });
-    if (hist.length > 20) hist.shift();
-    const today = hist[hist.length - 1];
+    const { today, prev } = logSets(u, info, ex.key, sets);
     await saveUser(env, id, u);
     return say(`✅ <b>${EX[ex.key].n}</b>: ${setsText(today.sets)}` +
       (prev ? `\nПрошлый раз (${ddmm(prev.d)}): ${setsText(prev.sets)}` : '') +
@@ -1851,13 +2245,20 @@ export default {
         ['nedelya', 'Калории за неделю'], ['produkt', 'Калорийность продукта'], ['moe', 'Мои продукты'], ['povtor', 'Съел то же ещё раз'],
         ['voda', 'Вода'], ['shagi', 'Шаги'], ['otchet', 'Итоги недели'], ['grafik', 'Графики'], ['dostizheniya', 'Достижения'], ['eksport', 'Таблица для врача'],
         ['zamena', 'Замена упражнения'], ['taimer', 'Таймер отдыха'],
+        ['app', 'Приложение'], ['dnevnik', 'Дневник за сегодня'], ['uzhin', 'Что съесть под остаток'], ['zametka', 'Заметка о самочувствии'],
+        ['napominaniya', 'Настроить напоминания'], ['tishina', 'Тихие часы'],
         ['trenirovka', 'Тренировка'], ['ves', 'Вес: /ves 117.4'], ['progress', 'Прогресс'], ['raspisanie', 'Расписание'],
         ['avtobus', 'Автобус'], ['pokupki', 'Список покупок'], ['zameny', 'Замены'], ['sryv', 'Если сорвался'],
         ['nastroiki', 'Настройки'], ['help', 'Все команды'],
       ].map(([command, description]) => ({ command, description })) });
+      await tg(env, 'setChatMenuButton', { menu_button: { type: 'web_app', text: '📊 Дневник', web_app: { url: appUrl(url.origin) } } });
       const me = await tg(env, 'getMe', {});
       return new Response(JSON.stringify({ webhook: hook, commands: cmds, bot: me.result?.username }, null, 2), { headers: { 'content-type': 'application/json; charset=utf-8' } });
     }
+    env = { ...env, APP_URL: env.APP_URL || appUrl(url.origin) };
+    if (url.pathname === APP_PATH) return new Response(APP_HTML, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' } });
+    if (url.pathname === '/api' && req.method === 'POST') return apiHandle(env, req, url.origin);
+    if (url.pathname === '/api/photo') return photoProxy(env, url);
     if (url.pathname === '/webhook' && req.method === 'POST') {
       if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.WEBHOOK_SECRET) return new Response('forbidden', { status: 403 });
       const upd = await req.json();
@@ -1873,6 +2274,6 @@ export default {
     return new Response('Бот «Стол №8» работает ✅', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(cron(env));
+    ctx.waitUntil(cron({ ...env, APP_URL: env.APP_URL || 'https://stol8-bot.sq1zyx.workers.dev' + APP_PATH }));
   },
 };

@@ -6,7 +6,7 @@ let aiAnswer = '{"items":[{"name":"гречка","grams":200,"kcal":220,"protein
 const env = {
   BOT_TOKEN: 'T', WEBHOOK_SECRET: 'sec',
   DB: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v) },
-  AI: { run: async (m, inp) => { if (inp.prompt === 'agree') return {}; const txt = JSON.stringify(inp.messages); return { response: /штрихкод/.test(txt) ? '4607001234567' : aiAnswer }; } },
+  AI: { run: async (m, inp) => { if (inp.prompt === 'agree') return {}; if (inp.audio) return { text: 'гречка 200 и котлета' }; const txt = JSON.stringify(inp.messages); return { response: /штрихкод/.test(txt) ? '4607001234567' : aiAnswer }; } },
 };
 const sent = [];
 globalThis.fetch = async (url, opts) => {
@@ -60,6 +60,20 @@ await msg('/zamena верхний блок'); await msg('/grafik вес'); await
 await msg('/otchet'); await msg('/dostizheniya'); await msg('/eksport'); show('report/ach/export');
 // каникулы
 at('2026-12-28T10:00:00'); await msg('/segodnya'); show('holiday');
+// голос, дневник с удалением, умный ужин, напоминания, тихие часы, свободный текст через ИИ
+at('2026-11-16T19:00:00');
+await call({ message: { chat: { id: 42 }, voice: { file_id: 'v1', duration: 4 } } }); show('voice');
+const nBefore = U().food.items.length;
+await msg('/dnevnik'); await cb('dl|0'); show('dnevnik delete');
+assert(U().food.items.length === nBefore - 1, 'удаление любой записи');
+await msg('/uzhin'); show('uzhin');
+await msg('/napominaniya'); await cb('n|water'); await msg('/tishina 22:30 7:00'); show('reminders');
+assert(U().off.includes('water') && U().quiet.from === 1350, 'настройки напоминаний');
+aiAnswer = '{"items":[{"name":"бизнес-ланч","grams":450,"kcal":750,"protein":35,"fat":28,"carbs":85}]}';
+await msg('съел бизнес-ланч в столовой'); show('ai text');
+assert(U().pendingMeal?.[0]?.k === 750, 'свободный текст через ИИ');
+await cb('pm|ok'); sent.splice(0);
+await cb('n|water'); await msg('/tishina нет'); sent.splice(0);
 // крон воскресенья: вес кнопками + отчёт; будний день: вода, сон-кнопки, шаги
 const day = async (date) => { const out = []; for (let m = 0; m < 1440; m++) { FAKE = Date.parse(`${date}T${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00+03:00`); await bot.scheduled({}, env, { waitUntil: (p) => p }); await new Promise((r) => setImmediate(r)); for (const s of sent.splice(0)) out.push(`${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')} [${s.m}] ${(s.body.text || '').split('\n')[0]}${s.body.reply_markup?.inline_keyboard ? ' ⌨' : ''}`); } return out; };
 console.log('\n===== cron Sun 2026-11-22 =====\n' + (await day('2026-11-22')).filter((l) => /взвеш|Итоги|💧|Как спал|шагов/.test(l)).join('\n'));
