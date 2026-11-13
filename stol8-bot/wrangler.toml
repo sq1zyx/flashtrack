@@ -8,6 +8,10 @@ compatibility_date = "2026-11-01"
 binding = "DB"
 id = "a03549c2eef54413b0bd22d73b1beab6"
 
+# Распознавание фото еды и штрихкодов — Cloudflare Workers AI (бесплатный дневной лимит)
+[ai]
+binding = "AI"
+
 # Напоминания: Cloudflare запускает бота каждую минуту
 [triggers]
 crons = ["* * * * *"]

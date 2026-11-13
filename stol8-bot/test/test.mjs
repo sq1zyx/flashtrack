@@ -7,7 +7,7 @@ const env = {
 };
 const sent = [];
 globalThis.fetch = async (url, opts) => {
-  const body = opts?.body ? JSON.parse(opts.body) : {};
+  const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : { text: '[file upload]' };
   sent.push({ method: String(url).split('/').pop(), body });
   return { ok: true, json: async () => ({ ok: true, result: { username: 'testbot' } }) };
 };
