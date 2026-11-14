@@ -90,6 +90,12 @@
    дни/время зала, `gymLead`, `bedLead`, `waterReminders`, автобус, пауза, каникулы, цвет акцента и блоки главного экрана (`u.ui`).
    «Как вчера» (`u.yesterday`, `yadd`), «В мои продукты» из записи (`tomine`), выбор тренировки A/B/C (`workout`), календарь калорий за 4 недели.
 
+10. **Часы и здоровье**: личная ссылка `/sync/<token>` (KV `sync:<token>` → chat id; `/chasy`, `/chasy новая`, в приложении «Ещё» → «Часы и здоровье»).
+   POST принимает формат «Health Connect Webhook» (Android/Samsung: steps[], sleep[], resting_heart_rate[], weight[], active_calories[], distance[])
+   и простой JSON из iPhone «Команды» ({steps, active_kcal, sleep_hours, resting_hr, weight, distance_km, date?}; числа строкой с пробелами/запятой — ок).
+   Шаги/активные ккал за день — max (не уменьшаются), сон/пульс — последнее значение. Ответ и GET → `today` (kcal, protein, fat, carbs, water_ml) для записи в Apple Health.
+   Данные: `u.sleepHrs`, `u.rhr`, `u.activeKcal`, `u.dist`, шаги с `src: 'watch'`; графики «Сон», «Пульс»; в CSV и недельном отчёте.
+
 ## Следующие шаги
 1. Задеплоить (README или `wrangler deploy`), открыть `/setup?key=...`, написать боту `/start`.
 2. Проверить напоминания в реальности (`/proverka`), поправить время/тексты по ощущениям.

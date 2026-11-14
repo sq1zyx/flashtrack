@@ -55,6 +55,24 @@ const u0 = JSON.parse(store.get('u:42')); const yd = new Date(Date.now() + 3 * 3
 u0.yesterday = { d: yd, items: [{ name: 'Овсянка 60 г', base: 'Овсянка', g: 60, u: 'г', k: 222, p: 7, fat: 4, c: 36 }] }; store.set('u:42', JSON.stringify(u0));
 const n0 = (await api('state')).state.items.length;
 r = await api('yadd', { i: 0 }); assert(r.state.items.length === n0 + 1, 'добавить как вчера');
+// --- синхронизация с часами
+r = await api('synctoken'); const surl = r.state.health.sync.url; assert(/\/sync\/[0-9a-f]{32}$/.test(surl), 'личная ссылка для часов');
+const tok = surl.split('/sync/')[1];
+const sync = async (body, method = 'POST', t = tok) => (await bot.fetch(new Request('https://x/sync/' + t, method === 'GET' ? {} : { method, body: JSON.stringify(body) }), env)).json();
+const iso = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+let sr = await sync({ app_version: '1.2', steps: [{ count: 5200, start_time: iso(3), end_time: iso(2) }, { count: 3100, start_time: iso(1.5), end_time: iso(1) }],
+  sleep: [{ session_end_time: iso(2), duration_seconds: 27000, stages: [] }], resting_heart_rate: [{ bpm: 64, time: iso(2) }], active_calories: [{ calories: 540, start_time: iso(3), end_time: iso(1) }] });
+assert(sr.ok && sr.saved.resting_hr === 64 && sr.saved.sleep_hours === 7.5, 'Health Connect (Samsung): сон, пульс');
+r = await api('state');
+const tdSteps = r.state.steps.find((x) => x.d === r.state.date);
+assert(tdSteps && tdSteps.src === 'watch' && tdSteps.n >= 3100, 'шаги с часов записаны');
+sr = await sync({ steps: '12 345', active_kcal: '610,5', resting_hr: 61, sleep_hours: '7,8' });
+assert(sr.ok && sr.saved.steps === 12345 && sr.today && typeof sr.today.kcal === 'number', 'iPhone «Команды»: числа строкой + ответ с калориями');
+sr = await sync({ steps: 100 }); r = await api('state');
+assert(r.state.steps.find((x) => x.d === r.state.date).n === 12345, 'шаги за день не уменьшаются от старых данных');
+assert((await sync({}, 'GET')).today.target_kcal > 0, 'GET отдаёт итоги дня');
+assert((await sync({ steps: 1 }, 'POST', 'ab'.repeat(16))).ok === false, 'чужая ссылка не работает');
+r = await api('synctoken', { regen: true }); assert((await sync({ steps: 1 })).ok === false && r.state.health.sync.url !== surl, 'новая ссылка отключает старую');
 // пара прошлых дней для графиков
 const u = JSON.parse(store.get('u:42'));
 u.days = Array.from({ length: 14 }, (_, i) => ({ d: `2026-11-${String(i + 1).padStart(2, '0')}`, k: 2600 + ((i * 337) % 900), p: 110 + ((i * 13) % 60) }));
@@ -84,6 +102,10 @@ for (const scheme of ['light', 'dark']) {
     await page.click(`#tabs [data-t="${t}"]`); await page.waitForTimeout(250);
     await page.screenshot({ path: `${out}/app-${scheme}-${t}.png`, fullPage: true });
   }
+  await page.click('#tabs [data-t="more"]'); await page.click('[data-watch="android"]'); await page.waitForTimeout(400);
+  await page.screenshot({ path: `${out}/app-${scheme}-watch.png` }); await page.click('#backdrop', { position: { x: 20, y: 20 } }); await page.waitForTimeout(300);
+  await page.click('#tabs [data-t="charts"]'); await page.click('[data-chart="sleep"]'); await page.waitForTimeout(200);
+  await page.screenshot({ path: `${out}/app-${scheme}-sleep.png` });
   await page.click('#tabs [data-t="more"]'); await page.click('[data-edit="goalWeight"]'); await page.waitForTimeout(350);
   await page.screenshot({ path: `${out}/app-${scheme}-setting.png` }); await page.click('#nok'); await page.waitForTimeout(300);
   await page.click('#tabs [data-t="diary"]'); await page.fill('#q', 'твор'); await page.waitForTimeout(100);

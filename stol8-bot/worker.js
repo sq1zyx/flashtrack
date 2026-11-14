@@ -21,6 +21,7 @@ const DEFAULTS = {
   recent: [], notes: [], off: [], quiet: null, mealShift: {}, mealSeen: {},
   sex: 'm', goalWeight: null, proteinGoal: 150, fatGoal: 90, waterGoal: 2500, stepsGoal: 10000,
   gymLead: 60, bedLead: 30, waterReminders: 3, ui: { accent: null, hide: [] }, yesterday: null,
+  syncToken: null, lastSync: null, sleepHrs: [], rhr: [], activeKcal: [], dist: [],
   gymDays: [1, 3, 5], gymTime: 1020, home: 900,
   height: 191, age: 16, startWeight: 118,
   kcalAdjust: 0, kcalOverride: null,
@@ -645,6 +646,10 @@ function weeklyReport(u, info) {
   if (wd.length) L.push(`💧 Вода: в среднем ${Math.round(wd.reduce((a, x) => a + x.ml, 0) / wd.length)} мл/день`);
   const st = (u.steps || []).filter(inWeek);
   if (st.length) L.push(`👣 Шаги: в среднем ${Math.round(st.reduce((a, x) => a + x.n, 0) / st.length)}/день`);
+  const shw = (u.sleepHrs || []).filter(inWeek);
+  if (shw.length) L.push(`⌚ Сон по часам: в среднем ${(shw.reduce((a, x) => a + x.h, 0) / shw.length).toFixed(1).replace('.', ',')} ч`);
+  const hrw = (u.rhr || []).filter(inWeek);
+  if (hrw.length) L.push(`❤️ Пульс покоя: ~${Math.round(hrw.reduce((a, x) => a + x.v, 0) / hrw.length)} уд/мин`);
   const sl = (u.sleepLog || []).filter(inWeek);
   if (sl.length) {
     L.push(`😴 Сон: выспался ${sl.filter((x) => x.q === 2).length}, так себе ${sl.filter((x) => x.q === 1).length}, плохо ${sl.filter((x) => x.q === 0).length}`);
@@ -729,12 +734,15 @@ async function exportCsv(env, id, u, info) {
   (u.waterDays || []).concat(u.water && u.water.ml ? [u.water] : []).forEach((x) => (row(x.d).wa = x.ml));
   (u.sleepLog || []).forEach((x) => (row(x.d).sl = ['плохо', 'так себе', 'хорошо'][x.q]));
   (u.workoutDates || []).forEach((d) => (row(d).gym = 'да'));
+  (u.sleepHrs || []).forEach((x) => (row(x.d).sh = x.h));
+  (u.rhr || []).forEach((x) => (row(x.d).hr = x.v));
+  (u.activeKcal || []).forEach((x) => (row(x.d).ak = x.k));
   (u.notes || []).forEach((x) => { const r = row(x.d); r.note = (r.note ? r.note + ' | ' : '') + x.t.replace(/[;\n]/g, ','); });
   const num = (v) => (v == null ? '' : String(v).replace('.', ','));
-  const lines = ['Дата;Вес, кг;Талия, см;Ккал;Белок, г;Шаги;Вода, мл;Сон;Зал;Заметки'];
+  const lines = ['Дата;Вес, кг;Талия, см;Ккал;Белок, г;Шаги;Вода, мл;Сон;Сон, ч (часы);Пульс покоя;Активные ккал (часы);Зал;Заметки'];
   [...map.keys()].sort().forEach((d) => {
     const r = map.get(d);
-    lines.push([d, num(r.w), num(r.waist), num(r.k), num(r.p), num(r.st), num(r.wa), r.sl || '', r.gym || '', r.note || ''].join(';'));
+    lines.push([d, num(r.w), num(r.waist), num(r.k), num(r.p), num(r.st), num(r.wa), r.sl || '', num(r.sh), num(r.hr), num(r.ak), r.gym || '', r.note || ''].join(';'));
   });
   const c = calc(u);
   const fd = new FormData();
@@ -1086,7 +1094,7 @@ async function checkInitData(env, initData) {
 }
 
 // ---------------------------------------------------------------- мини-приложение: данные
-function appState(u, info) {
+function appState(u, info, origin = '') {
   const c = calc(u), s = foodSum(u, info);
   const pT = pGoal(u), fT = u.fatGoal || 90, cT = Math.max(150, Math.round((c.target - pT * 4 - fT * 9) / 4));
   const items = (u.food.date === info.date ? u.food.items : []).map((x, i) => ({
@@ -1133,6 +1141,8 @@ function appState(u, info) {
       busTime: u.busTime, walk: u.walk, busNumber: u.busNumber || '', paused: !!u.paused,
     },
     ui: u.ui || { accent: null, hide: [] },
+    health: { sleepHrs: (u.sleepHrs || []).slice(-60), rhr: (u.rhr || []).slice(-60), activeKcal: (u.activeKcal || []).slice(-60), dist: (u.dist || []).slice(-60),
+      sync: u.syncToken ? { url: syncUrl(origin, u.syncToken), last: u.lastSync } : null },
     yesterday: u.yesterday && u.yesterday.d === shiftDay(info, -1).date ? u.yesterday.items.map((x, i) => ({ i, name: x.base || x.name, g: x.g ?? null, u: x.u ?? null, k: x.k, p: x.p || 0 })) : [],
     smart: (() => { const sm = smartMeal(u, info, info.min > 1230 ? 'late' : 'dinner'); return { leftK: sm.leftK, leftP: sm.leftP, rest: sm.rest, want: sm.want, opts: sm.opts, text: sm.text.replace(/<[^>]+>/g, '') }; })(),
   };
@@ -1155,6 +1165,7 @@ async function apiHandle(env, req, origin) {
   let msg = '';
   let changed = true;
   if (a === 'state') changed = false;
+  else if (a === 'synctoken') { await ensureSyncToken(env, u, id, !!body.regen); if (body.regen) msg = 'Новая ссылка — старая больше не работает'; }
   else if (a === 'add') {
     let items = [];
     if (body.fi != null && FOODS[body.fi] && body.g > 0 && body.g <= 3000) items = [itemFromFood(FOODS[body.fi], +body.g)];
@@ -1245,7 +1256,7 @@ async function apiHandle(env, req, origin) {
   else { changed = false; msg = 'Неизвестное действие'; }
   if (changed) { await saveUser(env, id, u); await checkAch(env, id, info); }
   const fresh = changed ? (await loadUser(env, id)).u : u;
-  return Response.json({ ok: true, msg, state: appState(fresh, info) });
+  return Response.json({ ok: true, msg, state: appState(fresh, info, origin) });
 }
 async function photoProxy(env, url) {
   const user = await checkInitData(env, url.searchParams.get('a'));
@@ -1256,6 +1267,104 @@ async function photoProxy(env, url) {
   const bytes = await tgFileBytes(env, f);
   if (!bytes) return new Response('not found', { status: 404 });
   return new Response(bytes, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=86400' } });
+}
+
+// ---------------------------------------------------------------- часы и здоровье (Apple Health через «Команды», Samsung Health через Health Connect)
+const mskDate = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t + TZ_OFFSET_MIN * 60000).toISOString().slice(0, 10) : null; };
+const toNum = (v) => { if (v == null || v === '') return null; if (Array.isArray(v)) v = v[v.length - 1]; const n = parseFloat(String(v).replace(/[\s  ]/g, '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
+function upDaily(arr, d, key, val, mode) {
+  // mode: 'max' — шаги/калории (за день только растут), 'set' — последнее значение
+  const a = (arr || []).slice(), i = a.findIndex((x) => x.d === d);
+  if (i >= 0) { if (mode === 'max') a[i] = { ...a[i], [key]: Math.max(a[i][key] || 0, val) }; else a[i] = { ...a[i], [key]: val }; }
+  else a.push({ d, [key]: val });
+  a.sort((x, y) => (x.d < y.d ? -1 : 1));
+  while (a.length > 90) a.shift();
+  return a;
+}
+function applyHealth(u, info, b) {
+  const got = {};
+  const sumBy = (list, field) => { const m = {}; for (const x of list || []) { const d = mskDate(x.start_time || x.time); const v = toNum(x[field]); if (d && v != null) m[d] = (m[d] || 0) + v; } return m; };
+  const today = info.date, yday = shiftDay(info, -1).date, okDate = (d) => d && d >= shiftDay(info, -14).date && d <= today;
+  // --- формат Health Connect Webhook (Samsung Health / Android)
+  if (Array.isArray(b.steps)) for (const [d, v] of Object.entries(sumBy(b.steps, 'count'))) if (okDate(d) && v >= 0 && v < 100000) { u.steps = upDaily(u.steps, d, 'n', Math.round(v), 'max'); u.steps.find((x) => x.d === d).src = 'watch'; got.steps = (d === today ? Math.round(v) : got.steps); }
+  if (Array.isArray(b.active_calories)) for (const [d, v] of Object.entries(sumBy(b.active_calories, 'calories'))) if (okDate(d) && v >= 0 && v < 6000) { u.activeKcal = upDaily(u.activeKcal, d, 'k', Math.round(v), 'max'); got.active_kcal = Math.round(v); }
+  if (Array.isArray(b.distance)) for (const [d, v] of Object.entries(sumBy(b.distance, 'meters'))) if (okDate(d) && v >= 0 && v < 100000) { u.dist = upDaily(u.dist, d, 'km', Math.round(v / 100) / 10, 'max'); got.distance_km = Math.round(v / 100) / 10; }
+  if (Array.isArray(b.sleep)) {
+    const m = {};
+    for (const x of b.sleep) { const d = mskDate(x.session_end_time || x.end_time); const sec = toNum(x.duration_seconds); if (d && sec > 0) m[d] = Math.max(m[d] || 0, sec); }
+    for (const [d, sec] of Object.entries(m)) if (okDate(d) && sec < 20 * 3600) { u.sleepHrs = upDaily(u.sleepHrs, d, 'h', Math.round((sec / 3600) * 10) / 10, 'set'); got.sleep_hours = Math.round((sec / 3600) * 10) / 10; }
+  }
+  if (Array.isArray(b.resting_heart_rate)) for (const x of b.resting_heart_rate) { const d = mskDate(x.time), v = toNum(x.bpm); if (okDate(d) && v > 30 && v < 150) { u.rhr = upDaily(u.rhr, d, 'v', Math.round(v), 'set'); got.resting_hr = Math.round(v); } }
+  if (Array.isArray(b.weight)) for (const x of b.weight) { const d = mskDate(x.time), v = toNum(x.kilograms); if (okDate(d) && v > 30 && v < 300) { u.weights = u.weights.filter((w) => w.d !== d).concat({ d, kg: Math.round(v * 10) / 10 }).sort((p, q) => (p.d < q.d ? -1 : 1)); got.weight = Math.round(v * 10) / 10; } }
+  // --- простой формат (iPhone «Команды»): { steps, active_kcal, sleep_hours, resting_hr, weight, distance_km, date? }
+  if (!Array.isArray(b.steps)) {
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') && okDate(b.date) ? b.date : today;
+    const st = toNum(b.steps); if (st != null && st >= 0 && st < 100000) { u.steps = upDaily(u.steps, d, 'n', Math.round(st), 'max'); u.steps.find((x) => x.d === d).src = 'watch'; got.steps = Math.round(st); }
+    const ak = toNum(b.active_kcal ?? b.active_energy); if (ak != null && ak >= 0 && ak < 6000) { u.activeKcal = upDaily(u.activeKcal, d, 'k', Math.round(ak), 'max'); got.active_kcal = Math.round(ak); }
+    const km = toNum(b.distance_km); if (km != null && km >= 0 && km < 100) { u.dist = upDaily(u.dist, d, 'km', Math.round(km * 10) / 10, 'max'); got.distance_km = Math.round(km * 10) / 10; }
+    let sh = toNum(b.sleep_hours); if (sh == null && toNum(b.sleep_minutes) != null) sh = toNum(b.sleep_minutes) / 60;
+    if (sh != null && sh > 0 && sh < 20) { u.sleepHrs = upDaily(u.sleepHrs, d, 'h', Math.round(sh * 10) / 10, 'set'); got.sleep_hours = Math.round(sh * 10) / 10; }
+    const hr = toNum(b.resting_hr ?? b.resting_heart_rate); if (hr != null && hr > 30 && hr < 150) { u.rhr = upDaily(u.rhr, d, 'v', Math.round(hr), 'set'); got.resting_hr = Math.round(hr); }
+    const wv = toNum(b.weight); if (wv != null && wv > 30 && wv < 300) { recordWeight(u, { ...info, date: d }, Math.round(wv * 10) / 10); got.weight = Math.round(wv * 10) / 10; }
+  }
+  return got;
+}
+function todayForHealth(u, info) {
+  const s = foodSum(u, info);
+  return { date: info.date, kcal: s.k, protein: s.p, fat: s.fat, carbs: s.c, water_ml: u.water && u.water.d === info.date ? u.water.ml : 0, target_kcal: calc(u).target };
+}
+async function ensureSyncToken(env, u, id, regen) {
+  if (u.syncToken && !regen) return u.syncToken;
+  if (u.syncToken) await env.DB.put('sync:' + u.syncToken, '');
+  const t = hex(crypto.getRandomValues(new Uint8Array(16)));
+  u.syncToken = t;
+  await env.DB.put('sync:' + t, String(id));
+  return t;
+}
+const syncUrl = (origin, t) => `${origin}/sync/${t}`;
+async function syncHandle(env, req, token) {
+  if (!/^[0-9a-f]{32}$/.test(token)) return Response.json({ ok: false, error: 'bad token' }, { status: 404 });
+  const id = await env.DB.get('sync:' + token);
+  if (!id) return Response.json({ ok: false, error: 'unknown token' }, { status: 404 });
+  const { u, exists } = await loadUser(env, id);
+  if (!exists || u.syncToken !== token) return Response.json({ ok: false, error: 'unknown token' }, { status: 404 });
+  const info = nowMsk();
+  if (req.method === 'GET') return Response.json({ ok: true, today: todayForHealth(u, info) });
+  let b = {};
+  try { const txt = await req.text(); b = txt ? JSON.parse(txt) : {}; } catch { return Response.json({ ok: false, error: 'bad json' }, { status: 400 }); }
+  if (!b || typeof b !== 'object') b = {};
+  const got = applyHealth(u, info, b);
+  const first = !u.lastSync;
+  const src = b.app_version || Array.isArray(b.steps) ? 'android' : 'iphone';
+  u.lastSync = { at: new Date().toISOString(), src, got };
+  await saveUser(env, id, u);
+  if (first && Object.keys(got).length) {
+    await send(env, id, '⌚ <b>Часы подключены!</b> Получил: ' + Object.entries(got).map(([k, v]) => ({ steps: `шаги ${v}`, active_kcal: `активные ${v} ккал`, sleep_hours: `сон ${v} ч`, resting_hr: `пульс покоя ${v}`, weight: `вес ${v} кг`, distance_km: `${v} км` }[k])).join(', ') + '.\nДальше всё будет приходить само — вечером про шаги спрашивать не буду.');
+  }
+  await checkAch(env, id, info);
+  return Response.json({ ok: true, saved: got, today: todayForHealth(u, info) });
+}
+function watchText(origin, t, u) {
+  const last = u.lastSync ? `\n\n✅ Последняя синхронизация: ${new Date(Date.parse(u.lastSync.at) + TZ_OFFSET_MIN * 60000).toISOString().slice(5, 16).replace('T', ' ').replace(/^(\d\d)-(\d\d)/, '$2.$1')} (${u.lastSync.src === 'android' ? 'Android' : 'iPhone'})` : '';
+  return `⌚ <b>Часы и здоровье</b>
+
+Твоя личная ссылка (никому не давай):
+<code>${syncUrl(origin, t)}</code>
+
+<b>Samsung Galaxy Watch / Android</b>
+1. Samsung Health → ⋮ → Настройки → <b>Health Connect</b> → разреши синхронизацию.
+2. Поставь из Google Play «<b>Health Connect Webhook</b>» (com.hcwebhook.app).
+3. Разреши ему: шаги, сон, пульс покоя, вес, активные калории, расстояние.
+4. Добавь Webhook URL — ссылку выше, интервал 1 час.
+
+<b>Apple Watch / iPhone</b>
+Приложение «Команды» → Автоматизация → «+» → Время суток (например 21:30, ежедневно, «Запускать сразу»):
+1. «Найти образцы здоровья»: Шаги, сегодня, <b>группировать по дню</b> → «Рассчитать статистику: сумма».
+2. «Словарь»: <code>steps</code> = результат (можно добавить <code>active_kcal</code>, <code>resting_hr</code>, <code>weight</code>, <code>sleep_hours</code>).
+3. «Получить содержимое URL»: ссылка выше, метод <b>POST</b>, тело — JSON, словарь из шага 2.
+В ответ приходят <code>today.kcal</code>, <code>today.protein</code>, <code>today.water_ml</code> — их можно записать в «Здоровье» действием «Записать образец здоровья».
+
+Проверь первый раз цифру шагов с приложением часов. Новая ссылка — <code>/chasy новая</code>${last}`;
 }
 
 // ---------------------------------------------------------------- расписание
@@ -1698,6 +1807,7 @@ const HELP = `<b>Что я умею</b>
 💧 <b>Вода, шаги, сон</b>
 «вода 500» или /voda — учёт воды (напомню, если отстаёшь)
 /shagi 12000 — шаги (вечером спрошу сам)
+⌚ /chasy — шаги, сон и пульс с Apple Watch / Galaxy Watch автоматически
 Сон — утром кнопками в «Доброе утро»
 
 /pauza — выключить/включить напоминания
@@ -1884,6 +1994,11 @@ ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${
       }
       u.notes = (u.notes || []).concat({ d: info.date, m: info.min, t }).slice(-200);
       return say('📝 Записал. Попадёт в таблицу для врача (/eksport).');
+    }
+    case 'chasy': {
+      const origin = env.APP_URL ? env.APP_URL.replace(/\/app$/, '') : '';
+      const t = await ensureSyncToken(env, u, id, /^нов/i.test(args.trim()));
+      return say(watchText(origin, t, u), env.APP_URL ? { reply_markup: { inline_keyboard: [[{ text: '⌚ Открыть в приложении', web_app: { url: env.APP_URL } }]] } } : {});
     }
     case 'napominaniya': return say(remindText(u), { reply_markup: remindKb(u) });
     case 'tishina': {
@@ -2299,7 +2414,7 @@ export default {
         ['voda', 'Вода'], ['shagi', 'Шаги'], ['otchet', 'Итоги недели'], ['grafik', 'Графики'], ['dostizheniya', 'Достижения'], ['eksport', 'Таблица для врача'],
         ['zamena', 'Замена упражнения'], ['taimer', 'Таймер отдыха'],
         ['app', 'Приложение'], ['dnevnik', 'Дневник за сегодня'], ['uzhin', 'Что съесть под остаток'], ['zametka', 'Заметка о самочувствии'],
-        ['napominaniya', 'Настроить напоминания'], ['tishina', 'Тихие часы'],
+        ['napominaniya', 'Настроить напоминания'], ['tishina', 'Тихие часы'], ['chasy', 'Часы: Apple / Samsung'],
         ['trenirovka', 'Тренировка'], ['ves', 'Вес: /ves 117.4'], ['progress', 'Прогресс'], ['raspisanie', 'Расписание'],
         ['avtobus', 'Автобус'], ['pokupki', 'Список покупок'], ['zameny', 'Замены'], ['sryv', 'Если сорвался'],
         ['nastroiki', 'Настройки'], ['help', 'Все команды'],
@@ -2312,6 +2427,8 @@ export default {
     if (url.pathname === APP_PATH) return new Response(APP_HTML, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' } });
     if (url.pathname === '/api' && req.method === 'POST') return apiHandle(env, req, url.origin);
     if (url.pathname === '/api/photo') return photoProxy(env, url);
+    const sm = url.pathname.match(/^\/sync\/([^/]+)\/?$/);
+    if (sm) return syncHandle(env, req, sm[1]);
     if (url.pathname === '/webhook' && req.method === 'POST') {
       if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.WEBHOOK_SECRET) return new Response('forbidden', { status: 403 });
       const upd = await req.json();

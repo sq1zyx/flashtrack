@@ -316,6 +316,9 @@ const P = {
   palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.5-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4.1-4-7.6-9-7.6z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>',
   flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
   bus: '<rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 21v-3M16 21v-3"/><circle cx="8" cy="14.5" r=".8"/><circle cx="16" cy="14.5" r=".8"/>',
+  watch: '<rect x="6" y="6" width="12" height="12" rx="3"/><path d="M9 6V3h6v3M9 18v3h6v-3M12 10v2l1.5 1"/>',
+  heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="3"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>'
 };
@@ -486,10 +489,12 @@ function viewToday() {
     (hidden('tiles') ? '' : '<div class="tiles">' +
       '<div class="tile" data-act="weight">' + '<div class="row between">' + badge('scale', 'var(--accent)') + (lastW && S.weights.length > 1 ? '<span class="pill ' + (lastW <= firstW ? 'good' : 'warn') + ' num">' + (lastW - firstW > 0 ? '+' : '') + n1(lastW - firstW) + '</span>' : '') + '</div>' +
         '<div class="v num">' + (lastW ? n1(lastW) + '<small>кг</small>' : '—') + '</div><div class="muted">' + (lastW ? 'с начала' : 'нажми, чтобы записать') + '</div>' + spark(S.weights.slice(-12).map((w) => w.kg), 'var(--accent)') + '</div>' +
-      '<div class="tile" data-act="steps"><div class="row between">' + badge('steps', 'var(--good)') + (S.act && S.act.avg ? '<span class="pill num">ср. ' + sp(S.act.avg) + '</span>' : '') + '</div>' +
+      '<div class="tile" data-act="steps"><div class="row between">' + badge('steps', 'var(--good)') + (st && st.src === 'watch' ? '<span class="pill acc">⌚ часы</span>' : S.act && S.act.avg ? '<span class="pill num">ср. ' + sp(S.act.avg) + '</span>' : '') + '</div>' +
         '<div class="v num">' + (st ? sp(st.n) : '—') + '</div><div class="muted">из ' + sp(S.profile.stepsGoal) + ' шагов</div>' + spark(S.steps.slice(-12).map((x) => x.n), 'var(--good)') + '</div>' +
-      '<div class="tile" data-act="sleep"><div class="row between">' + badge('moon', '#6366f1') + '</div>' +
-        '<div class="v" style="font-size:19px">' + (sleepTxt || 'Как спал?') + '</div><div class="muted">' + (sl ? 'сон сегодня' : 'нажми, чтобы отметить') + '</div></div>' +
+      (() => { const sh = (S.health.sleepHrs || []).find((x) => x.d === S.date); const hr = (S.health.rhr || []).slice(-1)[0];
+        return '<div class="tile" data-act="sleep"><div class="row between">' + badge('moon', '#6366f1') + (sh ? '<span class="pill acc">⌚ часы</span>' : '') + '</div>' +
+        (sh ? '<div class="v num">' + Math.floor(sh.h) + '<small>ч</small> ' + Math.round((sh.h % 1) * 60) + '<small>мин</small></div><div class="muted">' + (sleepTxt ? sleepTxt + ' · ' : '') + (hr ? '❤️ ' + hr.v + ' покоя' : 'сон за ночь') + '</div>'
+          : '<div class="v" style="font-size:19px">' + (sleepTxt || 'Как спал?') + '</div><div class="muted">' + (sl ? 'сон сегодня' : 'нажми, чтобы отметить') + '</div>') + '</div>'; })() +
       '<div class="tile" data-tab="gym"><div class="row between">' + badge('bolt', 'var(--fire)') + '</div>' +
         '<div class="v num">' + (S.workoutsWeek || 0) + '<small>/ ' + ((S.workout.gymDays || []).length || 3) + '</small></div><div class="muted">тренировок за неделю</div></div>' +
     '</div>') +
@@ -615,7 +620,7 @@ function chartHead(label, value, unit, delta, deltaGood, extra) {
 }
 const rangeSel = () => '<div class="range">' + [[14, '2 нед'], [30, 'месяц'], [0, 'всё']].map((r) => '<button data-range="' + r[0] + '" class="' + (range === r[0] ? 'on' : '') + '">' + r[1] + '</button>').join('') + '</div>';
 function viewCharts() {
-  const tabs = [['weight', 'Вес'], ['kcal', 'Калории'], ['protein', 'Белок'], ['lift', 'Сила'], ['waist', 'Талия'], ['water', 'Вода'], ['steps', 'Шаги']];
+  const tabs = [['weight', 'Вес'], ['kcal', 'Калории'], ['protein', 'Белок'], ['lift', 'Сила'], ['steps', 'Шаги'], ['sleep', 'Сон'], ['hr', 'Пульс'], ['waist', 'Талия'], ['water', 'Вода']];
   let body = '';
   if (chartTab === 'weight') {
     const w = lastN(S.weights);
@@ -653,10 +658,17 @@ function viewCharts() {
     const d = lastN(S.waterDays.concat(S.water.ml ? [{ d: S.date, ml: S.water.ml }] : []));
     const avg = d.length ? d.reduce((a, x) => a + x.ml, 0) / d.length : null;
     body = '<div class="card">' + chartHead('В среднем', avg != null ? n1(avg / 1000) : '—', 'л в день', null, true, rangeSel()) + lineChart(d.map((x) => ({ x: ddmm(x.d), y: x.ml })), { bars: true, zero: true, target: S.water.goal, color: 'var(--water)' }) + '</div>';
+  } else if (chartTab === 'sleep' || chartTab === 'hr') {
+    const isS = chartTab === 'sleep', arr = lastN(isS ? S.health.sleepHrs : S.health.rhr);
+    const avg = arr.length ? arr.reduce((a, x) => a + (isS ? x.h : x.v), 0) / arr.length : null;
+    body = arr.length ? '<div class="card">' + chartHead('В среднем', avg != null ? (isS ? n1(avg) : Math.round(avg)) : '—', isS ? 'ч сна' : 'уд/мин в покое', null, true, rangeSel()) +
+      lineChart(arr.map((x) => ({ x: ddmm(x.d), y: isS ? x.h : x.v })), isS ? { bars: true, zero: true, target: S.profile.sleepH, targetLabel: 'норма', color: '#6366f1' } : { color: '#ef4444' }) +
+      '<div class="muted">' + (isS ? 'Подросткам нужно 8–10 часов. Недосып усиливает аппетит.' : 'Пульс покоя обычно снижается, когда растёт выносливость.') + '</div></div>'
+      : '<div class="card empty"><span class="e">⌚</span>Данные приходят с часов. Подключи их: «Ещё» → «Часы и здоровье»<br><br><button class="btn ghost" data-tab="more" data-scroll="watchsec">Подключить часы</button></div>';
   } else {
     const d = lastN(S.steps);
     const avg = d.length ? d.reduce((a, x) => a + x.n, 0) / d.length : null;
-    body = '<div class="card">' + chartHead('В среднем', avg != null ? sp(avg) : '—', 'шагов', null, true, rangeSel()) + lineChart(d.map((x) => ({ x: ddmm(x.d), y: x.n })), { bars: true, zero: true, color: 'var(--good)' }) + '</div>';
+    body = '<div class="card">' + chartHead('В среднем', avg != null ? sp(avg) : '—', 'шагов', null, true, rangeSel()) + lineChart(d.map((x) => ({ x: ddmm(x.d), y: x.n })), { bars: true, zero: true, color: 'var(--good)', target: S.profile.stepsGoal }) + '</div>';
   }
   return '<div class="hdr"><h1>Графики</h1></div><div class="seg">' + tabs.map((t) => '<button data-chart="' + t[0] + '" class="' + (t[0] === chartTab ? 'on' : '') + '">' + t[1] + '</button>').join('') + '</div>' + body;
 }
@@ -781,7 +793,13 @@ function settingsHtml() {
   const p = S.profile;
   const row = (k, icon, color, label) => '<div class="gi" data-edit="' + k + '">' + badge(icon, color) + '<span>' + label + '</span><span class="val">' + valOf(k) + '</span>' + I('chev', '') .replace('class="ico"', 'class="ico chev"') + '</div>';
   const tog = (k, icon, color, label, on) => '<div class="gi">' + badge(icon, color) + '<span>' + label + '</span><button class="sw ' + (on ? 'on' : '') + '" data-tog="' + k + '"></button></div>';
-  return '<div class="sec" id="settings"><h2>Настройки</h2></div>' +
+  const hs = S.health.sync;
+  const lastTxt = hs && hs.last ? new Date(hs.last.at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' · ' + (hs.last.src === 'android' ? 'Android' : 'iPhone') : null;
+  return '<div class="sec" id="watchsec"><h2>Часы и здоровье</h2></div>' +
+    '<div class="card"><div class="row" style="margin-bottom:12px">' + badge('watch', '#0ea5e9') + '<div style="flex:1"><div class="title">Apple Watch · Galaxy Watch</div><div class="muted">' + (lastTxt ? '✅ синхронизация ' + lastTxt : 'шаги, сон, пульс, вес — сами, без ввода') + '</div></div></div>' +
+      (lastTxt && hs.last.got ? '<div class="row wrap" style="gap:6px;margin-bottom:12px">' + Object.entries(hs.last.got).map((kv) => '<span class="pill">' + ({ steps: '👣 ', active_kcal: '🔥 ', sleep_hours: '😴 ', resting_hr: '❤️ ', weight: '⚖️ ', distance_km: '📍 ' }[kv[0]] || '') + kv[1] + '</span>').join('') + '</div>' : '') +
+      '<div class="row" style="gap:8px"><button class="btn" data-watch="android" style="flex:1">Samsung / Android</button><button class="btn" data-watch="iphone" style="flex:1">Apple / iPhone</button></div></div>' +
+    '<div class="sec" id="settings"><h2>Настройки</h2></div>' +
     '<div class="tiny" style="margin:0 6px 8px">Профиль</div><div class="card glist">' +
       row('name', 'user', 'var(--accent)', 'Имя') + row('sex', 'user', '#ec4899', 'Пол (для расчёта)') + row('height', 'user', '#6366f1', 'Рост') + row('age', 'user', '#14b8a6', 'Возраст') + row('goalWeight', 'flag', 'var(--good)', 'Цель по весу') + '</div>' +
     '<div class="tiny" style="margin:0 6px 8px">Питание и цели</div><div class="card glist">' +
@@ -802,6 +820,29 @@ function settingsHtml() {
       '<div class="swatches">' + ACCENTS.map((c) => '<button class="swatch' + ((S.ui.accent || null) === c ? ' on' : '') + '" data-accent="' + (c || '') + '" style="background:' + (c || 'var(--tg-theme-button-color,#3b82f6)') + '" aria-label="' + (c || 'как в Telegram') + '"></button>').join('') + '</div>' +
       '<div class="muted" style="margin-top:8px">Первый — как в Telegram</div></div>' +
     '<div class="card glist"><div class="tiny" style="margin-bottom:6px">Главный экран</div>' + BLOCKS.map((b) => '<div class="gi"><span>' + b[1] + '</span><button class="sw ' + (hidden(b[0]) ? '' : 'on') + '" data-block="' + b[0] + '"></button></div>').join('') + '</div>';
+}
+async function watchSheet(kind) {
+  let hs = S.health.sync;
+  if (!hs) { const j = await api('synctoken'); hs = j.state && j.state.health.sync; if (!hs) return; }
+  const step = (n, html) => '<div class="row" style="align-items:flex-start;gap:12px;margin:12px 0"><div class="no" style="width:26px;height:26px;border-radius:9px;background:var(--soft);display:grid;place-items:center;font-weight:800;flex:none">' + n + '</div><div style="font-size:14.5px">' + html + '</div></div>';
+  const body = kind === 'android'
+    ? step(1, 'Samsung Health → ⋮ → <b>Настройки</b> → <b>Health Connect</b> → разреши синхронизацию данных.') +
+      step(2, 'Установи из Google Play <b>«Health Connect Webhook»</b> (com.hcwebhook.app).') +
+      step(3, 'Разреши ему: шаги, сон, пульс покоя, вес, активные калории, расстояние.') +
+      step(4, 'Добавь <b>Webhook URL</b> — ссылку ниже. Интервал — 1 час.') +
+      step(5, 'Нажми «Sync now». Бот напишет «⌚ Часы подключены».')
+    : step(1, 'Открой «<b>Команды</b>» → Автоматизация → «+» → <b>Время суток</b>: 21:30, ежедневно, «Запускать сразу».') +
+      step(2, '«<b>Найти образцы здоровья</b>»: Тип — Шаги, дата — сегодня, <b>Группировать по: День</b>. Затем «<b>Рассчитать статистику</b>» → Сумма.') +
+      step(3, '«<b>Словарь</b>»: ключ <code>steps</code> → результат. По желанию: <code>active_kcal</code>, <code>resting_hr</code>, <code>weight</code>, <code>sleep_hours</code>.') +
+      step(4, '«<b>Получить содержимое URL</b>»: ссылка ниже, метод <b>POST</b>, тело запроса — <b>JSON</b> → словарь из шага 3.') +
+      step(5, 'Хочешь калории и воду в «Здоровье»? Из ответа возьми <code>today.kcal</code>, <code>today.protein</code>, <code>today.water_ml</code> → «<b>Записать образец здоровья</b>». Запускай один раз в день, иначе задвоится.');
+  openSheet('<div class="stitle">' + (kind === 'android' ? 'Galaxy Watch / Android' : 'Apple Watch / iPhone') + '</div><div class="muted" style="margin:4px 0 6px">данные идут: часы → ' + (kind === 'android' ? 'Samsung Health → Health Connect' : 'Здоровье → Команды') + ' → бот</div>' + body +
+    '<div class="tiny" style="margin:16px 2px 6px">Твоя личная ссылка — никому не давай</div><div class="row" style="gap:8px"><input id="surl" readonly value="' + esc(hs.url) + '" style="font-size:12.5px"><button class="btn" id="scopy" style="width:auto;padding:12px 14px;flex:none">' + I('copy') + '</button></div>' +
+    '<div class="muted" style="margin-top:12px">Сверь первый раз шаги с приложением часов. Если ссылка куда-то утекла — сделай новую.</div>' +
+    '<button class="btn soft" id="sregen" style="margin-top:12px">Сделать новую ссылку</button>', (sh) => {
+    sh.querySelector('#scopy').onclick = async () => { const inp = sh.querySelector('#surl'); try { await navigator.clipboard.writeText(inp.value); } catch (e) { inp.select(); try { document.execCommand('copy'); } catch (e2) {} } okHaptic(); toast('Ссылка скопирована'); };
+    sh.querySelector('#sregen').onclick = () => { closeSheet(); api('synctoken', { regen: true }).then(() => watchSheet(kind)); };
+  });
 }
 function saveSet(patch) { return api('settings', { patch: patch }).then((j) => { if (j.ok && !j.msg) { okHaptic(); toast('Сохранено'); } }); }
 function editSetting(k) {
@@ -853,6 +894,7 @@ function bind() {
   v.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => { document.querySelector('#tabs [data-t="' + b.dataset.go + '"]').click(); setTimeout(() => { const q = $('q'); if (q) q.focus(); }, 60); });
   v.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { const sc = b.dataset.scroll; document.querySelector('#tabs [data-t="' + b.dataset.tab + '"]').click(); if (sc) setTimeout(() => { const el = $(sc); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 80); });
   v.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { haptic(); editSetting(b.dataset.edit); });
+  v.querySelectorAll('[data-watch]').forEach((b) => b.onclick = () => { haptic(); watchSheet(b.dataset.watch); });
   v.querySelectorAll('[data-tog]').forEach((b) => b.onclick = () => { b.classList.toggle('on'); haptic(); const o = {}; o[b.dataset.tog] = b.classList.contains('on'); saveSet(o); });
   v.querySelectorAll('[data-accent]').forEach((b) => b.onclick = () => { haptic(); saveSet({ ui: { accent: b.dataset.accent || null, hide: S.ui.hide || [] } }); });
   v.querySelectorAll('[data-block]').forEach((b) => b.onclick = () => { b.classList.toggle('on'); haptic(); const h = new Set(S.ui.hide || []); b.classList.contains('on') ? h.delete(b.dataset.block) : h.add(b.dataset.block); saveSet({ ui: { accent: S.ui.accent || null, hide: [...h] } }); });
