@@ -1207,6 +1207,26 @@ async function apiHandle(env, req, origin) {
       Object.assign(it, { g: Math.round(g * 10) / 10, k: Math.round(it.k * f), p: Math.round((it.p || 0) * f), fat: Math.round((it.fat || 0) * f), c: Math.round((it.c || 0) * f) });
       it.name = `${it.base || it.name} ${it.g} ${it.u}`;
     } else msg = 'Эту запись можно только удалить';
+  } else if (a === 'photo') {
+    changed = false;
+    const img = String(body.img || '');
+    if (!env.AI) msg = 'Распознавание фото не подключено';
+    else if (img.length < 100 || img.length > 3_000_000) msg = 'Фото слишком большое или пустое';
+    else {
+      let items = null;
+      try {
+        const bin = atob(img), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        items = parseAiItems(await visionAsk(env, bytes, FOOD_PROMPT + (body.hint ? ` Подсказка: «${String(body.hint).slice(0, 80)}».` : '')));
+      } catch (e) { console.error('app photo', e); }
+      if (items && items.length) return Response.json({ ok: true, ai: items, state: appState(u, info, origin) });
+      msg = 'Не понял, что на фото — попробуй ещё раз или опиши текстом';
+    }
+  } else if (a === 'additems') {
+    const n = (v, hi) => Math.max(0, Math.min(hi, Math.round(+v || 0)));
+    const items = (Array.isArray(body.items) ? body.items : []).slice(0, 10).filter((x) => x && x.name)
+      .map((x) => ({ name: String(x.name).slice(0, 60), g: n(x.g, 3000) || 1, u: x.u === 'мл' ? 'мл' : 'г', k: n(x.k, 3000), p: n(x.p, 300), fat: n(x.fat, 300), c: n(x.c, 500) }));
+    if (items.length) { addItems(u, info, items); learnMeal(u, info); } else msg = 'Нечего добавить';
   } else if (a === 'restore') {
     const x = body.item || {};
     const n = (v) => Math.max(0, Math.min(5000, Math.round(+v || 0)));
@@ -1612,7 +1632,7 @@ async function tg(env, method, body) {
 function mainKb(env) {
   return {
     keyboard: [
-      env && env.APP_URL ? [{ text: '📊 Дневник', web_app: { url: env.APP_URL } }, { text: '💧 +250' }] : [{ text: '💧 +250' }],
+      [{ text: '📊 Дневник' }, { text: '💧 +250' }],
       [{ text: '🔥 Калории' }, { text: '📅 Сегодня' }, { text: '📌 Дела' }],
       [{ text: '🏋️ Тренировка' }, { text: '🍽 Меню' }, { text: '❓ Помощь' }],
     ],
@@ -1621,7 +1641,7 @@ function mainKb(env) {
 }
 const BUTTONS = {
   '📅 Сегодня': 'segodnya', '🍽 Меню': 'menu', '🏋️ Тренировка': 'trenirovka', '📌 Дела': 'dela', '❓ Помощь': 'help',
-  '🔥 Калории': 'kkal', '📈 Прогресс': 'progress', '⚙️ Настройки': 'nastroiki', '💧 +250': 'voda 250',
+  '🔥 Калории': 'kkal', '📈 Прогресс': 'progress', '⚙️ Настройки': 'nastroiki', '💧 +250': 'voda 250', '📊 Дневник': 'app',
 };
 const appBtn = (env, text = '📊 Открыть дневник') => (env && env.APP_URL ? [{ text, web_app: { url: env.APP_URL } }] : []);
 // Ответы, которые можно сказать словами вместо команд
@@ -2196,7 +2216,7 @@ ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${
     case 'otchet': return say(weeklyReport(u, info));
     case 'app': case 'prilozhenie':
       if (!env.APP_URL) return say('Приложение ещё не настроено.');
-      return say('📊 Дневник, графики и зал — в приложении:', { reply_markup: { inline_keyboard: [[{ text: '📊 Открыть', web_app: { url: env.APP_URL } }]] } });
+      return say('📊 Нажми, чтобы открыть дневник 👇\n<i>Быстрее всего — синяя кнопка «📊 Дневник» слева от поля ввода.</i>', { reply_markup: { inline_keyboard: [[{ text: '📊 Открыть дневник', web_app: { url: env.APP_URL } }]] } });
     case 'dnevnik': { const d = diaryText(u, info); return say(d.text, d.kb ? { reply_markup: d.kb } : {}); }
     case 'uzhin': return say(smartMeal(u, info, info.min > 1200 ? 'late' : 'dinner').text);
     case 'zametka': {

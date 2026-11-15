@@ -383,7 +383,7 @@ async function api(action, extra) {
   } catch (e) { toast('Нет связи — попробуй ещё раз'); return {}; }
 }
 function showError(e) {
-  const m = { auth: ['🔐', 'Открой приложение через бота — кнопка «📊 Дневник» в чате.'], forbidden: ['🔒', 'Это личный бот.'], start: ['👋', 'Сначала напиши боту /start и пройди настройку.'] };
+  const m = { auth: ['🔐', 'Telegram не передал вход. Открой дневник синей кнопкой «📊 Дневник» слева от поля ввода в чате с ботом — или кнопкой «📊 Открыть дневник» под сообщением.'], forbidden: ['🔒', 'Это личный бот.'], start: ['👋', 'Сначала напиши боту /start и пройди настройку.'] };
   const x = m[e] || ['😕', 'Что-то пошло не так'];
   $('view').innerHTML = '<div class="card empty" style="margin-top:30vh"><span class="e">' + x[0] + '</span>' + esc(x[1]) + '</div>';
 }
@@ -513,6 +513,8 @@ function viewToday() {
         '<div class="stat"><span class="tiny">Записей</span><b class="num" style="font-size:17px">' + S.items.length + '</b></div>' +
       '</div></div>' +
       '<div class="macros">' + macro('Белки', e.p, S.macros.p, 'var(--p)') + macro('Жиры', e.f, S.macros.f, 'var(--f)') + macro('Углеводы', e.c, S.macros.c, 'var(--c)') + '</div>' +
+      (S.recent && S.recent.length && !hidden('quick') ? '<div class="tiny" style="margin:18px 2px 8px">Быстро — как в прошлый раз</div><div class="quick">' +
+        S.recent.slice(0, 8).map((r, i) => '<button class="chip" data-qr="' + i + '">' + esc(r.name) + ' <span class="muted num">' + r.k + '</span></button>').join('') + '</div>' : '') +
       '<div class="actions"><button class="btn" data-go="diary">' + I('plus') + 'Записать еду</button><button class="btn soft" data-water="250" aria-label="Вода">' + I('drop', 'color:var(--water)') + '<span class="num">+250</span></button></div>' +
     '</div>' +
 
@@ -704,8 +706,9 @@ function viewDiary() {
       S.yesterday.map((x) => '<button class="chip" data-yadd="' + x.i + '">' + esc(x.name) + ' <span class="muted num">' + x.k + '</span></button>').join('') + '</div></div>' : '') +
     '<div class="card"><div class="row" style="margin-bottom:10px">' + badge('sparkle', 'var(--p)') + '<div><div class="title">Опиши своими словами</div><div class="muted">посчитаю по базе или нейросетью</div></div></div>' +
       '<textarea id="freetext" rows="2" placeholder="тарелка гречки, котлета, чай с сахаром"></textarea>' +
-      '<button class="btn" style="margin-top:10px" data-act="freetext">' + I('check') + 'Записать</button>' +
-      '<div class="muted" style="margin-top:10px;display:flex;gap:6px;align-items:center">' + I('camera', 'width:16px;height:16px') + 'Фото тарелки или голосовое — отправь боту в чат</div></div>' +
+      '<div class="row" style="gap:8px;margin-top:10px"><button class="btn" data-act="freetext" style="flex:1">' + I('check') + 'Записать</button>' +
+      '<label class="btn ghost" style="width:auto;flex:none;padding:14px 16px;cursor:pointer">' + I('camera') + 'Фото<input id="photoIn" type="file" accept="image/*" capture="environment" style="display:none"></label></div>' +
+      '<div class="muted" style="margin-top:10px">Сфотографируй тарелку — нейросеть оценит. Голосовые — отправляй боту в чат 🎤</div></div>' +
     (groups.length ? groups.map((g) => {
       const sk = g.items.reduce((a, x) => a + x.k, 0);
       return '<div class="group"><div class="ghead"><b>' + g.n + '</b><span class="muted num">' + sp(sk) + ' ккал</span></div><div class="card list" style="margin:0">' +
@@ -917,7 +920,7 @@ function viewMore() {
 // ---------- Настройки
 const DAYN = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
 const ACCENTS = [null, '#3b82f6', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#22c55e', '#14b8a6', '#0f172a'];
-const BLOCKS = [['goal', 'Цель по весу'], ['smart', 'Что съесть дальше'], ['water', 'Вода'], ['tiles', 'Плитки: вес, шаги, сон, зал'], ['plan', 'План еды']];
+const BLOCKS = [['quick', 'Быстрые кнопки еды'], ['goal', 'Цель по весу'], ['smart', 'Что съесть дальше'], ['water', 'Вода'], ['tiles', 'Плитки: вес, шаги, сон, зал'], ['plan', 'План еды']];
 const ED = {
   name: ['text', 'Как к тебе обращаться', ''],
   height: ['num', 'Рост', 'см', 1, 120, 230], age: ['num', 'Возраст', 'лет', 1, 10, 99],
@@ -1049,6 +1052,8 @@ function bind() {
   v.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => { document.querySelector('#tabs [data-t="' + b.dataset.go + '"]').click(); setTimeout(() => { const q = $('q'); if (q) q.focus(); }, 60); });
   v.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { const sc = b.dataset.scroll; document.querySelector('#tabs [data-t="' + b.dataset.tab + '"]').click(); if (sc) setTimeout(() => { const el = $(sc); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 80); });
   v.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { haptic(); editSetting(b.dataset.edit); });
+  const pin = $('photoIn'); if (pin) pin.onchange = () => { photoFood(pin.files && pin.files[0]); pin.value = ''; };
+  v.querySelectorAll('[data-qr]').forEach((b) => b.onclick = () => { haptic(); const r = S.recent[+b.dataset.qr]; api('add', { recent: +b.dataset.qr }).then((j) => { if (j.ok && !j.msg) { okHaptic(); toast('Записал: ' + r.name, 'Отменить', () => { const it = S.items.filter((x) => x.name === r.name).pop(); if (it) api('del', { i: it.i }); }); } }); });
   v.querySelectorAll('[data-plan]').forEach((b) => b.onclick = () => { planDay = +b.dataset.plan || 0; tab = 'plan'; haptic(); window.scrollTo(0, 0); render(); });
   v.querySelectorAll('[data-pday]').forEach((b) => b.onclick = () => { planDay = +b.dataset.pday; haptic(); render(); });
   v.querySelectorAll('[data-wake]').forEach((b) => b.onclick = () => { haptic(); editWake(+b.dataset.wake); });
@@ -1088,6 +1093,30 @@ function bind() {
     bindRes(foodResults(search));
   }
   v.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => act(b.dataset.act));
+}
+async function photoFood(file) {
+  if (!file) return;
+  toast('Смотрю на фото…');
+  const img = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = fr.result; }; fr.onerror = rej; fr.readAsDataURL(file); }).catch(() => null);
+  if (!img) { toast('Не получилось открыть фото'); return; }
+  const k = Math.min(1, 1024 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const b64 = c.toDataURL('image/jpeg', 0.82).split(',')[1];
+  const hint = ($('freetext') && $('freetext').value.trim()) || '';
+  const j = await api('photo', { img: b64, hint });
+  if (!j.ai || !j.ai.length) return;
+  let items = j.ai.map((x) => Object.assign({}, x, { on: true }));
+  const draw = (sh) => {
+    sh.querySelector('#aiList').innerHTML = items.map((x, i) => '<div class="it" data-ai="' + i + '" style="opacity:' + (x.on ? 1 : 0.4) + '">' + avatar(x.name) + '<div class="n"><div>' + esc(x.name) + '</div><div class="mdots"><span>' + x.g + ' ' + esc(x.u) + '</span><span><i class="dot" style="background:var(--p)"></i>' + x.p + '</span><span><i class="dot" style="background:var(--f)"></i>' + x.fat + '</span><span><i class="dot" style="background:var(--c)"></i>' + x.c + '</span></div></div><div class="k">' + x.k + '<small>' + (x.on ? 'ккал' : 'убрано') + '</small></div></div>').join('');
+    const sum = items.filter((x) => x.on).reduce((a, x) => a + x.k, 0);
+    sh.querySelector('#aiOk').innerHTML = I('check') + 'Записать · ' + sum + ' ккал';
+    sh.querySelectorAll('[data-ai]').forEach((el) => el.onclick = () => { const x = items[+el.dataset.ai]; x.on = !x.on; haptic(); draw(sh); });
+  };
+  openSheet('<div class="stitle">Вижу на фото</div><div class="muted" style="margin:4px 0 10px">оценка на глаз, ±20 % · нажми, чтобы убрать лишнее</div><div class="list" id="aiList"></div><button class="btn" id="aiOk" style="margin-top:14px"></button>', (sh) => {
+    draw(sh);
+    sh.querySelector('#aiOk').onclick = () => { const sel = items.filter((x) => x.on); if (!sel.length) { closeSheet(); return; } closeSheet(); api('additems', { items: sel }).then((r) => { if (r.ok) { okHaptic(); toast('Записал ✅'); } }); };
+  });
 }
 function bindRes(res) { document.querySelectorAll('[data-res]').forEach((b) => b.onclick = () => { haptic(); addFromResult(res[+b.dataset.res]); }); }
 function numberSheet(title, sub, val, unit, step, chips, cb) {

@@ -37,6 +37,12 @@ r = await api('del', { i: 1 });
 assert(r.state.items.length === 2, 'del');
 r = await api('restore', { item: delIt }); assert(r.state.items.length === 3 && r.state.items.some((x) => x.name === delIt.name), 'вернуть удалённое');
 r = await api('del', { i: r.state.items.findIndex((x) => x.name === delIt.name) });
+r = await api('photo', { img: 'A'.repeat(400) });
+assert(r.ai && /шаурма/.test(r.ai[0].name) && r.ai[0].k === 770, 'фото еды из приложения → список от ИИ');
+const nBefore = r.state.items.length;
+r = await api('additems', { items: [{ name: 'шаурма', g: 350, u: 'г', k: 770, p: 35, fat: 35, c: 77 }, { name: 'взлом', g: 1, k: 99999 }] });
+assert(r.state.items.length === nBefore + 2 && r.state.items.at(-1).k === 3000, 'additems: запись + ограничение значений');
+r = await api('del', { i: r.state.items.length - 1 }); r = await api('del', { i: r.state.items.length - 1 });
 r = await api('water', { ml: 500 }); assert(r.state.water.ml === 500, 'water');
 r = await api('steps', { n: 12000 }); r = await api('weight', { kg: 117.6 }); r = await api('sleep', { q: 2 });
 r = await api('set', { key: 'squat', w: 60, r: 8 }); r = await api('set', { key: 'squat', w: 60, r: 8 });
@@ -106,7 +112,10 @@ for (const scheme of ['light', 'dark']) {
     await page.click(`#tabs [data-t="${t}"]`); await page.waitForTimeout(250);
     await page.screenshot({ path: `${out}/app-${scheme}-${t}.png`, fullPage: true });
   }
-  await page.click('#tabs [data-t="today"]'); await page.click('[data-plan="0"]'); await page.waitForSelector('.week');
+  await page.click('#tabs [data-t="today"]');
+  const nq = (await api('state')).state.items.length; await page.click('[data-qr="0"]'); await page.waitForTimeout(400);
+  assert((await api('state')).state.items.length === nq + 1, scheme + ': быстрая кнопка «как в прошлый раз»');
+  await page.click('[data-plan="0"]'); await page.waitForSelector('.week');
   await page.screenshot({ path: `${out}/app-${scheme}-plan.png`, fullPage: true });
   await page.click('[data-newc]'); await page.waitForTimeout(350);
   await page.fill('#ct', 'Музыка ' + scheme); await page.click('[data-emo="🎵"]'); await page.fill('#ctime', '16:30');
