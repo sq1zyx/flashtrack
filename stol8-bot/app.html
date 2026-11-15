@@ -274,6 +274,7 @@ svg text { fill: var(--hint); font-size: 10px; font-family: inherit; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes up { from { opacity: 0; transform: translateY(10px); } }
 #view > * { animation: up .35s cubic-bezier(.2, .8, .2, 1) both; }
+#view.noanim > * { animation: none !important; }
 #view > *:nth-child(2) { animation-delay: .03s; } #view > *:nth-child(3) { animation-delay: .06s; } #view > *:nth-child(4) { animation-delay: .09s; } #view > *:nth-child(5) { animation-delay: .12s; } #view > *:nth-child(n+6) { animation-delay: .15s; }
 @media (prefers-reduced-motion: reduce) { #view > * { animation: none; } }
 </style>
@@ -300,6 +301,8 @@ svg text { fill: var(--hint); font-size: 10px; font-family: inherit; }
 const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('secondary_bg_color'); tg.setBackgroundColor('secondary_bg_color'); } catch (e) {} }
 const initData = (tg && tg.initData) || '';
+const appKey = (new URLSearchParams(location.search).get('k') || '').replace(/[^0-9a-f]/g, '');
+let animNext = true;
 let S = null, tab = 'today', chartTab = 'weight', liftKey = null, search = '', range = 30, openEx = null, openOpt = -1;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -366,14 +369,14 @@ function syncBack() {
 }
 if (tg && tg.BackButton) tg.BackButton.onClick(() => {
   if ($('sheet').classList.contains('open')) closeSheet();
-  else if (tab === 'plan') { tab = 'today'; render(); }
+  else if (tab === 'plan') { tab = 'today'; animNext = true; render(); }
   syncBack();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S && !$('sheet').classList.contains('open')) api('state'); });
 
 async function api(action, extra) {
   try {
-    const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ initData, action }, extra || {})) });
+    const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ initData, k: appKey, action }, extra || {})) });
     const j = await r.json();
     if (j.error) { showError(j.error); return j; }
     const prev = S;
@@ -462,7 +465,7 @@ function countUp(el, from, to) {
 // ---------- tabs & render
 document.querySelectorAll('#tabs button').forEach((b) => b.onclick = () => {
   if (tab === b.dataset.t) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-  tab = b.dataset.t; haptic();
+  tab = b.dataset.t; animNext = true; haptic();
   document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
   window.scrollTo(0, 0); render();
 });
@@ -477,9 +480,15 @@ function render(prev) {
   applyUi();
   syncBack();
   const v = $('view');
-  const same = prev && prev === S ? false : !!prev;
+  // анимация «въезда» — только при смене экрана; при обновлении данных и нажатиях внутри экрана всё остаётся на месте
+  const anim = animNext; animNext = false;
+  const y = window.scrollY, focusId = document.activeElement && document.activeElement.id, selStart = document.activeElement && document.activeElement.selectionStart;
+  v.classList.toggle('noanim', !anim);
   v.innerHTML = tab === 'today' ? viewToday() : tab === 'plan' ? viewPlan() : tab === 'diary' ? viewDiary() : tab === 'charts' ? viewCharts() : tab === 'gym' ? viewGym() : viewMore();
-  if (same) v.querySelectorAll(':scope > *').forEach((x) => x.style.animation = 'none');
+  if (!anim) {
+    window.scrollTo(0, y);
+    if (focusId && $(focusId) && focusId !== 'gval' && focusId !== 'nv') { const el = $(focusId); el.focus({ preventScroll: true }); try { if (selStart != null) el.setSelectionRange(selStart, selStart); } catch (e) {} }
+  }
   if (tab === 'today' && prev) countUp($('eatenNum'), prev.eaten.k, S.eaten.k);
   bind();
 }
@@ -904,7 +913,7 @@ function viewMore() {
   return '<div class="hdr"><h1>Ещё</h1></div>' +
     '<div class="sec" style="margin-top:4px"><h2>Достижения</h2><span class="muted num">' + got + ' / ' + S.ach.length + '</span></div><div class="card"><div class="ach">' +
       S.ach.map((a) => { const m = a.t.match(/^(\S+)\s(.*)$/) || ['', '🏅', a.t]; return '<div class="' + (a.got ? 'got' : '') + '"><b>' + m[1] + '</b>' + esc(m[2]) + '</div>'; }).join('') + '</div></div>' +
-    '<div class="sec"><h2>До / после</h2></div><div class="card">' + (S.photos.length ? '<div class="photos">' + S.photos.map((p, i) => '<div><img loading="lazy" alt="" src="/api/photo?f=' + encodeURIComponent(p.f) + '&a=' + encodeURIComponent(initData) + '"><div class="muted" style="text-align:center;margin-top:6px">' + (i ? 'сейчас' : 'старт') + ' · ' + ddmm(p.d) + '</div></div>').join('') + '</div>'
+    '<div class="sec"><h2>До / после</h2></div><div class="card">' + (S.photos.length ? '<div class="photos">' + S.photos.map((p, i) => '<div><img loading="lazy" alt="" src="/api/photo?f=' + encodeURIComponent(p.f) + '&a=' + encodeURIComponent(initData) + '&k=' + appKey + '"><div class="muted" style="text-align:center;margin-top:6px">' + (i ? 'сейчас' : 'старт') + ' · ' + ddmm(p.d) + '</div></div>').join('') + '</div>'
       : '<div class="empty"><span class="e">📸</span>Пришли боту фото в полный рост с подписью «прогресс»</div>') + '</div>' +
     '<div class="sec"><h2>Самочувствие</h2></div><div class="card"><div class="row" style="gap:8px"><input id="note" placeholder="Например: болел живот после обеда"><button class="btn" style="width:auto;padding:12px 14px" data-act="note">' + I('plus') + '</button></div>' +
       (S.notes.length ? '<div class="list" style="margin-top:10px">' + S.notes.map((n) => '<div class="it" style="cursor:default"><span class="pill num">' + ddmm(n.d) + '</span><span class="n" style="white-space:normal">' + esc(n.t) + '</span></div>').join('') + '</div>' : '<div class="muted" style="margin-top:10px">Заметки попадут в таблицу для врача</div>') + '</div>' +
@@ -1054,7 +1063,7 @@ function bind() {
   v.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { haptic(); editSetting(b.dataset.edit); });
   const pin = $('photoIn'); if (pin) pin.onchange = () => { photoFood(pin.files && pin.files[0]); pin.value = ''; };
   v.querySelectorAll('[data-qr]').forEach((b) => b.onclick = () => { haptic(); const r = S.recent[+b.dataset.qr]; api('add', { recent: +b.dataset.qr }).then((j) => { if (j.ok && !j.msg) { okHaptic(); toast('Записал: ' + r.name, 'Отменить', () => { const it = S.items.filter((x) => x.name === r.name).pop(); if (it) api('del', { i: it.i }); }); } }); });
-  v.querySelectorAll('[data-plan]').forEach((b) => b.onclick = () => { planDay = +b.dataset.plan || 0; tab = 'plan'; haptic(); window.scrollTo(0, 0); render(); });
+  v.querySelectorAll('[data-plan]').forEach((b) => b.onclick = () => { planDay = +b.dataset.plan || 0; tab = 'plan'; animNext = true; haptic(); window.scrollTo(0, 0); render(); });
   v.querySelectorAll('[data-pday]').forEach((b) => b.onclick = () => { planDay = +b.dataset.pday; haptic(); render(); });
   v.querySelectorAll('[data-wake]').forEach((b) => b.onclick = () => { haptic(); editWake(+b.dataset.wake); });
   v.querySelectorAll('[data-ev]').forEach((b) => b.onclick = () => { haptic(); editEvent(b.dataset.ev); });
@@ -1149,7 +1158,7 @@ function act(a) {
   }
 }
 
-if (!initData) showError('auth'); else api('state');
+if (!initData && !appKey) showError('auth'); else api('state');
 </script>
 </body>
 </html>

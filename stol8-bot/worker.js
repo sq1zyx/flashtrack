@@ -1166,12 +1166,14 @@ function itemFromFood(f, g) {
 async function apiHandle(env, req, origin) {
   let body = {};
   try { body = await req.json(); } catch { /* пусто */ }
-  const user = await checkInitData(env, body.initData);
+  let user = await checkInitData(env, body.initData);
+  if (!user && /^[0-9a-f]{32}$/.test(body.k || '')) { const kid = await env.DB.get('appkey:' + body.k); if (kid) user = { id: +kid, viaKey: body.k }; }
   if (!user) return Response.json({ error: 'auth' }, { status: 401 });
   const id = user.id;
   if (!(await allowed(env, id))) return Response.json({ error: 'forbidden' }, { status: 403 });
   const { u, exists } = await loadUser(env, id);
   if (!exists) return Response.json({ error: 'start' }, { status: 404 });
+  if (user.viaKey && u.appKey !== user.viaKey) return Response.json({ error: 'auth' }, { status: 401 });
   const info = nowMsk();
   const a = body.action;
   let msg = '';
@@ -1322,7 +1324,9 @@ async function apiHandle(env, req, origin) {
   return Response.json({ ok: true, msg, state: appState(fresh, info, origin) });
 }
 async function photoProxy(env, url) {
-  const user = await checkInitData(env, url.searchParams.get('a'));
+  let user = await checkInitData(env, url.searchParams.get('a'));
+  const pk = url.searchParams.get('k') || '';
+  if (!user && /^[0-9a-f]{32}$/.test(pk)) { const kid = await env.DB.get('appkey:' + pk); if (kid && JSON.parse((await env.DB.get('u:' + kid)) || '{}').appKey === pk) user = { id: +kid }; }
   if (!user || !(await allowed(env, user.id))) return new Response('forbidden', { status: 403 });
   const { u } = await loadUser(env, user.id);
   const f = url.searchParams.get('f');
@@ -1629,10 +1633,17 @@ async function tg(env, method, body) {
   });
   return r.json().catch(() => ({}));
 }
-function mainKb(env) {
+// Кнопки нижней клавиатуры Telegram не передают initData, поэтому в ссылку кладём личный ключ (KV appkey:<k> → chat id)
+async function ensureAppKey(env, u, id) {
+  if (u.appKey) return u.appKey;
+  u.appKey = hex(crypto.getRandomValues(new Uint8Array(16)));
+  await env.DB.put('appkey:' + u.appKey, String(id));
+  return u.appKey;
+}
+function mainKb(env, key) {
   return {
     keyboard: [
-      [{ text: '📊 Дневник' }, { text: '💧 +250' }],
+      [env && env.APP_URL && key ? { text: '📊 Дневник', web_app: { url: env.APP_URL + '?k=' + key } } : { text: '📊 Дневник' }, { text: '💧 +250' }],
       [{ text: '🔥 Калории' }, { text: '📅 Сегодня' }, { text: '📌 Дела' }],
       [{ text: '🏋️ Тренировка' }, { text: '🍽 Меню' }, { text: '❓ Помощь' }],
     ],
@@ -1920,7 +1931,7 @@ async function wizAsk(env, id, u) {
     const info = nowMsk();
     await send(env, id, '✅ Готово! Вот твоё расписание:\n\n' +
       scheduleText(u, nextDow(info, 1), '<b>Будни</b>') + '\n\n' + scheduleText(u, nextDow(info, 6), '<b>Выходные</b>') +
-      '\n\nНапоминания уже включены. Поменять что-то — /nastroiki, все команды — /help', { reply_markup: mainKb(env) });
+      '\n\nНапоминания уже включены. Поменять что-то — /nastroiki, все команды — /help', { reply_markup: mainKb(env, await ensureAppKey(env, u, id)) });
     await send(env, id, '🚀 <b>Как пользоваться — коротко</b>\n\n🍽 Пиши, что съел, обычным текстом: <code>гречка 250, котлета</code> — или пришли фото / голосовое.\n💧 Вода — кнопка «💧 +250» внизу.\n📌 Свои дела: <code>напомни завтра в 15:00 позвонить бабушке</code>\n📊 Всё остальное — в «Дневнике»: графики, зал, распорядок, настройки.\n\nЕсли что — «❓ Помощь».',
       env.APP_URL ? { reply_markup: { inline_keyboard: [appBtn(env, '📊 Открыть дневник')] } } : {});
     return;
@@ -2113,7 +2124,7 @@ async function command(env, id, u, cmd, args, info) {
   const say = (t, x) => send(env, id, t, x);
   switch (cmd) {
     case 'start':
-      await say(`Привет${u.name ? ', ' + esc(u.name) : ''}! 👋 Я помогу спокойно худеть по столу №8: расписание с напоминаниями, меню из магазинных продуктов почти без готовки, зал и прогресс.\n\nТон у меня простой: срыв — не провал. Давай настроим расписание (8 коротких вопросов).`, { reply_markup: mainKb(env) });
+      await say(`Привет${u.name ? ', ' + esc(u.name) : ''}! 👋 Я помогу спокойно худеть по столу №8: расписание с напоминаниями, меню из магазинных продуктов почти без готовки, зал и прогресс.\n\nТон у меня простой: срыв — не провал. Давай настроим расписание (8 коротких вопросов).`, { reply_markup: mainKb(env, await ensureAppKey(env, u, id)) });
       u.wiz = 0; return wizAsk(env, id, u);
     case 'nastroika': u.wiz = 0; return wizAsk(env, id, u);
     case 'help': return say(args.trim() === 'все' ? HELP : HELP_SHORT, { reply_markup: helpKb(env) });
@@ -2216,7 +2227,8 @@ ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${
     case 'otchet': return say(weeklyReport(u, info));
     case 'app': case 'prilozhenie':
       if (!env.APP_URL) return say('Приложение ещё не настроено.');
-      return say('📊 Нажми, чтобы открыть дневник 👇\n<i>Быстрее всего — синяя кнопка «📊 Дневник» слева от поля ввода.</i>', { reply_markup: { inline_keyboard: [[{ text: '📊 Открыть дневник', web_app: { url: env.APP_URL } }]] } });
+      await say('📊 Нажми, чтобы открыть дневник 👇', { reply_markup: { inline_keyboard: [[{ text: '📊 Открыть дневник', web_app: { url: env.APP_URL } }]] } });
+      return say('Обновил кнопки внизу — теперь «📊 Дневник» открывает дневник сразу.', { reply_markup: mainKb(env, await ensureAppKey(env, u, id)) });
     case 'dnevnik': { const d = diaryText(u, info); return say(d.text, d.kb ? { reply_markup: d.kb } : {}); }
     case 'uzhin': return say(smartMeal(u, info, info.min > 1200 ? 'late' : 'dinner').text);
     case 'zametka': {

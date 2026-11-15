@@ -138,6 +138,31 @@ for (const scheme of ['light', 'dark']) {
   assert(errs.length === 0, `${scheme}: без ошибок в консоли ${errs.join(' | ')}`);
   await page.close();
 }
+// --- открытие по кнопке нижней клавиатуры: initData пустой, вход по личному ключу ?k=
+{
+  const key = JSON.parse(store.get('u:42')).appKey;
+  assert(/^[0-9a-f]{32}$/.test(key || ''), 'личный ключ приложения создан при /start');
+  const page = await browser.newPage({ viewport: { width: 390, height: 500 } });
+  const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+  await page.route('https://telegram.org/**', (route) => route.fulfill({ contentType: 'application/javascript', body: 'window.Telegram={WebApp:{initData:"",ready(){},expand(){},setHeaderColor(){},setBackgroundColor(){},HapticFeedback:{impactOccurred(){},notificationOccurred(){}}}};' }));
+  await page.goto(`http://127.0.0.1:${port}/app?k=${key}`);
+  await page.waitForSelector('.ringwrap', { timeout: 5000 });
+  assert(true, 'кнопка внизу: дневник открылся по ключу без initData');
+  // нет «перезагрузки»: нажатия внутри экрана не перезапускают анимацию и не сбрасывают прокрутку
+  await page.click('#tabs [data-t="charts"]'); await page.waitForTimeout(450);
+  await page.evaluate(() => window.scrollTo(0, 200)); await page.waitForTimeout(50); const y0 = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => document.querySelector('[data-range="0"]').click()); await page.waitForTimeout(80);
+  const st = await page.evaluate(() => ({ noanim: document.getElementById('view').classList.contains('noanim'), anim: getComputedStyle(document.querySelector('#view > *')).animationName, y: window.scrollY }));
+  assert(st.noanim && st.anim === 'none' && y0 > 50 && Math.abs(st.y - y0) < 5, `нажатие внутри экрана без анимации и прыжка (${JSON.stringify(st)}, было ${y0})`);
+  await page.click('#tabs [data-t="today"]'); await page.waitForTimeout(30);
+  assert(await page.evaluate(() => !document.getElementById('view').classList.contains('noanim')), 'смена вкладки — с плавным появлением');
+  await page.click('[data-water="250"]'); await page.waitForTimeout(300);
+  assert(await page.evaluate(() => document.getElementById('view').classList.contains('noanim')), 'после +250 мл экран не «перезагружается»');
+  assert(errs.length === 0, 'по ключу без ошибок ' + errs.join('|'));
+  const bad = await (await bot.fetch(new Request('https://x/api', { method: 'POST', body: JSON.stringify({ k: 'ab'.repeat(16), action: 'state' }) }), env)).json();
+  assert(bad.error === 'auth', 'чужой ключ не пускает');
+  await page.close();
+}
 const fin = await api('state');
 assert(fin.state.items.some((x) => /Творог/.test(x.name)), 'добавление из интерфейса дошло до API');
 await browser.close(); server.close();
