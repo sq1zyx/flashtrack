@@ -1,0 +1,44 @@
+// Удобство: справка по разделам, «↩️ Отменить», команды словами, кнопки, пропуск вопросов, не напоминать о еде после еды.
+import bot from '../worker.js';
+const store = new Map();
+const env = { BOT_TOKEN: 'T', WEBHOOK_SECRET: 'sec', DB: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v) } };
+const sent = [];
+globalThis.fetch = async (url, o) => { const b = typeof o?.body === 'string' ? JSON.parse(o.body) : {}; sent.push({ m: String(url).split('/').pop(), b }); return { ok: true, json: async () => ({ ok: true, result: {} }) }; };
+let FAKE; Date.now = () => FAKE; const at = (s) => { FAKE = Date.parse(s + '+03:00'); };
+const H = { 'X-Telegram-Bot-Api-Secret-Token': 'sec' };
+const msg = (text) => bot.fetch(new Request('https://stol8.example/webhook', { method: 'POST', headers: H, body: JSON.stringify({ message: { chat: { id: 9 }, from: { first_name: 'Т' }, text } }) }), env);
+const cb = (data) => bot.fetch(new Request('https://stol8.example/webhook', { method: 'POST', headers: H, body: JSON.stringify({ callback_query: { id: 'q', data, message: { message_id: 1, chat: { id: 9 } } } }) }), env);
+const U = () => JSON.parse(store.get('u:9'));
+const assert = (c, t) => { if (!c) { console.error('❌', t); process.exitCode = 1; } else console.log('✔', t); };
+const last = (m = 'sendMessage') => (sent.filter((s) => s.m === m).pop() || { b: {} }).b;
+
+at('2026-11-16T12:00:00');
+await msg('/start');
+for (const a of ['6:30', 'пропустить', '8:30', 'нет', 'пропустить', '15:00']) await msg(a);
+assert(U().wiz == null && U().wakeWe === 540, 'мастер: «пропустить» оставляет значение по умолчанию');
+const kb = sent.filter((s) => s.b.reply_markup?.keyboard).pop().b.reply_markup.keyboard;
+assert(kb[0][0].web_app?.url === 'https://stol8.example/app' && kb[0][1].text === '💧 +250', 'внизу: «📊 Дневник» (приложение) и «💧 +250»');
+await msg('💧 +250'); assert(U().water.ml === 250, 'кнопка воды');
+await msg('❓ Помощь'); assert(last().reply_markup.inline_keyboard.flat().some((b) => b.callback_data === 'h|food'), 'помощь — разделы кнопками');
+await cb('h|food'); assert(/Еда и калории/.test(last('editMessageText').text), 'раздел справки открывается');
+await msg('гречка 250, котлета');
+const ids = U().food.items.map((x) => x.id);
+const logMsg = sent.filter((x) => x.m === 'sendMessage' && /Записал/.test(x.b.text || '')).pop().b;
+const undo = logMsg.reply_markup.inline_keyboard[0][0];
+assert(undo.text === '↩️ Отменить' && undo.callback_data === 'un|' + ids.join(','), 'под записью — «↩️ Отменить»');
+await cb(undo.callback_data); assert(U().food.items.length === 0, 'отмена убрала обе позиции');
+await cb(undo.callback_data); assert(/нечего/.test(last('answerCallbackQuery').text), 'повторная отмена безопасна');
+await msg('вес 117,6'); assert(U().weights.at(-1).kg === 117.6, '«вес 117,6» без команды');
+await msg('шаги 12 500'); assert(U().steps.at(-1).n === 12500, '«шаги 12 500» без команды');
+await msg('калории'); assert(/Норма/.test(last().text), '«калории» без команды');
+await msg('что съесть?'); assert(/Осталось|норма/.test(last().text), '«что съесть?»');
+await msg('дела'); assert(/дел/i.test(last().text), '«дела»');
+await msg('абракадабра'); assert(last().reply_markup.inline_keyboard[0][0].callback_data === 'h|menu', '«не понял» с кнопкой помощи');
+// напоминание о еде не приходит, если только что поел
+const u = U(); const lunch = (await import('../worker.js')) && null;
+await msg('/segodnya'); const plan = last().text; const m = plan.match(/(\d{1,2}):(\d{2})<\/code>\s+🍽 Обед/);
+const lt = +m[1] * 60 + +m[2];
+const hhmm = (x) => `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
+at(`2026-11-16T${hhmm(lt - 30)}:00`); await msg('курица 180, гречка 200');
+sent.length = 0; at(`2026-11-16T${hhmm(lt)}:00`); await bot.scheduled({}, env, { waitUntil: (p) => p }); await new Promise((r) => setTimeout(r, 10));
+assert(!sent.some((x) => /🍽 <b>Обед/.test(x.b.text || '')), 'поел за 30 мин до обеда — напоминание про обед не пришло');

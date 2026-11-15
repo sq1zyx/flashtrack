@@ -1207,6 +1207,13 @@ async function apiHandle(env, req, origin) {
       Object.assign(it, { g: Math.round(g * 10) / 10, k: Math.round(it.k * f), p: Math.round((it.p || 0) * f), fat: Math.round((it.fat || 0) * f), c: Math.round((it.c || 0) * f) });
       it.name = `${it.base || it.name} ${it.g} ${it.u}`;
     } else msg = 'Эту запись можно только удалить';
+  } else if (a === 'restore') {
+    const x = body.item || {};
+    const n = (v) => Math.max(0, Math.min(5000, Math.round(+v || 0)));
+    if (x.name && u.food.date === info.date) {
+      const it = { id: Math.random().toString(36).slice(2, 7), name: `${String(x.name).slice(0, 60)}${x.g ? ` ${x.g} ${x.u || 'г'}` : ''}`, base: String(x.name).slice(0, 60), g: x.g ? +x.g : undefined, u: x.u || undefined, k: n(x.k), p: n(x.p), fat: n(x.f), c: n(x.c), at: Math.max(0, Math.min(1439, +x.at || info.min)) };
+      u.food.items.push(it); u.food.items.sort((p1, p2) => p1.at - p2.at);
+    }
   } else if (a === 'del') {
     if (u.food.date === info.date && u.food.items[body.i]) u.food.items.splice(body.i, 1);
   } else if (a === 'water') addWater(u, info, Math.max(-1000, Math.min(1000, +body.ml || 0)));
@@ -1602,17 +1609,29 @@ async function tg(env, method, body) {
   });
   return r.json().catch(() => ({}));
 }
-const KEYBOARD = {
-  keyboard: [
-    [{ text: '📅 Сегодня' }, { text: '🍽 Меню' }, { text: '🏋️ Тренировка' }],
-    [{ text: '🔥 Калории' }, { text: '📈 Прогресс' }, { text: '⚙️ Настройки' }],
-  ],
-  resize_keyboard: true, is_persistent: true,
-};
+function mainKb(env) {
+  return {
+    keyboard: [
+      env && env.APP_URL ? [{ text: '📊 Дневник', web_app: { url: env.APP_URL } }, { text: '💧 +250' }] : [{ text: '💧 +250' }],
+      [{ text: '🔥 Калории' }, { text: '📅 Сегодня' }, { text: '📌 Дела' }],
+      [{ text: '🏋️ Тренировка' }, { text: '🍽 Меню' }, { text: '❓ Помощь' }],
+    ],
+    resize_keyboard: true, is_persistent: true, input_field_placeholder: 'Что съел? Например: гречка 250, котлета',
+  };
+}
 const BUTTONS = {
-  '📅 Сегодня': 'segodnya', '🍽 Меню': 'menu', '🏋️ Тренировка': 'trenirovka',
-  '🔥 Калории': 'kkal', '📈 Прогресс': 'progress', '⚙️ Настройки': 'nastroiki',
+  '📅 Сегодня': 'segodnya', '🍽 Меню': 'menu', '🏋️ Тренировка': 'trenirovka', '📌 Дела': 'dela', '❓ Помощь': 'help',
+  '🔥 Калории': 'kkal', '📈 Прогресс': 'progress', '⚙️ Настройки': 'nastroiki', '💧 +250': 'voda 250',
 };
+const appBtn = (env, text = '📊 Открыть дневник') => (env && env.APP_URL ? [{ text, web_app: { url: env.APP_URL } }] : []);
+// Ответы, которые можно сказать словами вместо команд
+const TEXT_CMDS = [
+  [/^(калории|ккал|сколько съел\??)$/, 'kkal'], [/^(дневник|записи)$/, 'dnevnik'], [/^меню$/, 'menu'], [/^(тренировка|зал)$/, 'trenirovka'],
+  [/^прогресс$/, 'progress'], [/^(дела|мои дела|напоминания)$/, 'dela'], [/^(помощь|help|что умеешь\??|команды|справка)$/, 'help'],
+  [/^(отмена|отмени|удали последнее|отменить)$/, 'otmena'], [/^настройки$/, 'nastroiki'], [/^(сегодня|план|план на сегодня)$/, 'segodnya'],
+  [/^(что съесть\??|что поесть\??|ужин\?)$/, 'uzhin'], [/^(неделя|за неделю)$/, 'nedelya'], [/^(отчет|итоги недели)$/, 'otchet'],
+  [/^вес\s+(\d{2,3}(?:[.,]\d)?)\s*(?:кг)?$/, 'ves'], [/^талия\s+(\d{2,3}(?:[.,]\d)?)\s*(?:см)?$/, 'talia'], [/^шаги\s+([\d\s]{3,7})$/, 'shagi'],
+];
 function send(env, chat, text, extra = {}) {
   return tg(env, 'sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
 }
@@ -1763,10 +1782,12 @@ async function fire(env, id, u, e, info) {
       const short = plan.map((x) => x.kind === 'meal' ? `${fmt(x.t)} ${SLOT_NAMES[x.slot].toLowerCase()}`
         : x.kind === 'busgo' ? `${fmt(x.t)} выход` : x.kind === 'gym' ? `${fmt(u.gymTime)} зал` : `${fmt(x.t)} отбой`);
       const hol = !work && info.dow >= 1 && info.dow <= 5 && holidayName(info.date);
-      return send(env, id, `☀️ <b>Доброе утро${u.name ? ', ' + esc(u.name) : ''}!</b> Подъём — выпей стакан воды.${hol ? ` Сегодня ${hol} — живём по выходному расписанию 🙂` : ''}${busLine}\n\nСегодня: ${short.join(' · ')}\n\nКак спалось?`, { reply_markup: sleepKb });
+      return send(env, id, `☀️ <b>Доброе утро${u.name ? ', ' + esc(u.name) : ''}!</b> Подъём — выпей стакан воды.${hol ? ` Сегодня ${hol} — живём по выходному расписанию 🙂` : ''}${busLine}\n\nСегодня: ${short.join(' · ')}\n\nКак спалось?`, { reply_markup: { inline_keyboard: sleepKb.inline_keyboard.concat(env.APP_URL ? [appBtn(env, '📊 План дня')] : []) } });
     }
     case 'exercise': return send(env, id, EXERCISE_TEXT);
     case 'meal': {
+      // уже поел недавно — не дёргаем
+      if ((u.food.date === info.date ? u.food.items : []).some((x) => x.at >= e.t - 75 && x.at <= e.t + 5)) return;
       const i = variantFor(info, e.slot);
       const s = foodSum(u, info);
       const smart = (e.slot === 'dinner' || e.slot === 'late') && s.n ? '\n\n' + smartMeal(u, info, e.slot).text : '';
@@ -1879,13 +1900,68 @@ async function wizAsk(env, id, u) {
     const info = nowMsk();
     await send(env, id, '✅ Готово! Вот твоё расписание:\n\n' +
       scheduleText(u, nextDow(info, 1), '<b>Будни</b>') + '\n\n' + scheduleText(u, nextDow(info, 6), '<b>Выходные</b>') +
-      '\n\nНапоминания уже включены. Поменять что-то — /nastroiki, все команды — /help', { reply_markup: KEYBOARD });
+      '\n\nНапоминания уже включены. Поменять что-то — /nastroiki, все команды — /help', { reply_markup: mainKb(env) });
+    await send(env, id, '🚀 <b>Как пользоваться — коротко</b>\n\n🍽 Пиши, что съел, обычным текстом: <code>гречка 250, котлета</code> — или пришли фото / голосовое.\n💧 Вода — кнопка «💧 +250» внизу.\n📌 Свои дела: <code>напомни завтра в 15:00 позвонить бабушке</code>\n📊 Всё остальное — в «Дневнике»: графики, зал, распорядок, настройки.\n\nЕсли что — «❓ Помощь».',
+      env.APP_URL ? { reply_markup: { inline_keyboard: [appBtn(env, '📊 Открыть дневник')] } } : {});
     return;
   }
-  await send(env, id, `<i>Вопрос ${u.wiz + 1} из ${WIZ.length}</i>\n${WIZ[u.wiz].q}`);
+  await send(env, id, `<i>Вопрос ${u.wiz + 1} из ${WIZ.length}</i>\n${WIZ[u.wiz].q}`, { reply_markup: { keyboard: [[{ text: 'пропустить' }]], resize_keyboard: true, one_time_keyboard: true } });
 }
 
 // ---------------------------------------------------------------- тексты
+const HELP_SECTIONS = {
+  food: ['🍽 Еда и калории', `<b>🍽 Еда и калории</b>
+
+• Просто напиши, что съел: <code>гречка 250, курица 180, 2 яйца</code>
+• Или пришли <b>фото тарелки</b>, <b>голосовое</b>, <b>штрихкод</b> (фото или цифры)
+• Нет в базе — нейросеть оценит и спросит «Записать?»
+• Под каждой записью: «🔁 Ещё раз» и «↩️ Отменить»
+• «калории» — сколько съел · «дневник» — все записи (удалить любую)
+• «что съесть?» — варианты под оставшиеся калории
+• /moe — свои блюда · /povtor — как в прошлый раз · /menu — меню на день
+• «вода 500» или кнопка «💧 +250»`],
+  sched: ['📅 Распорядок и дела', `<b>📅 Распорядок и дела</b>
+
+• «сегодня» — план дня
+• <code>напомни завтра в 15:00 позвонить бабушке</code>
+• <code>напомни по вт и чт в 16:30 музыка</code> · <code>напомни через 20 минут …</code>
+• «дела» — список, удалить нажатием
+• «встал в 9:40» — перестрою день от этого времени
+• В «📊 Дневник» → «Сегодня» → «Изменить»: время еды, подъём по дням, пропуск
+• /napominaniya — какие напоминания присылать · /tishina 22:30 7:00 — тихие часы
+• /avtobus — автобус · /kanikuly — каникулы`],
+  gym: ['🏋️ Зал', `<b>🏋️ Зал</b>
+
+• «тренировка» — что делать сегодня, с прошлым результатом
+• Запись: <code>присед 60x8 60x8 60x7</code> или <code>жим 50x10x3</code>
+• После подхода — таймер отдыха (/taimer 3 — свои минуты)
+• /zamena жим — если тренажёр занят · /istoriya присед — история
+• В «📊 Дневник» → «Зал» — всё кнопками +/−`],
+  progress: ['📈 Прогресс', `<b>📈 Прогресс</b>
+
+• «вес 117,4» — вес (в воскресенье спрошу кнопками)
+• «талия 108» · фото с подписью «прогресс»
+• «прогресс» — тренд · «неделя» — калории за 7 дней · «отчёт» — итоги недели
+• /grafik вес · /dostizheniya · /eksport — таблица для врача
+• /zametka — самочувствие`],
+  watch: ['⌚ Часы', `<b>⌚ Часы и здоровье</b>
+
+• /chasy — подключить Apple Watch или Galaxy Watch: шаги, сон, пульс, вес придут сами
+• Без часов: «шаги 12000» (вечером спрошу кнопками)`],
+  settings: ['⚙️ Настройки', `<b>⚙️ Настройки</b>
+
+• Удобнее всего: «📊 Дневник» → «Ещё» → «Настройки» — цели, распорядок, зал, напоминания, цвет
+• /nastroika — пройти настройку заново · /pauza — выключить все напоминания
+• /kkal 2900 — норма от врача · /kkal +200 — поправка
+• /dostup — кто может пользоваться ботом`],
+};
+function helpKb(env, back) {
+  const k = Object.entries(HELP_SECTIONS).map(([key, [t]]) => ({ text: t, callback_data: 'h|' + key }));
+  const rows = [k.slice(0, 2), k.slice(2, 4), k.slice(4, 6)];
+  if (back) rows.unshift([{ text: '← Все разделы', callback_data: 'h|menu' }]);
+  return { inline_keyboard: rows.concat(env && env.APP_URL ? [appBtn(env)] : []) };
+}
+const HELP_SHORT = '❓ <b>Что я умею</b> — выбери раздел.\n\nГлавное: пиши, что съел, <b>обычным текстом</b> («гречка 250, котлета»), присылай <b>фото</b> или <b>голосовое</b>. Остальное — кнопками внизу и в «📊 Дневнике».';
 const HELP = `<b>Что я умею</b>
 
 📅 <b>Расписание</b>
@@ -1985,14 +2061,17 @@ async function logMealText(env, id, u, info, text, strict) {
   let t = `✅ Записал:\n${mealSummary(ok)}\n\nСегодня: <b>${after.k}</b> из ${target} ккал · белок ${after.p} г`;
   if (bad.length && !env.AI) t += `\n\n❓ Не узнал: ${esc(bad.join(', '))} — запиши вручную: <code>/el 300 ${esc(bad[0])}</code>`;
   if (before <= target + 400 && after.k > target + 400) t += '\n\nСегодня вышло больше нормы — это нормально, так бывает. Ничего не «отрабатывай» и не пропускай еду: следующий приём пищи просто сделай обычным 💪';
-  t += `\n<i>Ошибся — /otmena (удаляет последнюю позицию)</i>`;
-  return send(env, id, t, { reply_markup: repeatKb });
+  return send(env, id, t, { reply_markup: logKb(u) });
 }
-const repeatKb = { inline_keyboard: [[{ text: '🔁 Съел это ещё раз', callback_data: 'r' }]] };
+const repeatKb = { inline_keyboard: [[{ text: '🔁 Ещё раз', callback_data: 'r' }]] };
+const logKb = (u) => ({ inline_keyboard: [[{ text: '↩️ Отменить', callback_data: 'un|' + (u.lastIds || []).slice(-10).join(',') }, { text: '🔁 Ещё раз', callback_data: 'r' }]] });
 function addItems(u, info, items) {
   todayFood(u, info);
+  u.lastIds = [];
   for (const x of items) {
-    u.food.items.push({ name: `${x.name} ${x.g} ${x.u}`, base: x.name, g: x.g, u: x.u, k: x.k, p: x.p, fat: x.fat, c: x.c, at: info.min });
+    const iid = Math.random().toString(36).slice(2, 7);
+    u.lastIds.push(iid);
+    u.food.items.push({ id: iid, name: `${x.name} ${x.g} ${x.u}`, base: x.name, g: x.g, u: x.u, k: x.k, p: x.p, fat: x.fat, c: x.c, at: info.min });
     u.recent = [{ name: x.name, g: x.g, u: x.u, k: x.k, p: x.p, fat: x.fat, c: x.c }].concat((u.recent || []).filter((r) => r.name !== x.name)).slice(0, 15);
   }
   if (u.food.items.length > 60) u.food.items.splice(0, u.food.items.length - 60);
@@ -2006,7 +2085,7 @@ async function logItems(env, id, u, info, items, title) {
   await saveUser(env, id, u);
   let t = `${title}\n${mealSummary(items)}\n\nСегодня: <b>${after.k}</b> из ${target} ккал · белок ${after.p} г`;
   if (before <= target + 400 && after.k > target + 400) t += '\n\nСегодня вышло больше нормы — это нормально, так бывает. Ничего не «отрабатывай» и не пропускай еду: следующий приём пищи просто сделай обычным 💪';
-  return send(env, id, t + '\n<i>Ошибся — /otmena</i>', { reply_markup: repeatKb });
+  return send(env, id, t, { reply_markup: logKb(u) });
 }
 
 // ---------------------------------------------------------------- команды
@@ -2014,16 +2093,17 @@ async function command(env, id, u, cmd, args, info) {
   const say = (t, x) => send(env, id, t, x);
   switch (cmd) {
     case 'start':
-      await say(`Привет${u.name ? ', ' + esc(u.name) : ''}! 👋 Я помогу спокойно худеть по столу №8: расписание с напоминаниями, меню из магазинных продуктов почти без готовки, зал и прогресс.\n\nТон у меня простой: срыв — не провал. Давай настроим расписание (8 коротких вопросов).`, { reply_markup: KEYBOARD });
+      await say(`Привет${u.name ? ', ' + esc(u.name) : ''}! 👋 Я помогу спокойно худеть по столу №8: расписание с напоминаниями, меню из магазинных продуктов почти без готовки, зал и прогресс.\n\nТон у меня простой: срыв — не провал. Давай настроим расписание (8 коротких вопросов).`, { reply_markup: mainKb(env) });
       u.wiz = 0; return wizAsk(env, id, u);
     case 'nastroika': u.wiz = 0; return wizAsk(env, id, u);
-    case 'help': return say(HELP, { reply_markup: KEYBOARD });
+    case 'help': return say(args.trim() === 'все' ? HELP : HELP_SHORT, { reply_markup: helpKb(env) });
     case 'nastroiki': return say(settingsText(u) + '\n\n⚙️ Удобнее всё менять в приложении: «📊 Дневник» → «Ещё» → «Настройки» (цели, распорядок, зал, напоминания, цвет).',
       env.APP_URL ? { reply_markup: { inline_keyboard: [[{ text: '⚙️ Открыть настройки', web_app: { url: env.APP_URL } }]] } } : {});
     case 'segodnya': {
       const s = foodSum(u, info);
       return say(scheduleText(u, info, `📅 <b>Сегодня, ${DAYNAMES[info.dow]} ${ddmm(info.date)}</b>${isWorkday(u, info) ? '' : ` (${(info.dow >= 1 && info.dow <= 5 && holidayName(info.date)) || 'выходной'})`}`) +
-        `\n\n🔥 Съедено: ${s.k} из ${calc(u).target} ккал · 💧 ${u.water && u.water.d === info.date ? u.water.ml : 0} мл`);
+        `\n\n🔥 Съедено: ${s.k} из ${calc(u).target} ккал · 💧 ${u.water && u.water.d === info.date ? u.water.ml : 0} мл`,
+        { reply_markup: { inline_keyboard: [[{ text: '📌 Дела', callback_data: 'go|dela' }, { text: '🎯 Что съесть', callback_data: 'go|uzhin' }]].concat(env.APP_URL ? [appBtn(env, '✏️ Изменить распорядок')] : []) } });
     }
     case 'raspisanie':
       return say(scheduleText(u, nextDow(info, 1), '<b>Будни</b>') + '\n\n' + scheduleText(u, nextDow(info, 6), '<b>Выходные</b>'));
@@ -2099,7 +2179,8 @@ ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${
 
 <i>Как считается: вес ${kg(c.w)} кг, рост ${u.height}, ${u.age} лет → обмен ~${c.bmr}, × активность ${String(c.act.f).replace('.', ',')}${c.act.avg ? ` (шаги в среднем ${c.act.avg})` : ' (зал + шаги)'} = ~${c.tdee}, минус ~500. Ниже ${KCAL_FLOOR} не опускаю — ты растёшь. Это прикидка, финальную цифру согласуй с эндокринологом.</i>
 Поправить: <code>/kkal +200</code> · <code>/kkal -150</code> · цифра от врача: <code>/kkal 2900</code>
-Записать еду — просто напиши: <code>гречка 250, курица 180</code> · неделя — /nedelya`);
+Записать еду — просто напиши: <code>гречка 250, курица 180</code> · неделя — /nedelya`,
+        { reply_markup: { inline_keyboard: [[{ text: '📒 Записи за сегодня', callback_data: 'go|dnevnik' }, { text: '🎯 Что съесть', callback_data: 'go|uzhin' }]].concat(env.APP_URL ? [appBtn(env)] : []) } });
     }
     case 'el': {
       const toks = args.split(/\s+/).filter(Boolean);
@@ -2303,6 +2384,20 @@ async function onCallbackInner(env, cq) {
     const off = +a;
     await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: dayMenuText(u, info, off),
       reply_markup: { inline_keyboard: [[{ text: '🔁 Другое меню', callback_data: `m|${off + 1}` }]] } });
+  } else if (type === 'go' && ['dela', 'uzhin', 'kkal', 'dnevnik', 'segodnya'].includes(a)) {
+    await command(env, id, u, a, '', info);
+    await saveUser(env, id, u);
+  } else if (type === 'h') {
+    const sec = HELP_SECTIONS[a];
+    await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', disable_web_page_preview: true, text: sec ? sec[1] : HELP_SHORT, reply_markup: helpKb(env, !!sec) });
+  } else if (type === 'un') {
+    const ids = (a || '').split(',');
+    const items = u.food.date === info.date ? u.food.items : [];
+    const before = items.length;
+    u.food.items = items.filter((x) => !ids.includes(x.id));
+    const removed = before - u.food.items.length;
+    if (removed) { await saveUser(env, id, u); toast = `Отменил (${removed})`; await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: `↩️ Отменено. Сегодня ${foodSum(u, info).k} из ${calc(u).target} ккал.` }); }
+    else toast = 'Уже нечего отменять';
   } else if (type === 'cd') {
     await tg(env, 'editMessageReplyMarkup', { chat_id: id, message_id: mid, reply_markup: { inline_keyboard: [] } });
     toast = 'Отлично ✅';
@@ -2484,7 +2579,11 @@ async function onMessageInner(env, msg) {
   if (text.startsWith('/')) {
     const [c, ...rest] = text.split(/\s+/);
     cmd = c.slice(1).split('@')[0].toLowerCase(); args = rest.join(' ');
-  } else if (BUTTONS[text]) cmd = BUTTONS[text];
+  } else if (BUTTONS[text]) { [cmd, args = ''] = BUTTONS[text].split(' '); }
+  else if (u.wiz == null) {
+    const nt = norm(text);
+    for (const [re, c] of TEXT_CMDS) { const m = nt.match(re); if (m) { cmd = c; args = (m[1] || '').replace(/\s/g, ''); break; } }
+  }
 
   if (cmd) {
     if (cmd !== 'start' && cmd !== 'nastroika') u.wiz = null;
@@ -2494,7 +2593,8 @@ async function onMessageInner(env, msg) {
 
   if (u.wiz != null) {
     const step = WIZ[u.wiz];
-    if (step.set(u, text) === false) { await say('Не понял 🙂 ' + step.q); return; }
+    if (/^(пропустить|дальше|skip|-)$/i.test(text.trim())) { if (u.wiz === 0) u.wakeWdSet = true; }
+    else if (step.set(u, text) === false) { await say('Не понял 🙂 ' + step.q + '\n<i>Можно написать «пропустить».</i>'); return; }
     u.wiz++;
     await wizAsk(env, id, u);
     return saveUser(env, id, u);
@@ -2546,7 +2646,8 @@ async function onMessageInner(env, msg) {
   if (/^\d+([.,]\d)?$/.test(text)) {
     return say(`Это вес? Тогда так: <code>/ves ${esc(text)}</code>. Калории: <code>/el ${esc(text)} название</code>`);
   }
-  return say('Не понял 🙂 Кнопки внизу или /help. Подходы пиши так: <code>присед 60x8 60x8</code>', { reply_markup: KEYBOARD });
+  return say('Не понял 🙂 Если это еда — напиши с количеством: <code>гречка 250</code>. Подходы: <code>присед 60x8 60x8</code>. Напоминание: <code>напомни завтра в 15:00 …</code>',
+    { reply_markup: { inline_keyboard: [[{ text: '❓ Что я умею', callback_data: 'h|menu' }]].concat(env.APP_URL ? [appBtn(env)] : []) } });
 }
 
 // Личный бот: первый пользователь — владелец, остальным нужен /dobavit

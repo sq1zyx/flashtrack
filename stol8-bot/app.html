@@ -262,6 +262,7 @@ svg text { fill: var(--hint); font-size: 10px; font-family: inherit; }
 .preview span { font-size: 11px; color: var(--hint); font-weight: 600; }
 .toast { position: fixed; left: 50%; top: 14px; transform: translate(-50%, -90px); background: rgba(20, 22, 26, .92); color: #fff; padding: 11px 18px; border-radius: 16px; z-index: 20; transition: transform .3s cubic-bezier(.2, .8, .2, 1); font-size: 14px; font-weight: 600; max-width: 90vw; text-align: center; backdrop-filter: blur(10px); }
 .toast.show { transform: translate(-50%, 0); }
+.toast button { border: 0; background: rgba(255,255,255,.18); color: #fff; font-weight: 750; padding: 5px 10px; border-radius: 9px; margin-left: 10px; cursor: pointer; }
 .timer { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 15; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
 .timer.show { display: flex; animation: fade .25s; }
 .timer .ringwrap { width: 220px; height: 220px; }
@@ -353,7 +354,22 @@ const badge = (n, color) => '<div class="badge" style="background:color-mix(in s
 $('tabs').innerHTML = [['today', 'home', 'Сегодня'], ['diary', 'book', 'Дневник'], ['charts', 'chart', 'Графики'], ['gym', 'dumbbell', 'Зал'], ['more', 'star', 'Ещё']]
   .map((t, i) => '<button data-t="' + t[0] + '"' + (i ? '' : ' class="on"') + '>' + I(t[1]) + t[2] + '</button>').join('');
 
-function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('show'), 2300); }
+function toast(t, act, fn) {
+  const el = $('toast');
+  el.innerHTML = esc(t) + (act ? '<button id="tact">' + esc(act) + '</button>' : '');
+  if (act) $('tact').onclick = () => { el.classList.remove('show'); haptic(); fn(); };
+  el.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => el.classList.remove('show'), act ? 5000 : 2300);
+}
+function syncBack() {
+  if (!tg || !tg.BackButton) return;
+  try { ($('sheet').classList.contains('open') || tab === 'plan') ? tg.BackButton.show() : tg.BackButton.hide(); } catch (e) {}
+}
+if (tg && tg.BackButton) tg.BackButton.onClick(() => {
+  if ($('sheet').classList.contains('open')) closeSheet();
+  else if (tab === 'plan') { tab = 'today'; render(); }
+  syncBack();
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S && !$('sheet').classList.contains('open')) api('state'); });
 
 async function api(action, extra) {
   try {
@@ -379,8 +395,9 @@ function openSheet(html, mount) {
   $('backdrop').classList.add('show');
   requestAnimationFrame(() => sh.classList.add('open'));
   if (mount) mount(sh);
+  syncBack();
 }
-function closeSheet() { $('sheet').classList.remove('open'); $('backdrop').classList.remove('show'); }
+function closeSheet() { $('sheet').classList.remove('open'); $('backdrop').classList.remove('show'); syncBack(); }
 $('backdrop').onclick = closeSheet;
 
 // ---------- svg helpers
@@ -458,6 +475,7 @@ const hidden = (k) => S.ui && (S.ui.hide || []).includes(k);
 function render(prev) {
   if (!S) return;
   applyUi();
+  syncBack();
   const v = $('view');
   const same = prev && prev === S ? false : !!prev;
   v.innerHTML = tab === 'today' ? viewToday() : tab === 'plan' ? viewPlan() : tab === 'diary' ? viewDiary() : tab === 'charts' ? viewCharts() : tab === 'gym' ? viewGym() : viewMore();
@@ -729,14 +747,18 @@ function itemSheet(x) {
   const del = '<button class="btn soft" id="tomine" style="margin-top:8px">' + I('star') + 'В мои продукты</button><button class="btn danger" id="del" style="margin-top:8px">' + I('trash') + 'Удалить</button>';
   if (!x.g) {
     openSheet('<div class="stitle">' + esc(x.name) + '</div><div class="muted" style="margin:6px 0 16px">' + x.k + ' ккал · записано в ' + fmt(x.at) + '</div>' + del, (sh) => {
-      sh.querySelector('#del').onclick = () => { closeSheet(); api('del', { i: x.i }); };
+      sh.querySelector('#del').onclick = () => { closeSheet(); delItem(x); };
       sh.querySelector('#tomine').onclick = () => { closeSheet(); toMine(x); };
     });
     return;
   }
   gramsSheet(x.name, 'записано в ' + fmt(x.at), x.g, [], x.u, (g) => [x.k * g / x.g, x.p * g / x.g, x.f * g / x.g, x.c * g / x.g], (g) => api('edit', { i: x.i, g: g }), del);
-  $('sheet').querySelector('#del').onclick = () => { closeSheet(); api('del', { i: x.i }); };
+  $('sheet').querySelector('#del').onclick = () => { closeSheet(); delItem(x); };
   $('sheet').querySelector('#tomine').onclick = () => { closeSheet(); toMine(x); };
+}
+function delItem(x) {
+  const item = { name: x.name, g: x.g, u: x.u, k: x.k, p: x.p, f: x.f, c: x.c, at: x.at };
+  api('del', { i: x.i }).then((j) => { if (j.ok) toast('Удалено: ' + x.name, 'Вернуть', () => api('restore', { item }).then(okHaptic)); });
 }
 function toMine(x) {
   openSheet('<div class="stitle">В мои продукты</div><div class="muted" style="margin:4px 0 14px">' + x.k + ' ккал за порцию — потом добавляется в одно нажатие</div><input id="mn" value="' + esc(x.name) + '"><button class="btn" id="mok" style="margin-top:12px">' + I('star') + 'Сохранить</button>', (sh) => {
