@@ -218,6 +218,31 @@ svg text { fill: var(--hint); font-size: 10px; font-family: inherit; }
 .wsel button { flex: 1; border: 0; padding: 10px 0; border-radius: 12px; background: var(--soft); font-weight: 800; cursor: pointer; font-family: var(--num); font-size: 16px; }
 .wsel button.on { background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: #fff; }
 
+/* plan editor */
+.back { display: flex; align-items: center; gap: 4px; border: 0; background: none; color: var(--accent); font-weight: 650; padding: 4px 0; cursor: pointer; }
+.back .ico { transform: rotate(180deg); width: 18px; height: 18px; }
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 12px; }
+.week button { border: 0; background: var(--card); border-radius: 14px; padding: 8px 0; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; box-shadow: var(--shadow); }
+.week button b { font-size: 17px; font-family: var(--num); }
+.week button span { font-size: 11px; color: var(--hint); font-weight: 650; text-transform: uppercase; }
+.week button.on { background: var(--accent); color: var(--accent-text); }
+.week button.on span { color: inherit; opacity: .8; }
+.week button i { width: 5px; height: 5px; border-radius: 50%; background: var(--fire); }
+.week button.we:not(.on) span { color: var(--fire); }
+.ev { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.ev:first-child { border-top: 0; padding-top: 2px; }
+.ev .tm { width: 46px; font-weight: 750; font-family: var(--num); font-variant-numeric: tabular-nums; }
+.ev .em { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--soft); font-size: 17px; flex: none; }
+.ev .lb { flex: 1; min-width: 0; font-weight: 600; }
+.ev .lb small { display: block; color: var(--hint); font-weight: 550; font-size: 12px; }
+.ev.skip .tm, .ev.skip .lb { text-decoration: line-through; color: var(--hint); }
+.fab { position: fixed; right: 18px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 6; border: 0; border-radius: 20px; padding: 14px 18px; background: var(--accent); color: var(--accent-text); font-weight: 750; display: flex; gap: 6px; align-items: center; box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 45%, transparent); cursor: pointer; }
+.fab .ico { width: 18px; height: 18px; stroke-width: 2.6; }
+.emo { display: flex; gap: 6px; flex-wrap: wrap; }
+.emo button { width: 42px; height: 42px; border-radius: 12px; border: 0; background: var(--soft); font-size: 20px; cursor: pointer; }
+.emo button.on { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+.flab { font-size: 12px; font-weight: 700; color: var(--hint); text-transform: uppercase; letter-spacing: .04em; margin: 14px 2px 8px; }
+
 /* tabs */
 .tabs { position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); display: flex; padding: 6px; z-index: 5; border-radius: 26px; background: color-mix(in srgb, var(--card) 82%, transparent); backdrop-filter: blur(18px) saturate(1.6); -webkit-backdrop-filter: blur(18px) saturate(1.6); box-shadow: 0 10px 30px rgba(15, 17, 21, .14), 0 0 0 1px var(--line); }
 .tabs button { flex: 1; border: 0; background: none; color: var(--hint); font-size: 10.5px; font-weight: 650; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0 6px; cursor: pointer; border-radius: 20px; transition: color .2s, background .25s; }
@@ -435,7 +460,7 @@ function render(prev) {
   applyUi();
   const v = $('view');
   const same = prev && prev === S ? false : !!prev;
-  v.innerHTML = tab === 'today' ? viewToday() : tab === 'diary' ? viewDiary() : tab === 'charts' ? viewCharts() : tab === 'gym' ? viewGym() : viewMore();
+  v.innerHTML = tab === 'today' ? viewToday() : tab === 'plan' ? viewPlan() : tab === 'diary' ? viewDiary() : tab === 'charts' ? viewCharts() : tab === 'gym' ? viewGym() : viewMore();
   if (same) v.querySelectorAll(':scope > *').forEach((x) => x.style.animation = 'none');
   if (tab === 'today' && prev) countUp($('eatenNum'), prev.eaten.k, S.eaten.k);
   bind();
@@ -499,11 +524,15 @@ function viewToday() {
         '<div class="v num">' + (S.workoutsWeek || 0) + '<small>/ ' + ((S.workout.gymDays || []).length || 3) + '</small></div><div class="muted">тренировок за неделю</div></div>' +
     '</div>') +
 
-    (hidden('plan') ? '' : '<div class="sec"><h2>План еды</h2><span class="muted">' + S.meals.filter(mealDone).length + ' из ' + S.meals.length + '</span></div>' +
-    '<div class="card tl">' + (S.meals.length ? S.meals.map((m) => {
-      const done = mealDone(m), now = next && m.t === next.t;
-      return '<div class="step ' + (done ? 'done' : now ? 'now' : '') + '"><div class="mark">' + (done ? I('check') : '') + '</div><span class="time">' + fmt(m.t) + '</span><span class="name">' + esc(m.n) + '</span>' + (now ? '<span class="pill acc">дальше</span>' : '') + '</div>';
-    }).join('') : '<div class="empty">Нет приёмов пищи</div>') + '</div>') +
+    (hidden('plan') ? '' : (() => {
+      const evs = S.sched.week[0].ev.filter((x) => !x.skipped && x.kind !== 'exercise');
+      const nextEv = evs.find((x) => x.t >= S.min - 10 && !(x.kind === 'meal' && mealDone(x)));
+      return '<div class="sec"><h2>План дня</h2><button class="chip acc" data-plan="0">' + I('note', 'width:15px;height:15px;vertical-align:-3px') + ' Изменить</button></div>' +
+        '<div class="card tl">' + evs.map((x) => {
+          const done = x.kind === 'meal' ? mealDone(x) : x.t < S.min - 10, now = nextEv && x === nextEv;
+          return '<div class="step ' + (done ? 'done' : now ? 'now' : '') + '"><div class="mark">' + (done ? I('check') : '') + '</div><span class="time">' + fmt(x.t) + '</span><span class="name">' + evLabel(x) + '</span>' + (now ? '<span class="pill acc">дальше</span>' : '') + '</div>';
+        }).join('') + '</div>';
+    })()) +
     '<button class="btn soft" style="margin-top:4px" data-tab="more" data-scroll="settings">' + I('palette') + 'Настроить главный экран</button>';
 }
 function weightRate() {
@@ -524,6 +553,109 @@ function goalCard() {
   else eta = 'темп появится после 2–3 взвешиваний';
   return '<div class="card" data-tab="charts"><div class="row between"><div class="row">' + badge('flag', 'var(--good)') + '<div><div class="title">Цель: ' + n1(g) + ' кг</div><div class="muted">' + (left > 0 ? 'осталось ' + n1(left) + ' кг' : 'готово!') + '</div></div></div><span class="pill good num">' + Math.round(pct) + '%</span></div>' +
     '<div class="bar" style="height:10px;margin:14px 0 8px"><i style="width:' + pct + '%;background:linear-gradient(90deg,#4ade80,#14b8a6)"></i></div><div class="muted">' + eta + '</div></div>';
+}
+
+// ---------- Мой распорядок
+let planDay = 0;
+const EV_EMOJI = { wake: '☀️', exercise: '🤸', meal: '🍽', gym: '🏋️', busgo: '🚌', bed: '😴', prep: '🧺', prep2: '🧺', weigh: '⚖️' };
+function evLabel(x) {
+  if (x.kind === 'custom') return esc((x.emoji || '📌') + ' ' + x.title);
+  if (x.kind === 'meal') return '🍽 ' + esc(S.sched.slotNames[x.slot]);
+  return ({ wake: '☀️ Подъём', exercise: '🤸 Зарядка', gym: '🏋️ Зал', busgo: '🚌 Выйти к автобусу', bed: '😴 Отбой', prep: '🧺 Заготовка еды', prep2: '🧺 Мини-заготовка', weigh: '⚖️ Взвешивание' })[x.kind] || x.kind;
+}
+function viewPlan() {
+  const W = S.sched.week, d = W[planDay];
+  const dn = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  const typeTxt = d.holiday ? d.holiday : d.work ? 'учебный день' : 'выходной';
+  return '<div class="hdr" style="margin-bottom:10px"><div><button class="back" data-tab="today">' + I('chev') + 'Назад</button><h1>Мой распорядок</h1></div></div>' +
+    '<div class="week">' + W.map((x, i) => '<button data-pday="' + i + '" class="' + (i === planDay ? 'on' : '') + (x.work ? '' : ' we') + '"><span>' + (i === 0 ? 'сег' : dn[x.dow]) + '</span><b>' + +x.date.slice(8) + '</b>' + (x.ev.some((e) => e.kind === 'custom') ? '<i></i>' : '<i style="opacity:0"></i>') + '</button>').join('') + '</div>' +
+    '<div class="card"><div class="row between"><div class="row">' + badge('clock', '#f59e0b') + '<div><div class="title">Подъём ' + fmt(d.wake) + '</div><div class="muted">' + typeTxt + (planDay === 0 && S.sched.dayWake != null ? ' · сегодня особый' : d.wakeOwn != null ? ' · свой для этого дня недели' : '') + '</div></div></div>' +
+      '<button class="chip acc" data-wake="' + planDay + '">Изменить</button></div></div>' +
+    '<div class="card">' + (d.ev.length ? d.ev.map((x) => '<div class="ev' + (x.skipped ? ' skip' : '') + '" data-ev="' + esc(x.key) + '"><span class="tm">' + fmt(x.t) + '</span><div class="em">' + (x.kind === 'custom' ? esc(x.emoji || '📌') : EV_EMOJI[x.kind] || '•') + '</div><div class="lb">' + evLabel(x).replace(/^\S+\s/, '') +
+      '<small>' + (x.skipped ? 'пропущено сегодня' : x.kind === 'meal' ? (x.fixed ? 'своё время' : 'авто') : x.kind === 'custom' ? (S.sched.custom.find((c) => c.id === x.id) || {}).when || '' : x.kind === 'busgo' ? 'автобус в ' + fmt(x.bt) : '') + '</small></div>' + I('chev', 'color:var(--hint);width:16px;height:16px') + '</div>').join('') : '<div class="empty">Пусто</div>') + '</div>' +
+    '<div class="sec"><h2>Мои дела</h2><span class="muted">' + S.sched.custom.length + '</span></div>' +
+    '<div class="card">' + (S.sched.custom.length ? S.sched.custom.map((c) => '<div class="ev" data-cust="' + c.id + '"><span class="tm">' + fmt(c.t) + '</span><div class="em">' + esc(c.emoji || '📌') + '</div><div class="lb">' + esc(c.title) + '<small>' + esc(c.when) + (c.lead ? ' · за ' + c.lead + ' мин' : '') + '</small></div>' + I('chev', 'color:var(--hint);width:16px;height:16px') + '</div>').join('')
+      : '<div class="empty"><span class="e">📌</span>Добавь кружок, репетитора, таблетки — что угодно.<br>Или напиши боту: «напомни по вт в 16:30 музыка»</div>') + '</div>' +
+    '<div style="height:60px"></div><button class="fab" data-newc="1">' + I('plus') + 'Своё дело</button>';
+}
+function timeSheet(title, sub, val, buttons) {
+  openSheet('<div class="stitle">' + title + '</div><div class="muted" style="margin:4px 0 14px">' + sub + '</div><input id="tv" type="time" style="font-size:24px;text-align:center" value="' + (val != null ? fmt(val).padStart(5, '0') : '') + '">' +
+    buttons.map((b, i) => '<button class="btn' + (b.soft ? ' soft' : b.danger ? ' danger' : '') + '" data-tb="' + i + '" style="margin-top:' + (i ? 8 : 12) + 'px">' + b.label + '</button>').join(''), (sh) => {
+    sh.querySelectorAll('[data-tb]').forEach((el) => el.onclick = () => {
+      const b = buttons[+el.dataset.tb]; const v = sh.querySelector('#tv').value;
+      const t = v ? v.split(':').map(Number).reduce((h, m) => h * 60 + m) : null;
+      if (b.needTime && t == null) { toast('Выбери время'); return; }
+      closeSheet(); b.go(t);
+    });
+  });
+}
+function editWake(i) {
+  const d = S.sched.week[i], dn = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'][d.dow];
+  const btns = [];
+  if (i === 0) btns.push({ label: 'Только сегодня — перестроить день', needTime: true, go: (t) => api('daywake', { t }).then(okHaptic) });
+  btns.push({ label: 'Каждую ' + dn, soft: i === 0, needTime: true, go: (t) => api('wakedow', { dow: d.dow, t }).then(okHaptic) });
+  if (d.wakeOwn != null || (i === 0 && S.sched.dayWake != null)) btns.push({ label: 'Вернуть обычный (' + fmt(d.work ? S.sched.wakeWd : S.sched.wakeWe) + ')', soft: true, go: () => { if (i === 0 && S.sched.dayWake != null) api('daywake', { t: null }); if (d.wakeOwn != null) api('wakedow', { dow: d.dow, t: null }); } });
+  timeSheet('Подъём', 'еда, вода и отбой подстроятся сами', d.wake, btns);
+}
+function editEvent(key) {
+  const d = S.sched.week[planDay], x = d.ev.find((e) => e.key === key);
+  if (!x) return;
+  if (x.kind === 'custom') { customForm(S.sched.custom.find((c) => c.id === x.id)); return; }
+  if (x.kind === 'wake') { editWake(planDay); return; }
+  const skipBtn = planDay === 0 && x.kind !== 'wake' ? [{ label: x.skipped ? 'Вернуть на сегодня' : 'Пропустить сегодня', soft: true, go: () => api('skip', { key: x.key }) }] : [];
+  if (x.kind === 'meal') {
+    const ty = d.work ? 'wd' : 'we', tyTxt = d.work ? 'по будням' : 'по выходным';
+    timeSheet(S.sched.slotNames[x.slot], 'сейчас ' + (x.fixed ? 'своё время' : 'время считается автоматически от подъёма, зала и школы'), x.t,
+      [{ label: 'Всегда в это время ' + tyTxt, needTime: true, go: (t) => api('mealtime', { type: ty, slot: x.slot, t }).then(okHaptic) }]
+        .concat(x.fixed ? [{ label: 'Считать автоматически', soft: true, go: () => api('mealtime', { type: ty, slot: x.slot, t: null }) }] : []).concat(skipBtn));
+    return;
+  }
+  const map = { gym: ['gymTime', 'Время зала'], bed: ['sleepH', 'Сон'], busgo: ['busTime', 'Автобус'], exercise: null };
+  openSheet('<div class="stitle">' + evLabel(x) + '</div><div class="muted" style="margin:4px 0 14px">' + fmt(x.t) + (x.kind === 'bed' ? ' — считается от подъёма завтра и длины сна' : '') + '</div>' +
+    (map[x.kind] ? '<button class="btn" id="eset">Изменить</button>' : '') + skipBtn.map((b) => '<button class="btn soft" id="eskip" style="margin-top:8px">' + b.label + '</button>').join(''), (sh) => {
+    const es = sh.querySelector('#eset'); if (es) es.onclick = () => { closeSheet(); editSetting(map[x.kind][0]); };
+    const ek = sh.querySelector('#eskip'); if (ek) ek.onclick = () => { closeSheet(); skipBtn[0].go(); };
+  });
+}
+const EMOJIS = ['📌', '📚', '🎵', '💊', '🏊', '⚽', '🧑‍🏫', '📞', '🛒', '🧹', '🎮', '💤'];
+function customForm(c) {
+  const edit = !!c;
+  c = c || { title: '', emoji: '📌', t: null, lead: 0, days: [] };
+  const sd = S.sched.week[planDay];
+  let mode = c.date ? 'once' : c.rep === 'wd' ? 'wd' : c.rep === 'we' ? 'we' : (c.days || []).length === 7 ? 'daily' : (c.days || []).length ? 'days' : 'once';
+  let date = c.date || sd.date, days = new Set(c.days || []), emoji = c.emoji || '📌', lead = c.lead || 0;
+  const order = [1, 2, 3, 4, 5, 6, 0], dn = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+  const draw = (sh) => {
+    sh.querySelector('#modes').innerHTML = [['once', 'Один раз'], ['daily', 'Каждый день'], ['wd', 'Будни'], ['we', 'Выходные'], ['days', 'Свои дни']].map((m) => '<button class="chip' + (mode === m[0] ? ' on' : '') + '" data-mode="' + m[0] + '">' + m[1] + '</button>').join('');
+    sh.querySelector('#modeExtra').innerHTML = mode === 'once' ? '<div class="quick" style="margin:0">' + S.sched.week.map((w, i) => '<button class="chip' + (date === w.date ? ' on' : '') + '" data-date="' + w.date + '">' + (i === 0 ? 'Сегодня' : i === 1 ? 'Завтра' : dn[w.dow] + ' ' + +w.date.slice(8)) + '</button>').join('') + '</div>'
+      : mode === 'days' ? '<div class="days">' + order.map((x) => '<button data-day="' + x + '" class="' + (days.has(x) ? 'on' : '') + '">' + dn[x] + '</button>').join('') + '</div>' : '';
+    sh.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => { mode = b.dataset.mode; haptic(); draw(sh); });
+    sh.querySelectorAll('[data-date]').forEach((b) => b.onclick = () => { date = b.dataset.date; haptic(); draw(sh); });
+    sh.querySelectorAll('[data-day]').forEach((b) => b.onclick = () => { const x = +b.dataset.day; days.has(x) ? days.delete(x) : days.add(x); haptic(); draw(sh); });
+    sh.querySelector('#leads').innerHTML = [0, 5, 10, 15, 30, 60].map((l) => '<button class="chip' + (lead === l ? ' on' : '') + '" data-lead="' + l + '">' + (l ? 'за ' + l + ' мин' : 'в момент') + '</button>').join('');
+    sh.querySelectorAll('[data-lead]').forEach((b) => b.onclick = () => { lead = +b.dataset.lead; haptic(); draw(sh); });
+    sh.querySelectorAll('[data-emo]').forEach((b) => b.classList.toggle('on', b.dataset.emo === emoji));
+  };
+  openSheet('<div class="stitle">' + (edit ? 'Изменить дело' : 'Своё дело') + '</div>' +
+    '<div class="flab">Что</div><input id="ct" placeholder="Музыка, репетитор, таблетки…" value="' + esc(c.title) + '">' +
+    '<div class="emo" style="margin-top:10px">' + EMOJIS.map((e) => '<button data-emo="' + e + '">' + e + '</button>').join('') + '</div>' +
+    '<div class="flab">Когда</div><input id="ctime" type="time" style="font-size:20px;text-align:center" value="' + (c.t != null ? fmt(c.t).padStart(5, '0') : '') + '">' +
+    '<div class="flab">Повтор</div><div class="row wrap" style="gap:8px" id="modes"></div><div id="modeExtra" style="margin-top:10px"></div>' +
+    '<div class="flab">Напомнить</div><div class="row wrap" style="gap:8px" id="leads"></div>' +
+    '<button class="btn" id="csave" style="margin-top:18px">' + I('check') + 'Сохранить</button>' + (edit ? '<button class="btn danger" id="cdel" style="margin-top:8px">' + I('trash') + 'Удалить</button>' : ''), (sh) => {
+    sh.querySelectorAll('[data-emo]').forEach((b) => b.onclick = () => { emoji = b.dataset.emo; haptic(); draw(sh); });
+    draw(sh);
+    sh.querySelector('#csave').onclick = () => {
+      const title = sh.querySelector('#ct').value.trim(), tv = sh.querySelector('#ctime').value;
+      if (!title) { toast('Напиши, что за дело'); return; }
+      if (!tv) { toast('Выбери время'); return; }
+      const t = tv.split(':').map(Number).reduce((h, m) => h * 60 + m);
+      const body = { id: c.id, title, emoji, t, lead };
+      if (mode === 'once') body.date = date; else if (mode === 'wd' || mode === 'we') body.rep = mode; else if (mode === 'daily') body.days = [0, 1, 2, 3, 4, 5, 6]; else { if (!days.size) { toast('Выбери дни'); return; } body.days = [...days]; }
+      closeSheet(); api(edit ? 'custom_edit' : 'custom_add', body).then((j) => { if (j.ok && !j.msg) { okHaptic(); toast('Сохранено'); } });
+    };
+    const del = sh.querySelector('#cdel'); if (del) del.onclick = () => { closeSheet(); api('custom_del', { id: c.id }); };
+  });
 }
 
 // ---------- Дневник
@@ -807,6 +939,7 @@ function settingsHtml() {
       row('proteinGoal', 'target', 'var(--p)', 'Белок') + row('fatGoal', 'target', 'var(--f)', 'Жиры') + row('meals', 'clock', 'var(--accent)', 'Приёмов пищи') +
       row('waterGoal', 'drop', 'var(--water)', 'Вода') + row('stepsGoal', 'steps', 'var(--good)', 'Шаги') + '</div>' +
     '<div class="tiny" style="margin:0 6px 8px">Распорядок</div><div class="card glist">' +
+      '<div class="gi" data-plan="0" style="cursor:pointer">' + badge('note', 'var(--accent)') + '<span><b>Мой распорядок</b><br><small class="muted">свои дела, время еды, подъём по дням</small></span>' + I('chev').replace('class="ico"', 'class="ico chev"') + '</div>' +
       row('wakeWd', 'clock', '#f59e0b', 'Подъём в будни') + row('wakeWe', 'clock', '#f97316', 'Подъём в выходные') + row('sleepH', 'moon', '#6366f1', 'Сон') +
       row('schoolStart', 'book', 'var(--accent)', 'Начало уроков') + row('home', 'home', '#14b8a6', 'Дома после школы') +
       tog('holidays', 'sparkle', '#ec4899', 'Каникулы (все дни как выходные)', S.settings.holidays) + tog('autoHol', 'sparkle', '#8b5cf6', 'Учитывать каникулы Москвы сам', S.settings.autoHol) + '</div>' +
@@ -894,6 +1027,12 @@ function bind() {
   v.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => { document.querySelector('#tabs [data-t="' + b.dataset.go + '"]').click(); setTimeout(() => { const q = $('q'); if (q) q.focus(); }, 60); });
   v.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { const sc = b.dataset.scroll; document.querySelector('#tabs [data-t="' + b.dataset.tab + '"]').click(); if (sc) setTimeout(() => { const el = $(sc); if (el) el.scrollIntoView({ behavior: 'smooth' }); }, 80); });
   v.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { haptic(); editSetting(b.dataset.edit); });
+  v.querySelectorAll('[data-plan]').forEach((b) => b.onclick = () => { planDay = +b.dataset.plan || 0; tab = 'plan'; haptic(); window.scrollTo(0, 0); render(); });
+  v.querySelectorAll('[data-pday]').forEach((b) => b.onclick = () => { planDay = +b.dataset.pday; haptic(); render(); });
+  v.querySelectorAll('[data-wake]').forEach((b) => b.onclick = () => { haptic(); editWake(+b.dataset.wake); });
+  v.querySelectorAll('[data-ev]').forEach((b) => b.onclick = () => { haptic(); editEvent(b.dataset.ev); });
+  v.querySelectorAll('[data-cust]').forEach((b) => b.onclick = () => { haptic(); customForm(S.sched.custom.find((c) => c.id === b.dataset.cust)); });
+  v.querySelectorAll('[data-newc]').forEach((b) => b.onclick = () => { haptic(); customForm(null); });
   v.querySelectorAll('[data-watch]').forEach((b) => b.onclick = () => { haptic(); watchSheet(b.dataset.watch); });
   v.querySelectorAll('[data-tog]').forEach((b) => b.onclick = () => { b.classList.toggle('on'); haptic(); const o = {}; o[b.dataset.tog] = b.classList.contains('on'); saveSet(o); });
   v.querySelectorAll('[data-accent]').forEach((b) => b.onclick = () => { haptic(); saveSet({ ui: { accent: b.dataset.accent || null, hide: S.ui.hide || [] } }); });

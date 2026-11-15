@@ -81,6 +81,7 @@ u.steps = Array.from({ length: 10 }, (_, i) => ({ d: `2026-11-${String(i + 1).pa
 u.lifts.squat = [{ d: '2026-11-02', sets: [[50, 8]] }, { d: '2026-11-06', sets: [[52.5, 8]] }, { d: '2026-11-09', sets: [[55, 9]] }].concat(u.lifts.squat);
 store.set('u:42', JSON.stringify(u));
 
+await api('settings', { patch: { ui: { accent: '#8b5cf6', hide: [] } } });
 // --- рендер в браузере
 const server = http.createServer(async (req, res) => {
   const chunks = []; for await (const c of req) chunks.push(c);
@@ -102,6 +103,16 @@ for (const scheme of ['light', 'dark']) {
     await page.click(`#tabs [data-t="${t}"]`); await page.waitForTimeout(250);
     await page.screenshot({ path: `${out}/app-${scheme}-${t}.png`, fullPage: true });
   }
+  await page.click('#tabs [data-t="today"]'); await page.click('[data-plan="0"]'); await page.waitForSelector('.week');
+  await page.screenshot({ path: `${out}/app-${scheme}-plan.png`, fullPage: true });
+  await page.click('[data-newc]'); await page.waitForTimeout(350);
+  await page.fill('#ct', 'Музыка ' + scheme); await page.click('[data-emo="🎵"]'); await page.fill('#ctime', '16:30');
+  await page.click('[data-mode="days"]'); await page.click('[data-day="2"]'); await page.click('[data-day="4"]'); await page.click('[data-lead="15"]');
+  await page.screenshot({ path: `${out}/app-${scheme}-custom.png` });
+  await page.click('#csave'); await page.waitForTimeout(500);
+  assert((await api('state')).state.sched.custom.some((c) => c.title === 'Музыка ' + scheme && c.days.sort().join() === '2,4' && c.lead === 15), scheme + ': дело добавлено через форму');
+  await page.click('[data-ev^="meal:lunch"]'); await page.waitForTimeout(350); await page.screenshot({ path: `${out}/app-${scheme}-mealtime.png` }); await page.click('#backdrop', { position: { x: 20, y: 20 } }); await page.waitForTimeout(300);
+  await page.click('.back'); await page.waitForTimeout(200);
   await page.click('#tabs [data-t="more"]'); await page.click('[data-watch="android"]'); await page.waitForTimeout(400);
   await page.screenshot({ path: `${out}/app-${scheme}-watch.png` }); await page.click('#backdrop', { position: { x: 20, y: 20 } }); await page.waitForTimeout(300);
   await page.click('#tabs [data-t="charts"]'); await page.click('[data-chart="sleep"]'); await page.waitForTimeout(200);

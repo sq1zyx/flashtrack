@@ -22,6 +22,7 @@ const DEFAULTS = {
   sex: 'm', goalWeight: null, proteinGoal: 150, fatGoal: 90, waterGoal: 2500, stepsGoal: 10000,
   gymLead: 60, bedLead: 30, waterReminders: 3, ui: { accent: null, hide: [] }, yesterday: null,
   syncToken: null, lastSync: null, sleepHrs: [], rhr: [], activeKcal: [], dist: [],
+  wakeByDow: {}, dayWake: null, mealFixed: { wd: {}, we: {} }, custom: [], skip: null,
   gymDays: [1, 3, 5], gymTime: 1020, home: 900,
   height: 191, age: 16, startWeight: 118,
   kcalAdjust: 0, kcalOverride: null,
@@ -1012,7 +1013,7 @@ const REMIND_GROUPS = {
   meals: ['🍽 Еда', ['meal']], water: ['💧 Вода', ['water']], bus: ['🚌 Автобус', ['bus10', 'busgo', 'buscheck']],
   gym: ['🏋️ Зал', ['gym']], exercise: ['🤸 Зарядка', ['exercise']], bed: ['😴 Отбой', ['bed30', 'bed']],
   prep: ['🧺 Заготовка', ['prep', 'prep2']], progress: ['📈 Вес, замеры, отчёт', ['weigh', 'month', 'weekly']],
-  evening: ['🧾 Итог дня', ['foodcheck']],
+  evening: ['🧾 Итог дня', ['foodcheck']], custom: ['📌 Мои дела', ['custom']],
 };
 const KIND_GROUP = Object.fromEntries(Object.entries(REMIND_GROUPS).flatMap(([g, [, ks]]) => ks.map((k) => [k, g])));
 function inQuiet(u, t) {
@@ -1024,7 +1025,7 @@ function inQuiet(u, t) {
 function eventMuted(u, e) {
   const g = KIND_GROUP[e.kind];
   if (g && (u.off || []).includes(g)) return true;
-  if (['wake', 'bus10', 'busgo', 'buscheck'].includes(e.kind)) return false; // подъём и автобус — всегда
+  if (['wake', 'bus10', 'busgo', 'buscheck', 'custom'].includes(e.kind)) return false; // подъём, автобус и свои дела — всегда
   return inQuiet(u, e.t);
 }
 function remindKb(u) {
@@ -1141,6 +1142,17 @@ function appState(u, info, origin = '') {
       busTime: u.busTime, walk: u.walk, busNumber: u.busNumber || '', paused: !!u.paused,
     },
     ui: u.ui || { accent: null, hide: [] },
+    sched: {
+      week: Array.from({ length: 7 }, (_, k) => {
+        const d = shiftDay(info, k), work = isWorkday(u, d);
+        return { date: d.date, dow: d.dow, work, holiday: holidayName(d.date), wake: wakeFor(u, d), wakeOwn: (u.wakeByDow || {})[d.dow] ?? null,
+          ev: buildDay(u, d, false, true).filter((e) => ['wake', 'meal', 'custom', 'gym', 'busgo', 'bed', 'prep', 'prep2', 'weigh', 'exercise'].includes(e.kind))
+            .map((e) => ({ t: e.kind === 'custom' ? e.at : e.kind === 'gym' ? u.gymTime : e.t, kind: e.kind, key: evKey(e), slot: e.slot, id: e.id, title: e.title, emoji: e.emoji, fixed: !!e.fixed, skipped: !!e.skipped, bt: e.bt })) };
+      }),
+      custom: (u.custom || []).filter((c) => c.on !== false && (!c.date || c.date >= info.date)).map((c) => ({ ...c, when: customWhen(c) })),
+      mealFixed: u.mealFixed || { wd: {}, we: {} }, dayWake: u.dayWake && u.dayWake.d === info.date ? u.dayWake.t : null,
+      wakeWd: u.wakeWd, wakeWe: u.wakeWe, slotNames: SLOT_NAMES,
+    },
     health: { sleepHrs: (u.sleepHrs || []).slice(-60), rhr: (u.rhr || []).slice(-60), activeKcal: (u.activeKcal || []).slice(-60), dist: (u.dist || []).slice(-60),
       sync: u.syncToken ? { url: syncUrl(origin, u.syncToken), last: u.lastSync } : null },
     yesterday: u.yesterday && u.yesterday.d === shiftDay(info, -1).date ? u.yesterday.items.map((x, i) => ({ i, name: x.base || x.name, g: x.g ?? null, u: x.u ?? null, k: x.k, p: x.p || 0 })) : [],
@@ -1238,6 +1250,30 @@ async function apiHandle(env, req, origin) {
       if (p.ui.accent === null || /^#[0-9a-f]{6}$/i.test(p.ui.accent || '')) u.ui.accent = p.ui.accent;
       if (Array.isArray(p.ui.hide)) u.ui.hide = p.ui.hide.filter((x) => typeof x === 'string').slice(0, 10);
     }
+  } else if (a === 'custom_add' || a === 'custom_edit') {
+    const t = +body.t;
+    if (!(t >= 0 && t < 1440) || !String(body.title || '').trim()) msg = 'Нужны название и время';
+    else {
+      if (a === 'custom_edit') u.custom = (u.custom || []).filter((x) => x.id !== body.id);
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : null;
+      if (!d && body.rep !== 'wd' && body.rep !== 'we' && !(Array.isArray(body.days) && body.days.length)) msg = 'Выбери дни или дату';
+      else addCustom(u, { title: String(body.title).trim(), emoji: body.emoji, t, lead: body.lead, date: d, rep: body.rep, days: (body.days || []).map(Number) }, info);
+    }
+  } else if (a === 'custom_del') {
+    u.custom = (u.custom || []).filter((x) => x.id !== body.id);
+  } else if (a === 'mealtime') {
+    const ty = body.type === 'we' ? 'we' : 'wd';
+    u.mealFixed = u.mealFixed || { wd: {}, we: {} }; u.mealFixed[ty] = u.mealFixed[ty] || {};
+    if (SLOT_NAMES[body.slot]) { const t = body.t == null ? null : +body.t; if (t == null) delete u.mealFixed[ty][body.slot]; else if (t >= 0 && t < 1440) u.mealFixed[ty][body.slot] = Math.round(t); }
+  } else if (a === 'wakedow') {
+    const d = +body.dow; u.wakeByDow = u.wakeByDow || {};
+    if (d >= 0 && d <= 6) { if (body.t == null) delete u.wakeByDow[d]; else if (+body.t >= 180 && +body.t <= 780) u.wakeByDow[d] = Math.round(+body.t); else msg = 'Подъём — с 3:00 до 13:00'; }
+  } else if (a === 'daywake') {
+    if (body.t == null) u.dayWake = null; else if (+body.t >= 180 && +body.t <= 840) u.dayWake = { d: info.date, t: Math.round(+body.t) };
+  } else if (a === 'skip') {
+    const key = String(body.key || '').slice(0, 40);
+    if (!u.skip || u.skip.d !== info.date) u.skip = { d: info.date, keys: [] };
+    u.skip.keys = u.skip.keys.includes(key) ? u.skip.keys.filter((k) => k !== key) : u.skip.keys.concat(key);
   } else if (a === 'workout') {
     if (PROG[body.w]) { if (u.lastWorkoutDate === info.date) u.curWorkout = body.w; else u.nextWorkout = body.w; }
   } else if (a === 'tomine') {
@@ -1368,12 +1404,26 @@ function watchText(origin, t, u) {
 }
 
 // ---------------------------------------------------------------- расписание
-function buildDay(u, info, raw = false) {
+function wakeFor(u, info) {
+  if (u.dayWake && u.dayWake.d === info.date) return u.dayWake.t;
+  const work = isWorkday(u, info);
+  const byDow = (u.wakeByDow || {})[info.dow];
+  // свой подъём на конкретный день недели действует, если день «обычный» (не каникулы/праздник для будней)
+  if (byDow != null && (work || info.dow === 0 || info.dow === 6)) return byDow;
+  return work ? u.wakeWd : u.wakeWe;
+}
+const evKey = (e) => e.kind + ':' + (e.slot || e.id || '');
+function customFor(u, info) {
+  const work = isWorkday(u, info);
+  return (u.custom || []).filter((c) => c.on !== false && (c.date ? c.date === info.date
+    : c.rep === 'wd' ? work : c.rep === 'we' ? !work : Array.isArray(c.days) && c.days.includes(info.dow)));
+}
+function buildDay(u, info, raw = false, keepSkipped = false) {
   const ev = [];
   const work = isWorkday(u, info);
-  const wake = work ? u.wakeWd : u.wakeWe;
+  const wake = wakeFor(u, info);
   const next = shiftDay(info, 1);
-  const wakeNext = isWorkday(u, next) ? u.wakeWd : u.wakeWe;
+  const wakeNext = wakeFor(u, next);
   const bed = wakeNext + 1440 - Math.round(u.sleepH * 60);
 
   ev.push({ t: wake, kind: 'wake' });
@@ -1389,23 +1439,30 @@ function buildDay(u, info, raw = false) {
     for (let i = 1; i < n - 1; i++) { const d = Math.abs(times[i] - target); if (d < bd) { bd = d; best = i; } }
     if (target > times[best - 1] + 90 && target < times[best + 1] - 90) times[best] = target;
   }
+  const fixed = ((u.mealFixed || {})[work ? 'wd' : 'we']) || {};
+  const isFixed = (i) => fixed[slots[i]] != null;
   if (!raw) {
     // подстройка под то, когда ты реально ешь (медиана последних отметок)
-    slots.forEach((slot, i) => { times[i] += mealShift(u, slot); });
-    for (let i = 1; i < n; i++) if (times[i] < times[i - 1] + 60) times[i] = times[i - 1] + 60;
+    slots.forEach((slot, i) => { if (!isFixed(i)) times[i] += mealShift(u, slot); });
+    for (let i = 1; i < n; i++) if (!isFixed(i) && times[i] < times[i - 1] + 60) times[i] = times[i - 1] + 60;
   }
   const gymToday = u.gymTime != null && u.gymDays.includes(info.dow);
   if (gymToday) {
     // не едим за час до зала и во время тренировки — переносим на после
     for (let i = 0; i < n; i++) {
-      if (times[i] > u.gymTime - 60 && times[i] < u.gymTime + 90) times[i] = r5(u.gymTime + 105);
+      if (!isFixed(i) && times[i] > u.gymTime - 60 && times[i] < u.gymTime + 90) times[i] = r5(u.gymTime + 105);
     }
-    for (let i = 1; i < n; i++) if (times[i] < times[i - 1] + 75) times[i] = times[i - 1] + 75;
+    for (let i = 1; i < n; i++) if (!isFixed(i) && times[i] < times[i - 1] + 75) times[i] = times[i - 1] + 75;
   }
+  // своё время приёма пищи — ставим ровно как задано
+  slots.forEach((slot, i) => { if (isFixed(i)) times[i] = fixed[slot]; });
   slots.forEach((slot, i) => {
-    if (i > 0 && times[i] > bed - 60) return; // не впихиваем еду прямо перед сном
-    ev.push({ t: times[i], kind: 'meal', slot });
+    if (i > 0 && !isFixed(i) && times[i] > bed - 60) return; // не впихиваем еду прямо перед сном
+    ev.push({ t: times[i], kind: 'meal', slot, fixed: isFixed(i) });
   });
+  for (const c of customFor(u, info)) {
+    ev.push({ t: c.t - (c.lead || 0), kind: 'custom', id: c.id, at: c.t, title: c.title, emoji: c.emoji || '📌', lead: c.lead || 0 });
+  }
 
   if (work && u.busTime != null) {
     const bt = u.busToday && u.busToday.date === info.date ? u.busToday.t : u.busTime;
@@ -1431,7 +1488,77 @@ function buildDay(u, info, raw = false) {
   ev.push({ t: bed - 60, kind: 'foodcheck' });
   ev.push({ t: bed - (u.bedLead ?? 30), kind: 'bed30' });
   ev.push({ t: bed, kind: 'bed' });
-  return ev.filter((e) => e.t >= 0).sort((a, b) => a.t - b.t);
+  const sk = u.skip && u.skip.d === info.date ? u.skip.keys || [] : [];
+  return ev.filter((e) => e.t >= 0).map((e) => (sk.includes(evKey(e)) ? { ...e, skipped: true } : e))
+    .filter((e) => keepSkipped || !e.skipped).sort((a, b) => a.t - b.t);
+}
+
+// ---------------------------------------------------------------- свой распорядок: «напомни …», «встал в …»
+const DOW_WORDS = { 'пн': 1, 'понедельник': 1, 'вт': 2, 'вторник': 2, 'ср': 3, 'среда': 3, 'среду': 3, 'чт': 4, 'четверг': 4, 'пт': 5, 'пятница': 5, 'пятницу': 5, 'сб': 6, 'суббота': 6, 'субботу': 6, 'вс': 0, 'воскресенье': 0 };
+function parseRemind(text, info) {
+  // «напомни завтра в 15:00 позвонить бабушке», «напомни по вторникам и четвергам в 16:30 музыка», «напомни через 20 минут выключить духовку»
+  let t = norm(text).replace(/^напомн\S*\s*/, '').replace(/^мне\s+/, '');
+  const out = { title: '', t: null, date: null, days: null, rep: null, lead: 0 };
+  let m = t.match(/(?:^|\s)через\s+(\d{1,3})\s*(мин\S*|час\S*|ч)(?=\s|$)/);
+  if (m) {
+    const add = /^ч/.test(m[2]) ? +m[1] * 60 : +m[1];
+    const abs = info.min + add;
+    out.t = abs % 1440; out.date = shiftDay(info, Math.floor(abs / 1440)).date;
+    t = t.replace(m[0], ' ');
+  } else {
+    m = t.match(/(?:^|\s)(?:в|к)\s*(\d{1,2})(?:[:.](\d{2}))?(?=\s|$)/) || t.match(/(?:^|\s)(\d{1,2})[:.](\d{2})(?=\s|$)/);
+    if (!m) return null;
+    const h = +m[1], mi = +(m[2] || 0);
+    if (h > 23 || mi > 59) return null;
+    out.t = h * 60 + mi; t = t.replace(m[0], ' ');
+    if (/(^|\s)(каждый день|ежедневно)(\s|$)/.test(t)) { out.days = [0, 1, 2, 3, 4, 5, 6]; t = t.replace(/каждый день|ежедневно/, ' '); }
+    else if (/(^|\s)по будням(\s|$)/.test(t)) { out.rep = 'wd'; t = t.replace('по будням', ' '); }
+    else if (/(^|\s)по выходным(\s|$)/.test(t)) { out.rep = 'we'; t = t.replace('по выходным', ' '); }
+    else {
+      const ds = []; t = t.replace(/(?:^|\s)(?:по|в|во|и)?\s*(понедельник\S*|вторник\S*|сред\S*|четверг\S*|пятниц\S*|суббот\S*|воскресень\S*|пн|вт|ср|чт|пт|сб|вс)(?=[\s,]|$)/g, (all, w) => {
+        const key = Object.keys(DOW_WORDS).find((k) => w === k || (k.length > 2 && w.startsWith(k.slice(0, 4))));
+        if (key != null) ds.push(DOW_WORDS[key]);
+        return ' ';
+      });
+      const multi = /(^|\s)по\s/.test(norm(text)) || ds.length > 1;
+      if (ds.length && multi) out.days = [...new Set(ds)];
+      else if (ds.length) { let k = 0; while (shiftDay(info, k).dow !== ds[0] || (k === 0 && out.t <= info.min)) k++; out.date = shiftDay(info, k).date; }
+      else if (/(^|\s)послезавтра(\s|$)/.test(t)) { out.date = shiftDay(info, 2).date; t = t.replace('послезавтра', ' '); }
+      else if (/(^|\s)завтра(\s|$)/.test(t)) { out.date = shiftDay(info, 1).date; t = t.replace('завтра', ' '); }
+      else { t = t.replace(/(^|\s)сегодня(\s|$)/, ' '); out.date = out.t > info.min ? info.date : shiftDay(info, 1).date; }
+    }
+  }
+  out.title = t.replace(/[,.]+/g, ' ').replace(/\s+/g, ' ').replace(/^(что|чтобы|про|о|об)\s+/, '').trim().slice(0, 60);
+  if (!out.title) out.title = 'Напоминание';
+  out.title = out.title.charAt(0).toUpperCase() + out.title.slice(1);
+  return out;
+}
+function addCustom(u, c, info) {
+  const id = Math.random().toString(36).slice(2, 8);
+  const item = { id, title: String(c.title || 'Дело').slice(0, 60), emoji: (c.emoji || '📌').slice(0, 4), t: Math.max(0, Math.min(1439, Math.round(+c.t))), lead: Math.max(0, Math.min(180, Math.round(+c.lead || 0))), on: true };
+  if (c.date) item.date = c.date; else if (c.rep === 'wd' || c.rep === 'we') item.rep = c.rep; else item.days = (c.days || []).filter((d) => d >= 0 && d <= 6);
+  // одноразовые прошлые дела чистим
+  u.custom = (u.custom || []).filter((x) => !x.date || x.date >= info.date).concat(item).slice(-60);
+  return item;
+}
+function customWhen(c) {
+  if (c.date) return ddmm(c.date);
+  if (c.rep === 'wd') return 'по будням';
+  if (c.rep === 'we') return 'по выходным';
+  const d = c.days || [];
+  if (d.length === 7) return 'каждый день';
+  return [1, 2, 3, 4, 5, 6, 0].filter((x) => d.includes(x)).map((x) => DAYNAMES[x]).join(' ');
+}
+function customListText(u) {
+  const l = (u.custom || []).filter((c) => c.on !== false);
+  if (!l.length) return '📌 Своих дел пока нет.\n\nНапиши как обычно:\n<code>напомни завтра в 15:00 позвонить бабушке</code>\n<code>напомни по вт и чт в 16:30 музыка</code>\n<code>напомни через 20 минут выключить духовку</code>\nИли удобнее — в приложении: «Сегодня» → «Мой распорядок».';
+  return '📌 <b>Мои дела</b>\n' + l.map((c, i) => `${i + 1}. ${c.emoji || '📌'} <b>${fmt(c.t)}</b> ${esc(c.title)} — ${customWhen(c)}${c.lead ? ` (напомню за ${c.lead} мин)` : ''}`).join('\n') + '\n\nУдалить — нажми номер.';
+}
+function customListKb(u) {
+  const l = (u.custom || []).filter((c) => c.on !== false);
+  const b = l.map((c, i) => ({ text: `❌ ${i + 1}`, callback_data: `cx|${c.id}` }));
+  const rows = []; for (let i = 0; i < b.length; i += 6) rows.push(b.slice(i, i + 6));
+  return { inline_keyboard: rows };
 }
 
 function scheduleText(u, info, title) {
@@ -1442,6 +1569,7 @@ function scheduleText(u, info, title) {
       case 'wake': s = '☀️ Подъём'; break;
       case 'exercise': s = '🤸 Зарядка'; break;
       case 'meal': s = '🍽 ' + SLOT_NAMES[e.slot]; break;
+      case 'custom': s = `${esc(e.emoji)} ${esc(e.title)}`; t = e.at; break;
       case 'busgo': s = `🚌 Выйти к автобусу${u.busNumber ? ' №' + esc(u.busNumber) : ''} (отправление ${fmt(e.bt)})`; break;
       case 'gym': s = '🏋️ Зал'; t = u.gymTime; break;
       case 'prep': case 'prep2': s = '🧺 Заготовка еды'; break;
@@ -1665,6 +1793,8 @@ async function fire(env, id, u, e, info) {
     case 'prep2': return send(env, id, PREP_WED);
     case 'weigh': return send(env, id, '⚖️ Воскресенье — взвешивание. Утром натощак, после туалета, без одежды. Нажми свой вес или пришли точно: <code>/ves 117.4</code>\nСмотрим на тренд, а не на одну цифру 🙂', { reply_markup: weightKb(u) });
     case 'weekly': return send(env, id, weeklyReport(u, info));
+    case 'custom': return send(env, id, `${esc(e.emoji)} <b>${esc(e.title)}</b>${e.lead ? ` — в ${fmt(e.at)} (через ${e.lead} мин)` : ''}`,
+      { reply_markup: { inline_keyboard: [[{ text: '✅ Готово', callback_data: 'cd' }, { text: '⏰ +10 мин', callback_data: `cs|${e.id}` }, { text: '⏰ +30', callback_data: `cs|${e.id}|30` }]] } });
     case 'water': {
       if (u.waterOff) return;
       const w = u.water && u.water.d === info.date ? u.water.ml : 0;
@@ -1811,6 +1941,8 @@ const HELP = `<b>Что я умею</b>
 Сон — утром кнопками в «Доброе утро»
 
 /pauza — выключить/включить напоминания
+📌 «напомни завтра в 15:00 позвонить бабушке» — свои дела (/dela — список)
+☀️ «встал в 9:40» или /vstal 9:40 — перестроить сегодняшний день
 /kanikuly — режим каникул вручную · <code>/kanikuly авто</code> — учитывать каникулы и праздники Москвы самому
 /dostup — кто может пользоваться ботом
 /napominaniya — какие напоминания присылать · /tishina 22:30 7:00 — тихие часы`;
@@ -1995,6 +2127,20 @@ ${items.length ? '\n' + items.map((x) => `• ${fmt(x.at)} ${esc(x.name)} — ${
       u.notes = (u.notes || []).concat({ d: info.date, m: info.min, t }).slice(-200);
       return say('📝 Записал. Попадёт в таблицу для врача (/eksport).');
     }
+    case 'dela': return say(customListText(u), { reply_markup: customListKb(u) });
+    case 'napomni': {
+      const r = parseRemind('напомни ' + args, info);
+      if (!r) return say('Например: <code>/napomni завтра в 15:00 позвонить бабушке</code> или просто напиши «напомни …» без команды.');
+      const c = addCustom(u, r, info);
+      return say(`📌 Ок! ${esc(c.title)} — <b>${fmt(c.t)}</b>, ${customWhen(c)}. Все дела — /dela`);
+    }
+    case 'vstal': {
+      if (/^(нет|сброс|отмена)/i.test(args.trim())) { u.dayWake = null; return say('Ок, сегодня по обычному расписанию.'); }
+      const t = parseTime(args);
+      if (t == null) return say('Например: <code>/vstal 9:40</code> — перестрою сегодняшний день от этого времени. Можно просто написать «встал в 9:40».');
+      u.dayWake = { d: info.date, t };
+      return say(`☀️ Ок, сегодня день от ${fmt(t)}:\n\n` + scheduleText(u, info, '<b>Сегодня</b>'));
+    }
     case 'chasy': {
       const origin = env.APP_URL ? env.APP_URL.replace(/\/app$/, '') : '';
       const t = await ensureSyncToken(env, u, id, /^нов/i.test(args.trim()));
@@ -2157,6 +2303,21 @@ async function onCallbackInner(env, cq) {
     const off = +a;
     await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: dayMenuText(u, info, off),
       reply_markup: { inline_keyboard: [[{ text: '🔁 Другое меню', callback_data: `m|${off + 1}` }]] } });
+  } else if (type === 'cd') {
+    await tg(env, 'editMessageReplyMarkup', { chat_id: id, message_id: mid, reply_markup: { inline_keyboard: [] } });
+    toast = 'Отлично ✅';
+  } else if (type === 'cs') {
+    const c = (u.custom || []).find((x) => x.id === a);
+    const mins = +b || 10, abs = info.min + mins;
+    addCustom(u, { title: c ? c.title : 'Напоминание', emoji: c ? c.emoji : '⏰', t: abs % 1440, date: shiftDay(info, Math.floor(abs / 1440)).date }, info);
+    await saveUser(env, id, u);
+    await tg(env, 'editMessageReplyMarkup', { chat_id: id, message_id: mid, reply_markup: { inline_keyboard: [] } });
+    toast = `Напомню в ${fmt(abs)}`;
+  } else if (type === 'cx') {
+    u.custom = (u.custom || []).filter((x) => x.id !== a);
+    await saveUser(env, id, u);
+    toast = 'Удалил';
+    await tg(env, 'editMessageText', { chat_id: id, message_id: mid, parse_mode: 'HTML', text: customListText(u), reply_markup: customListKb(u) });
   } else if (type === 'dl') {
     const items = u.food.date === info.date ? u.food.items : [];
     const it = items[+a];
@@ -2339,6 +2500,15 @@ async function onMessageInner(env, msg) {
     return saveUser(env, id, u);
   }
 
+  // «напомни …» и «встал в …»
+  if (/^напомн/i.test(text)) {
+    const r = parseRemind(text, info);
+    if (!r) return say('Не понял время 🙂 Например: «напомни завтра в 15:00 позвонить бабушке» или «напомни через 20 минут выключить духовку».');
+    const c = addCustom(u, r, info); await saveUser(env, id, u);
+    return say(`📌 Ок! ${esc(c.title)} — <b>${fmt(c.t)}</b>, ${customWhen(c)}. Все дела — /dela`);
+  }
+  const vm = norm(text).match(/^(?:я\s+)?(?:встал[аи]?|проснул(?:ся|ась))\s+(?:в\s+)?(\d{1,2}(?:[:.]\d{2})?)$/);
+  if (vm) { await command(env, id, u, 'vstal', vm[1], info); return saveUser(env, id, u); }
   // штрихкод цифрами
   if (/^\d{8,14}$/.test(text)) return barcodeFlow(env, id, u, info, text);
   // граммы для продукта по штрихкоду
@@ -2414,7 +2584,7 @@ export default {
         ['voda', 'Вода'], ['shagi', 'Шаги'], ['otchet', 'Итоги недели'], ['grafik', 'Графики'], ['dostizheniya', 'Достижения'], ['eksport', 'Таблица для врача'],
         ['zamena', 'Замена упражнения'], ['taimer', 'Таймер отдыха'],
         ['app', 'Приложение'], ['dnevnik', 'Дневник за сегодня'], ['uzhin', 'Что съесть под остаток'], ['zametka', 'Заметка о самочувствии'],
-        ['napominaniya', 'Настроить напоминания'], ['tishina', 'Тихие часы'], ['chasy', 'Часы: Apple / Samsung'],
+        ['napominaniya', 'Настроить напоминания'], ['tishina', 'Тихие часы'], ['chasy', 'Часы: Apple / Samsung'], ['dela', 'Мои дела'], ['napomni', 'Напомнить: завтра в 15:00 …'], ['vstal', 'Встал позже — перестроить день'],
         ['trenirovka', 'Тренировка'], ['ves', 'Вес: /ves 117.4'], ['progress', 'Прогресс'], ['raspisanie', 'Расписание'],
         ['avtobus', 'Автобус'], ['pokupki', 'Список покупок'], ['zameny', 'Замены'], ['sryv', 'Если сорвался'],
         ['nastroiki', 'Настройки'], ['help', 'Все команды'],
