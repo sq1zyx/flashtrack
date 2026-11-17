@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Шахматная школа «Дебют»</title>
+  <meta name="description" content="Учимся играть в шахматы: дебюты с пояснениями, тренировка, тактические задачи и игра с ботом-тренером.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e3a43b'/%3E%3Ctext x='16' y='24' font-size='22' text-anchor='middle' fill='%23141821'%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="logo" href="#/">
+      <span class="logo-mark">♞</span>
+      <span class="logo-text">Дебют<small>шахматная школа</small></span>
+    </a>
+    <nav class="nav">
+      <a href="#/" data-route="home">Главная</a>
+      <a href="#/openings" data-route="openings">Дебюты</a>
+      <a href="#/lessons" data-route="lessons">Уроки</a>
+      <a href="#/puzzles" data-route="puzzles">Задачи</a>
+      <a href="#/play" data-route="play">Игра с ботом</a>
+    </nav>
+  </header>
+
+  <main id="app"></main>
+
+  <footer class="footer">
+    Фигуры: Cburnett (CC BY-SA 3.0) · Ходы: chess.js (BSD) · Прогресс хранится в этом браузере
+  </footer>
+
+  <script src="js/chess.js"></script>
+  <script src="js/pieces.js"></script>
+  <script src="js/openings.js"></script>
+  <script src="js/lessons.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
